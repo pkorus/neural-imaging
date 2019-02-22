@@ -155,9 +155,9 @@ Network models are expected to use the provided input placeholder (`self.x`) and
 
 ## Other Useful Scripts
 
-- `confusion.py` extracts confusion matrices from the experiments (LaTeX output supported)
-- `summarize_nip.py` extracts and summarizes performance stats for standalone NIP models
-- `test_jpgnet.py` test script for the JPGNet model
+- `confusion.py` - extracts confusion matrices from the experiments (LaTeX output supported)
+- `summarize_nip.py` - extracts and summarizes performance stats for standalone NIP models
+- `test_jpg.py` - test script for the JPEG approximation model
 
 ## Usage and Citations
 
