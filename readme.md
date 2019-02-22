@@ -67,6 +67,12 @@ Then, we train selected NIP models (the `--nip` argument can be repeated). This 
 > python3 train_nip.py --cam "Canon EOS 4D" --nip INet --nip UNet
 ```
 
+If needed, additional parameters for the NIPs can be provided as a JSON string.
+
+```
+> python3 train_nip.py --cam "Nikon D7000" --nip INet --params '{"random_init": true}'
+```
+
 To validate the NIP models, you may wish to develop some images. The following command will develop all images in the data set. In this command, you can use all of the available imaging pipelines: `libRAW, Python, INet, DNet, UNet`.
 
 ```
@@ -124,7 +130,7 @@ To visualize variations of classification accuracy and image quality as the trai
 This command shows differences between a UNet model trained normally (A) and with manipulation detection objectives (B). 
 
 ```
-> python3 test_nip_compare.py --nip UNet --cam "Nikon D90" --b ./data/raw/train_manipulation_regularized_long/Nikon\ D90/UNet/lr-0.1000/000/models/ --image 16
+> python3 test_nip_compare.py --nip UNet --cam "Nikon D90" --b ./data/raw/train_manipulation/Nikon\ D90/UNet/lr-0.1000/000/models/ --image 16
 ```
 
 ![Differences between NIP models](docs/nip_differences.jpg)
