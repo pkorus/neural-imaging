@@ -147,6 +147,12 @@ The toolbox currently provides the following pipelines:
 
 The standard pipelines are available in the `raw_api` module. Neural pipelines are available in `models/pipelines`. The UNet model was adapted from [Learning to See in the Dark](https://github.com/cchen156/Learning-to-See-in-the-Dark).
 
+## Implementing New Pipelines
+
+The toolbox pools available neural pipelines from the `models/pipelines` module. Implementation of new pipelines involves sub-classing `NIPModel` and providing implementations for the `construct_model` method and the `parameters` property. 
+
+Network models are expected to use the provided input placeholder (`self.x`) and add attributes for model output (`self.y` and optionally `self.yy`). The standard output (`self.y`) should be clipped to [0,1]. For better learning stability, a non-clipped output can be provided (`self.yy`) - it will be automatically used for gradient computation. The models should use an optional string prefix (`self.label`) in variable names or named scopes. This facilitates the use of multiple NIPs in a single TF graph. 
+
 ## Other Useful Scripts
 
 - `confusion.py` extracts confusion matrices from the experiments (LaTeX output supported)
