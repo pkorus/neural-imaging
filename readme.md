@@ -99,7 +99,7 @@ The following command can be used for training NIPs optimized for image manipula
 > python3 train_manipulation.py --nip UNet --cam "Nikon D90" --cam "Nikon D7000"
 ```
 
-The optimization runs for a fixed number of epochs (1,000 by default) and saves results to the following directory:
+The script relies on a single optimization objective with a regularized image fidelity term (see paper [2] for more details). It repeats the experiment 10 times for different values of the regularization strength. The optimization runs for a fixed number of epochs (1,000 by default) and saves results to the following directory:
 
 ```
 data/raw/train_manipulation/{camera}/{nip}/lr-{NIP-regularization}/{run number}/
@@ -113,17 +113,27 @@ The script generates:
 
 **Plotting Results**
 
-The results can be inspected with the `results.py` script. For example, the following command shows the box plot of classification accuracy for the `INet` and `UNet` models for the `Nikon D90` camera. 
+The results can be quickly inspected with the `results.py` script. For example, the following command shows the scatter plot with the trade-off between classification accuracy and image fidelity for the `UNet` model trained on `Nikon D90` :
 
 ```
-> python3 results.py --nip INet --nip UNet --cam "Nikon D90" box
+> python3 results.py --nip UNet --cam "Nikon D90" scatter-psnr
 ```
+
+![training for optimized manipulation detection](docs/scatterplot-nikon-d90.png)
 
 To visualize variations of classification accuracy and image quality as the training progresses:
 
 ```
-> python3 results.py --nip INet --nip UNet --cam "Nikon D90" progress
+> python3 results.py --nip UNet --cam "Nikon D90" progress
 ```
+![training for optimized manipulation detection](docs/progress-nikon-d90.png)
+
+To show confusion matrices for all regularization strengths:
+
+```
+> python3 results.py --nip UNet --cam "Nikon D90" confusion
+```
+![training for optimized manipulation detection](docs/confusion-nikon-d90.png)
 
 **Show Differences in NIP models**
 
