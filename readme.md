@@ -20,7 +20,7 @@ More information can be found in papers listed below.
 **References:**
 
 1. P. Korus, N. Memon, *Content Authentication for Neural Imaging Pipelines: End-to-end Optimization of Photo Provenance in Complex Distribution Channels*, CVPR'19, [arxiv:1812.01516](https://arxiv.org/abs/1812.01516) 
-2. P. Korus, N. Memon, *Neural Imaging Pipelines - the Scourge or Hope of Forensics?*, 2019
+2. P. Korus, N. Memon, *Neural Imaging Pipelines - the Scourge or Hope of Forensics?*, 2019, [arXiv:1902.10707](https://arxiv.org/abs/1902.10707)
 
 ## Setup
 
@@ -169,6 +169,13 @@ Network models are expected to use the provided input placeholder (`self.x`) and
 - `summarize_nip.py` - extracts and summarizes performance stats for standalone NIP models
 - `test_jpg.py` - test script for the JPEG approximation model
 
+## Data Sources
+
+In our experiments we used RAW images from publicly available datasets: 
+
+- MIT-5k - [https://data.csail.mit.edu/graphics/fivek/](https://data.csail.mit.edu/graphics/fivek/)
+- RAISE - [http://loki.disi.unitn.it/RAISE/](http://loki.disi.unitn.it/RAISE/)
+
 ## Usage and Citations
 
 This code is provided for educational purposes and aims to facilitate reproduction of our results, and further research in this direction. We have done our best to  document, refactor, and test the code before publication. However, the toolbox is provided "as-is", without warranties of any kind.   
@@ -177,5 +184,20 @@ If you find any bugs or would like to contribute new models, training protocols,
 
 If you find this code useful in your work, please cite our papers:
 
-1. P. Korus, N. Memon, *Content Authentication for Neural Imaging Pipelines: End-to-end Optimization of Photo Provenance in Complex Distribution Channels*, CVPR'19, [arxiv:1812.01516](https://arxiv.org/abs/1812.01516) 
-2. P. Korus, N. Memon, *Neural Imaging Pipelines - the Scourge or Hope of Forensics?*, 2019
+```
+@article{korus2018content,
+  title={Content Authentication for Neural Imaging Pipelines: End-to-end Optimization of Photo Provenance in Complex Distribution Channels},
+  author={Korus, Pawel and Memon, Nasir},
+  journal={arXiv preprint arXiv:1812.01516},
+  year={2018}
+}
+```
+
+```
+@article{korus2018content,
+  title={Neural Imaging Pipelines - the Scourge or Hope of Forensics?},
+  author={Korus, Pawel and Memon, Nasir},
+  journal={arXiv preprint arXiv:1902.10707},
+  year={2019}
+}
+```
