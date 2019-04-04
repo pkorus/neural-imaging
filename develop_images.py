@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import json
 import logging
 import argparse
+import tensorflow as tf
 
 from helpers import coreutils
 
@@ -17,7 +19,7 @@ raw_extensions = ['.nef', '.dng', '.NEF', '.DNG']
 supported_pipelines = ['libRAW', 'Python', 'INet', 'DNet', 'UNet']
 
 
-def develop_images(camera, pipeline, n_images=0, root_dir='./data/raw/', model_dir='nip_model_snapshots', dev_dir='nip_developed'):
+def develop_images(camera, pipeline, n_images=0, root_dir='./data/raw/', model_dir='nip_model_snapshots', dev_dir='nip_developed', nip_params=None):
 
     if pipeline not in supported_pipelines:
         raise ValueError('Unsupported pipeline model ({})! Available models: {}'.format(pipeline, ', '.join(supported_pipelines)))
@@ -54,7 +56,8 @@ def develop_images(camera, pipeline, n_images=0, root_dir='./data/raw/', model_d
 
     # Setup the NIP model
     if pipeline.endswith('Net'):
-        model = getattr(pipelines, pipeline)()
+        sess = tf.Session()
+        model = getattr(pipelines, pipeline)(sess, tf.get_default_graph(), loss_metric='L2', **nip_params)
         model.load_model(camera, out_directory_root=dir_models)
 
     # Limit the number of images
@@ -105,7 +108,8 @@ def main():
     parser.add_argument('--model_dir', dest='model_dir', action='store', default='nip_model_snapshots',
                         help='directory with TF models')                        
     parser.add_argument('--dev_dir', dest='dev_dir', action='store', default='nip_developed',
-                        help='output directory')                        
+                        help='output directory')
+    parser.add_argument('--params', dest='nip_params', default=None, help='Extra parameters for NIP constructor (JSON string)')    
     parser.add_argument('--images', dest='images', action='store', default=0, type=int,
                         help='number of images to process')
 
@@ -117,7 +121,14 @@ def main():
         sys.exit(1)
 
     try:
-        develop_images(args.camera, args.pipeline, args.images, args.dir, args.model_dir, args.dev_dir)
+        if args.nip_params is not None:
+            args.nip_params = json.loads(args.nip_params.replace('\'', '"'))
+    except json.decoder.JSONDecodeError:
+        print('WARNING', 'JSON parsing error for: ', args.nip_params.replace('\'', '"'))
+        sys.exit(2)
+
+    try:
+        develop_images(args.camera, args.pipeline, args.images, args.dir, args.model_dir, args.dev_dir, nip_params=args.nip_params)
     except Exception as error:
         log.error(error)
 
