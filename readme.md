@@ -109,7 +109,7 @@ The script generates:
 - `training.json` - JSON file with training progress and performance stats,
 - `manip_validation_*.jpg` - visual presentation of training progress (change of loss, PSNR, etc. over time)
 - `nip_validation_*.jpg` - current snapshot of patches developed by the NIP
-- `models/{fan,*Net}` - current snapshot of the models (both the NIP and the FAN)
+- `models/{FAN,*Net}` - current snapshot of the models (both the NIP and the FAN)
 
 **Plotting Results**
 
@@ -175,6 +175,14 @@ The repository contains a differentiable model of JPEG compression which can be 
 See the test script `test_jpg.py` for a standalone usage example. The following plot compares image quality and generated outputs for various approximation modes.
 
 ![Differences between NIP models](docs/dJPEG.png)
+
+## Forensics Analysis Network
+
+Our Forensic Analysis Network (FAN) follows the state-of-the-art design principles and uses a constrained convolutional layer proposed in:
+
+- Bayar, Belhassen, and Matthew C. Stamm. [Constrained convolutional neural networks: A new approach towards general purpose image manipulation detection.](https://ieeexplore.ieee.org/document/8335799) IEEE Transactions on Information Forensics and Security, 2018
+
+Our Tensorflow implementation can be found in the  `models.forensics.FAN` class. 
 
 ## Other Useful Scripts
 
