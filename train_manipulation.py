@@ -23,7 +23,7 @@ from helpers import coreutils, tf_helpers, validation, loading
 
 
 @coreutils.logCall
-def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distribution_down='pool', loss_metric='L2'):
+def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distribution_down='pool', loss_metric='L2', jpeg_approx='sin'):
     """
     Setup the TF model of the entire acquisition and distribution workflow.
     :param nip_model: name of the NIP class
@@ -68,7 +68,7 @@ def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distributi
         im_gauss = tf_helpers.tf_gaussian(model.y, 5, 4)
 
         # Mild JPEG
-        tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=80, rounding_approximation='sin')
+        tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=80, rounding_approximation=jpeg_approx)
         im_jpg = tf_jpg.y
 
         # Setup operations for detection
@@ -88,7 +88,7 @@ def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distributi
         else:
             raise ValueError('Unsupported channel down-sampling {}'.format(distribution_down))
             
-        jpg = DJPG(sess, tf.get_default_graph(), imb_down, model.x, quality=distribution_jpeg, rounding_approximation='sin')
+        jpg = DJPG(sess, tf.get_default_graph(), imb_down, model.x, quality=distribution_jpeg, rounding_approximation=jpeg_approx)
         imb_out = jpg.y
 
     # Add manipulation detection
@@ -106,35 +106,107 @@ def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distributi
     # Initialize all variables
     sess.run(tf.global_variables_initializer())
     
-    return sess, model, fan, {'loss': loss, 'opt': opt, 'lr': lr, 'lambda': nip_fw}, operations, {'channel_jpeg_quality': distribution_jpeg, 'forensics_classes': forensics_classes, 'downsampling': distribution_down}
-
+    tf_ops = {
+        'sess': sess,
+        'nip': model,
+        'fan': fan,
+        'loss': loss,
+        'opt': opt,
+        'lr': lr,
+        'lambda': nip_fw,
+        'operations': operations,
+    }
+        
+    distribution = {    
+        'forensics_classes': forensics_classes,
+        'channel_jpeg_quality': distribution_jpeg,
+        'channel_downsampling': distribution_down,
+        'jpeg_approximation': jpeg_approx
+    }
+    
+    return tf_ops, distribution
+#     return sess, model, fan, {'loss': loss, 'opt': opt, 'lr': lr, 'lambda': nip_fw}, operations, {'channel_jpeg_quality': distribution_jpeg, 'forensics_classes': forensics_classes, 'downsampling': distribution_down}
 
 # @coreutils.logCall
-def train_manipulation_nip(camera_name, nip_weight, run_number, n_epochs=1001, learning_rate=1e-4,
-                           use_pretrained_nip=True, root_directory='./data/raw/train_manipulation/',
-                           nip_root_directory='./data/raw/nip_model_snapshots/'):
+def train_manipulation_nip(tf_ops, training, distribution, data, directories=None):
     """
-    Jointly train the NIP and the FAN models.
-    :param camera_name: name of the camera model (e.g., "Nikon D90")
-    :param nip_weight: NIP regularization strength (set 0 to disable joint optimization, and train the FAN only)
-    :param run_number: number for labeling evaluation runs (used in output directory name)
-    :param n_epochs: number of training epochs
-    :param learning_rate: learning rate
-    :param use_pretrained_nip: whether the NIP model should be initialized with a pre-trained network
-    :param root_directory: the root output directory for storing training progress and model snapshots
-    :param nip_root_directory: root directory with pre-trained NIP models
+    Jointly train the NIP and the FAN models. Training progress and TF checkpoints are saved periodically to the specified directories.
+    
+    Input parameters:
+    
+    All input parameters are dictionaries with the following keys:
+    
+    :param tf_ops: {
+        sess     - TF session
+        nip      - NIP instance
+        fan      - FAN instance
+        loss     - TF operation for the loss function
+        opt      - TF operation for the optimization step
+        lr       - TF placeholder for the learning rate
+        lambda   - TF placeholder for the regularization strength
+    }
+    
+    :param training: {
+        camera_name           - name of the camera
+        use_pretrained_nip    - boolean flag to enable/disable loading a pre-trained model
+        nip_weight            - regularization strength to control the trade-off between objectives
+        run_number            - number of the current run ()
+        n_epochs              - number of training epochs
+        learning_rate         - value of the learning rate
+    }
+    
+    :param distribution: {
+      channel_jpeg_quality    - JPEG quality level in the distribution channel
+      jpeg_approximation      - JPEG approximation mode
+      forensics_classes       - names of classes for the FAN to distinguish
+      channel_downsampling    - sub-sampling mode in the channel  
+    }
+            
+    :param data: {
+        data_x                - input RAW images (patches will be sampled while training)
+        data_y                - corresponding developed RGB images (patches will be sampled while training)
+        valid_x               - input RAW patches (for validation)
+        valid_y               - corresponding developed RGB patches (for validation)
+    }
+    
+    :param directories: {
+        root             - the root output directory for storing training progress and model snapshots 
+                           (default: './data/raw/train_manipulation/')
+        nip_snapshots    - root directory with pre-trained NIP models 
+                           (default: './data/raw/nip_model_snapshots/')
+    }
+    
     """
+    
+    # Apply default settings
+    directories_def = {'root': './data/raw/train_manipulation/', 'nip_snapshots': './data/raw/nip_model_snapshots/'}
+    if directories is not None: 
+        directories_def.update(directories)    
+    directories = directories_def
+    
+    # Check if all necessary keys are present
+    if any([x not in tf_ops for x in ['sess', 'nip', 'fan', 'loss', 'opt', 'lr', 'lambda']]):
+        raise RuntimeError('Missing keys in the tf_ops dictionary!')
+        
+    if any([x not in training for x in ['camera_name', 'use_pretrained_nip', 'nip_weight', 'run_number', 'n_epochs', 'learning_rate']]):
+        raise RuntimeError('Missing keys in the training dictionary!')
 
-    print('\n## Training NIP/FAN for manipulation detection: cam={} / lr={:.4f} / run={:3d} / epochs={}, root={}'.format(camera_name, nip_weight, run_number, n_epochs, root_directory), flush=True)
+    if any([x not in distribution for x in ['channel_jpeg_quality', 'jpeg_approximation', 'forensics_classes', 'channel_downsampling']]):
+        raise RuntimeError('Missing keys in the distribution dictionary!')
+        
+    if any([x not in data for x in ['data_x', 'data_y', 'valid_x', 'valid_y']]):
+        raise RuntimeError('Missing keys in the data dictionary!')
+                    
+    print('\n## Training NIP/FAN for manipulation detection: cam={} / lr={:.4f} / run={:3d} / epochs={}, root={}'.format(training['camera_name'], training['nip_weight'], training['run_number'], training['n_epochs'], directories['root']), flush=True)
 
-    nip_save_dir = os.path.join(root_directory, camera_name, '{nip-model}', 'lr-{:0.4f}'.format(nip_weight), '{:03d}'.format(run_number))
+    nip_save_dir = os.path.join(directories['root'], training['camera_name'], '{nip-model}', 'lr-{:0.4f}'.format(training['nip_weight']), '{:03d}'.format(training['run_number']))
     print('(progress) ->', nip_save_dir)
 
-    model_directory = os.path.join(nip_save_dir.replace('{nip-model}', type(model).__name__), 'models')
+    model_directory = os.path.join(nip_save_dir.replace('{nip-model}', type(tf_ops['nip']).__name__), 'models')
     print('(model) ---->', model_directory)
 
     # Enable joint optimization if NIP weight is non-zero
-    joint_optimization = nip_weight != 0
+    joint_optimization = training['nip_weight'] != 0
 
     # Basic setup
     problem_description = 'manipulation detection'
@@ -143,26 +215,26 @@ def train_manipulation_nip(camera_name, nip_weight, run_number, n_epochs=1001, l
     sampling_rate = 50
 
     learning_rate_decay_schedule = 100
-    learning_rate_decay_rate = 0.85
+    learning_rate_decay_rate = 0.90
 
     # Setup the arrays for storing the current batch - randomly sampled from full-resolution images
-    H, W = data_x.shape[1:3]
+    H, W = data['data_x'].shape[1:3]
+    learning_rate = training['learning_rate']
 
     batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
     batch_y = np.zeros((batch_size, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)
 
     # Initialize models
-    fan.init()
-    model.init()
-    sess.run(tf.global_variables_initializer())
+    tf_ops['fan'].init()
+    tf_ops['nip'].init()
+    tf_ops['sess'].run(tf.global_variables_initializer())
 
-    if use_pretrained_nip:
-        model.load_model(camera_name=camera_name, out_directory_root=nip_root_directory)
+    if training['use_pretrained_nip']:
+        tf_ops['nip'].load_model(camera_name=training['camera_name'], out_directory_root=directories['nip_snapshots'])
 
-    n_batches = data_x.shape[0] // batch_size
+    n_batches = data['data_x'].shape[0] // batch_size
 
     model_list = ['nip', 'fan']
-    model_obj = [model, fan]
 
     # Containers for storing loss progression
     loss_epoch = {key: deque(maxlen=n_batches) for key in model_list}
@@ -184,27 +256,28 @@ def train_manipulation_nip(camera_name, nip_weight, run_number, n_epochs=1001, l
     training_summary = OrderedDict()
     training_summary['Problem'] = '{}'.format(problem_description)
     training_summary['Classes'] = '{}'.format(distribution['forensics_classes'])
-    training_summary['Channel sub-sampling'] = '{}'.format(distribution['downsampling'])
-    training_summary['Channel JPEG'] = '{}'.format(distribution['channel_jpeg_quality'])
-    training_summary['Camera name'] = '{}'.format(camera_name)
+    training_summary['Channel sub-sampling'] = '{}'.format(distribution['channel_downsampling'])
+    training_summary['Channel JPEG Quality'] = '{}'.format(distribution['channel_jpeg_quality'])
+    training_summary['Channel JPEG Mode'] = '{}'.format(distribution['jpeg_approximation'])
+    training_summary['Camera name'] = '{}'.format(training['camera_name'])
     training_summary['Joint optimization'] = '{}'.format(joint_optimization)
-    training_summary['NIP Regularization'] = '{}'.format(nip_weight)
-    training_summary['FAN model'] = '{}'.format(fan.summary())
-    training_summary['NIP model'] = '{}'.format(model.summary())
-    training_summary['NIP loss'] = '{}'.format(model.loss_metric)
-    training_summary['Use pre-trained NIP'] = '{}'.format(use_pretrained_nip)
-    training_summary['# Epochs'] = '{}'.format(n_epochs)
+    training_summary['NIP Regularization'] = '{}'.format(training['nip_weight'])
+    training_summary['FAN model'] = '{}'.format(tf_ops['fan'].summary())
+    training_summary['NIP model'] = '{}'.format(tf_ops['nip'].summary())
+    training_summary['NIP loss'] = '{}'.format(tf_ops['nip'].loss_metric)
+    training_summary['Use pre-trained NIP'] = '{}'.format(training['use_pretrained_nip'])
+    training_summary['# Epochs'] = '{}'.format(training['n_epochs'])
     training_summary['Patch size'] = '{}'.format(patch_size)
     training_summary['Batch size'] = '{}'.format(batch_size)
-    training_summary['Learning rate'] = '{}'.format(learning_rate)
+    training_summary['Learning rate'] = '{}'.format(training['learning_rate'])
     training_summary['Learning rate decay schedule'] = '{}'.format(learning_rate_decay_schedule)
     training_summary['Learning rate decay rate'] = '{}'.format(learning_rate_decay_rate)
-    training_summary['# train. images'] = '{}'.format(data_x.shape)
-    training_summary['# valid. images'] = '{}'.format(valid_x.shape)
+    training_summary['# train. images'] = '{}'.format(data['data_x'].shape)
+    training_summary['# valid. images'] = '{}'.format(data['valid_x'].shape)
     training_summary['# batches'] = '{}'.format(batch_x.shape)
-    training_summary['NIP input patch'] = '{}'.format(model.x.shape)
-    training_summary['NIP output patch'] = '{}'.format(model.y.shape)
-    training_summary['FAN input patch'] = '{}'.format(fan.x.shape)
+    training_summary['NIP input patch'] = '{}'.format(tf_ops['nip'].x.shape)
+    training_summary['NIP output patch'] = '{}'.format(tf_ops['nip'].y.shape)
+    training_summary['FAN input patch'] = '{}'.format(tf_ops['fan'].x.shape)
     training_summary['memory_consumption'] = memory
 
     print('\n')
@@ -212,12 +285,12 @@ def train_manipulation_nip(camera_name, nip_weight, run_number, n_epochs=1001, l
         print('{:30s}: {}'.format(k, v))
     print('\n', flush=True)
 
-    with tqdm.tqdm(total=n_epochs, ncols=120, desc='Train') as pbar:
+    with tqdm.tqdm(total=training['n_epochs'], ncols=120, desc='Train') as pbar:
         
         epoch = 0
         conf = np.identity(len(distribution['forensics_classes']))
 
-        for epoch in range(0, n_epochs):
+        for epoch in range(0, training['n_epochs']):
 
             # Fill the batch with random crops of the images
             for batch_id in range(n_batches):
@@ -226,113 +299,120 @@ def train_manipulation_nip(camera_name, nip_weight, run_number, n_epochs=1001, l
                 for b in range(batch_size):
                     xx = np.random.randint(0, W - patch_size)
                     yy = np.random.randint(0, H - patch_size)
-                    batch_x[b, :, :, :] = data_x[batch_id * batch_size + b, yy:yy + patch_size, xx:xx + patch_size, :].astype(np.float) / (2**16 - 1)
-                    batch_y[b, :, :, :] = data_y[batch_id * batch_size + b, (2*yy):(2*yy + 2*patch_size), (2*xx):(2*xx + 2*patch_size), :].astype(np.float) / (2**8 - 1)
+                    batch_x[b, :, :, :] = data['data_x'][batch_id * batch_size + b, yy:yy + patch_size, xx:xx + patch_size, :].astype(np.float) / (2**16 - 1)
+                    batch_y[b, :, :, :] = data['data_y'][batch_id * batch_size + b, (2*yy):(2*yy + 2*patch_size), (2*xx):(2*xx + 2*patch_size), :].astype(np.float) / (2**8 - 1)
 
                 if joint_optimization:
                     # Make custom optimization step                    
-                    comb_loss, nip_loss, _ = sess.run([train_setup['loss'], model.loss, train_setup['opt']], feed_dict={
-                        model.x: batch_x,
-                        model.y_gt: batch_y,
-                        fan.y: batch_l,
-                        train_setup['lr']: learning_rate,
-                        train_setup['lambda']: nip_weight                        
+                    comb_loss, nip_loss, _ = tf_ops['sess'].run([tf_ops['loss'], tf_ops['nip'].loss, tf_ops['opt']], feed_dict={
+                        tf_ops['nip'].x: batch_x,
+                        tf_ops['nip'].y_gt: batch_y,
+                        tf_ops['fan'].y: batch_l,
+                        tf_ops['lr']: learning_rate,
+                        tf_ops['lambda']: training['nip_weight']                        
                     })                    
                     
                     loss_epoch['nip'].append(nip_loss)
                 else:
                     # Update only the forensics network
-                    comb_loss = fan.training_step(batch_x, batch_l, learning_rate)
+                    comb_loss = tf_ops['fan'].training_step(batch_x, batch_l, learning_rate)
                     nip_loss = np.nan
 
                 loss_epoch['fan'].append(comb_loss)
                 loss_epoch['nip'].append(nip_loss)
 
             # Average and record loss values
-            for model_name, mod in zip(model_list, model_obj):
-                mod.train_perf['loss'].append(float(np.mean(loss_epoch[model_name])))
-                loss_last_k_epochs[model_name].append(mod.train_perf['loss'][-1])
+            for model_name in model_list:
+                tf_ops[model_name].train_perf['loss'].append(float(np.mean(loss_epoch[model_name])))
+                loss_last_k_epochs[model_name].append(tf_ops[model_name].train_perf['loss'][-1])
 
             if epoch % sampling_rate == 0:
 
                 # Validate the NIP model
                 if joint_optimization:
-                    ssims, psnrs, v_losses = validation.validate_nip(model, valid_x[::50], valid_y[::50], None, epoch=epoch, show_ref=True, loss_type='L2')
-                    model.valid_perf['ssim'].append(float(np.mean(ssims)))
-                    model.valid_perf['psnr'].append(float(np.mean(psnrs)))
-                    model.valid_perf['loss'].append(float(np.mean(v_losses)))
+                    values = validation.validate_nip(tf_ops['nip'], data['valid_x'][::50], data['valid_y'][::50], None, epoch=epoch, show_ref=True, loss_type=tf_ops['nip'].loss_metric)
+                    for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
+                        tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
 
                 # Validate the forensics network
-                accuracy = validation.validate_fan(fan, valid_x[::1], lambda x: batch_labels(x, n_classes), n_classes)
-                fan.valid_perf['accuracy'].append(accuracy)
+                accuracy = validation.validate_fan(tf_ops['fan'], data['valid_x'][::1], lambda x: batch_labels(x, n_classes), n_classes)
+                tf_ops['fan'].valid_perf['accuracy'].append(accuracy)
 
                 # Confusion matrix
-                conf = validation.confusion(fan, valid_x, lambda x: batch_labels(x, n_classes))
+                conf = validation.confusion(tf_ops['fan'], data['valid_x'], lambda x: batch_labels(x, n_classes))
 
                 # Visualize current progress
                 # TODO Memory is leaking here - looks like some problem in matplotlib - skip for now
                 # validation.visualize_manipulation_training(model, fan, conf, epoch, nip_save_dir, classes=distribution['forensics_classes'])
 
                 # Save progress stats
-                validation.save_training_progress(training_summary, model, fan, conf, nip_save_dir)
+                validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], conf, nip_save_dir)
 
                 # Monitor memory usage
                 # gc.collect()
-                memory['tf-ram'].append(round(tf_helpers.memory_usage_tf(sess) / 1024 / 1024, 1))
+                memory['tf-ram'].append(round(tf_helpers.memory_usage_tf(tf_ops['sess']) / 1024 / 1024, 1))
                 memory['tf-vars'].append(round(tf_helpers.memory_usage_tf_variables() / 1024 / 1024, 1))
                 memory['cpu-proc'].append(round(coreutils.memory_usage_proc(), 1))
                 memory['cpu-resource'].append(round(coreutils.memory_usage_resource(), 1))
 
             if epoch % learning_rate_decay_schedule == 0:
-                learning_rate = learning_rate * learning_rate_decay_rate
+                learning_rate *= learning_rate_decay_rate
 
             pbar.set_postfix(nip=np.log10(np.mean(loss_last_k_epochs['nip'])).round(1),
                              fan=np.mean(loss_last_k_epochs['fan']),
-                             acc=fan.valid_perf['accuracy'][-1],
-                             psnr=model.valid_perf['psnr'][-1] if len(model.valid_perf['psnr']) > 0 else np.nan,
+                             acc=tf_ops['fan'].valid_perf['accuracy'][-1],
+                             psnr=tf_ops['nip'].valid_perf['psnr'][-1] if len(tf_ops['nip'].valid_perf['psnr']) > 0 else np.nan,
                              ram=round(memory['cpu-proc'][-1]//1024, 2))
             pbar.update(1)
 
     # Plot final results
-    ssims, psnrs, v_losses = validation.validate_nip(model, valid_x[::50], valid_y[::50], nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
-    model.valid_perf['ssim'].append(float(np.mean(ssims)))
-    model.valid_perf['psnr'].append(float(np.mean(psnrs)))
-    model.valid_perf['loss'].append(float(np.mean(v_losses)))
+    values = validation.validate_nip(tf_ops['nip'], data['valid_x'][::50], data['valid_y'][::50], nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
+    for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
+        tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
 
     # Save model progress
-    validation.save_training_progress(training_summary, model, fan, conf, nip_save_dir)
+    validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], conf, nip_save_dir)
 
     # Visualize current progress
-    validation.visualize_manipulation_training(model, fan, conf, epoch, nip_save_dir, classes=distribution['forensics_classes'])
+    validation.visualize_manipulation_training(tf_ops['nip'], tf_ops['fan'], conf, epoch, nip_save_dir, classes=distribution['forensics_classes'])
 
     # Save models
     # Root     : train_manipulation / camera_name / {INet} / lr-01 / 001 / models / {INet/FAN}
     print('Saving models...')
-    model.save_model(camera_name, os.path.join(model_directory, '{nip-model}'), epoch)
-    fan.save_model(os.path.join(model_directory, 'FAN'), epoch)
+    tf_ops['nip'].save_model(training['camera_name'], os.path.join(model_directory, '{nip-model}'), epoch)
+    tf_ops['fan'].save_model(os.path.join(model_directory, 'FAN'), epoch)
+    
+    return nip_save_dir.replace('{nip-model}', type(tf_ops['nip']).__name__)
 
 
 @coreutils.logCall
-def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', jpeg_q=50, use_pretrained=True, end_repetition=10, start_repetition=0, n_epochs=1001):
+def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', jpeg_quality=50, jpeg_mode='sin', use_pretrained=True, end_repetition=10, start_repetition=0, n_epochs=1001):
     """
     Repeat training for multiple NIP regularization strengths.
     """
-    global sess, model, fan, train_setup, distribution, data_x, data_y, valid_x, valid_y
-
-    # Training set setup
+    
+    # Data set setup
     valid_patch_size = 128
     n_patches = 100
+    
+    training = {
+        'use_pretrained_nip': use_pretrained,
+        'n_epochs': n_epochs,
+        'learning_rate': 1e-4
+    }
 
     # Experiment setup
     camera_names = camera_names or ['Nikon D90', 'Nikon D7000', 'Canon EOS 5D', 'Canon EOS 40D']
     regularization_strengths = [0, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 0.1, 0.25, 0.5, 1]
 
     # Construct the TF model
-    sess, model, fan, train_setup, _, distribution = construct_models(nip_model, distribution_jpeg=jpeg_q, loss_metric=loss_metric)
+    tf_ops, distribution = construct_models(nip_model, distribution_jpeg=jpeg_quality, loss_metric=loss_metric, jpeg_approx=jpeg_mode)
 
     for camera_name in camera_names:
         
         print('\n# Loading data for camera {}'.format(camera_name))
+        
+        training['camera_name'] = camera_name
         
         # Load the dataset for the given camera
         data_directory = os.path.join('./data/raw/nip_training_data/', camera_name)
@@ -341,22 +421,27 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         files, val_files = loading.discover_files(data_directory)
 
         # Load training / validation data
-        data_x, data_y = loading.load_fullres(files, data_directory)
-        valid_x, valid_y = loading.load_patches(val_files, data_directory, valid_patch_size, n_patches, discard_flat=True)
+        data = {}
+        data['data_x'], data['data_y'] = loading.load_fullres(files, data_directory)
+        data['valid_x'], data['valid_y'] = loading.load_patches(val_files, data_directory, valid_patch_size, n_patches, discard_flat=True)
 
         # Repeat evaluation
         for rep in range(start_repetition, end_repetition):
             for reg in regularization_strengths:
-                train_manipulation_nip(camera_name, reg, rep, n_epochs=n_epochs, root_directory=root_directory, use_pretrained_nip=use_pretrained)
+                training['nip_weight'] = reg
+                training['run_number'] = rep
+                train_manipulation_nip(tf_ops, training, distribution, data, {'root': root_directory})
 
-
+                
 def main():
     parser = argparse.ArgumentParser(description='NIP & FAN optimization for manipulation detection')
     parser.add_argument('--nip', dest='nip_model', action='store',
                         help='the NIP model (INet, UNet, DNet)')
-    parser.add_argument('--jpeg', dest='jpeg', action='store', default=50, type=int,
+    parser.add_argument('--quality', dest='jpeg_quality', action='store', default=50, type=int,
                         help='JPEG quality level in the distribution channel')
-    parser.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/train_manipulation_box/',
+    parser.add_argument('--jpeg', dest='jpeg_mode', action='store', default='sin',
+                        help='JPEG approximation mode: sin, soft, harmonic')
+    parser.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/train_manipulation/',
                         help='the root directory for storing results')
     parser.add_argument('--cam', dest='cameras', action='append',
                         help='add cameras for evaluation (repeat if needed)')
@@ -373,7 +458,7 @@ def main():
 
     args = parser.parse_args()
 
-    batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.jpeg, not args.from_scratch,
+    batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.jpeg_quality, args.jpeg_mode, not args.from_scratch,
                    start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs)
 
 

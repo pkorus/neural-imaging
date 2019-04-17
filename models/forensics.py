@@ -177,7 +177,7 @@ class FAN:
             })
             return y    
     
-    def process_direct(self, batch_x):
+    def process_direct(self, batch_x, with_confidence=False):
         """
         Returns the predicted class for an image batch. The input is always fed to the FAN model directly.
         """
@@ -185,7 +185,7 @@ class FAN:
             y = self.sess.run(self.y_, feed_dict={
                 self.x: batch_x
             })
-            return np.argmax(y, axis=1)    
+            return (np.argmax(y, axis=1), np.max(y, axis=1)) if with_confidence else np.argmax(y, axis=1)
 
     def process_with_loss(self, batch_x, batch_y):
         """

@@ -163,11 +163,23 @@ The toolbox pools available neural pipelines from the `models/pipelines` module.
 
 Network models are expected to use the provided input placeholder (`self.x`) and add attributes for model output (`self.y` and optionally `self.yy`). The standard output (`self.y`) should be clipped to [0,1]. For better learning stability, a non-clipped output can be provided (`self.yy`) - it will be automatically used for gradient computation. The models should use an optional string prefix (`self.label`) in variable names or named scopes. This facilitates the use of multiple NIPs in a single TF graph. 
 
+## JPEG Approximation
+
+The repository contains a differentiable model of JPEG compression which can be useful in other research as well (see `models.jpeg.DJPG`). The model expresses successive steps of the codec as  matrix multiplications or convolution layers (see papers for details) and supports the following approximations of DCT coefficient quantization:
+
+- `None` - uses standard rounding (backpropagation not supported)
+- `sin` - sinusoidal approximation of the rounding operator (allows for back-propagation)
+- `soft` - uses standard rounding in the forward pass and sinusoidal approximation in the backward pass
+- `harmonic` - a differentiable approximation with Taylor expansion 
+
+See the test script `test_jpg.py` for a standalone usage example. The following plot compares image quality and generated outputs for various approximation modes.
+
+![Differences between NIP models](docs/dJPEG.png)
+
 ## Other Useful Scripts
 
 - `confusion.py` - extracts confusion matrices from the experiments (LaTeX output supported)
 - `summarize_nip.py` - extracts and summarizes performance stats for standalone NIP models
-- `test_jpg.py` - test script for the JPEG approximation model
 
 ## Data Sources
 

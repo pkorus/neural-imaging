@@ -30,12 +30,12 @@ class DJPG:
         :param x: input to the DJPG module (TF tensor) or None (creates a placeholder)
         :param nip_input: input to the NIP (if part of a larger model) or None
         :param quality: JPEG quality level or None (can be specified later)
-        :param rounding_approximation: None (uses normal rounding), 'sin', or 'harmonic'
+        :param rounding_approximation: None (uses normal rounding), 'sin', 'soft', or 'harmonic'
         :param rounding_approximation_steps: number of approximation terms (for 'harmonic' approx. only)
         """
 
         # Sanitize inputs
-        if rounding_approximation is not None and rounding_approximation not in ['sin', 'harmonic']:
+        if rounding_approximation is not None and rounding_approximation not in ['sin', 'harmonic', 'soft']:
             raise ValueError('Unsupported rounding approximation: {}'.format(rounding_approximation))
 
         # Remember settings
@@ -117,6 +117,9 @@ class DJPG:
                         X = tf.round(X)
                     elif rounding_approximation == 'sin':
                         X = X - tf.sin(2 * np.pi * X) / (2 * np.pi)
+                    elif rounding_approximation == 'soft':
+                        XA = X - tf.sin(2 * np.pi * X) / (2 * np.pi)
+                        X = tf.stop_gradient(tf.round(X) - XA) + XA
                     elif rounding_approximation == 'harmonic':
                         XA = X - tf.sin(2 * np.pi * X) / np.pi
                         for k in range(2, rounding_approximation_steps):

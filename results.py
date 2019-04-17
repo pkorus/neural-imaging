@@ -169,7 +169,9 @@ def confusion_data(nip_model, cameras, root_dir='./data/raw/train_manipulation')
             
             find_dir = os.path.join(root_dir, camera, nip_model, ed)
             jsons_files = sorted(glob.glob(os.path.join(find_dir, '**', 'training.json')))            
-            print('WARNING Using the first found repetition of the experiment')
+            
+            if len(jsons_files) > 1:           
+                print('WARNING Using the first found repetition of the experiment')
             jf = jsons_files[0]
             
             with open(jf) as f:
@@ -206,7 +208,7 @@ def display_results(args):
                 df.to_csv(df_filename, index=False)
                 print('> saving dataframe to {}'.format(df_filename))
         plt.show()
-        sys.exit(0)
+        return
         
     if plot == 'psnr' or plot == 'ssim':
 
@@ -228,7 +230,7 @@ def display_results(args):
                 print('> saving dataframe to {}'.format(df_filename))
 
         plt.show()
-        sys.exit(0)
+        return
 
     if plot == 'scatter-psnr' or plot == 'scatter-ssim':
 
@@ -247,7 +249,7 @@ def display_results(args):
                 df.to_csv(df_filename, index=False)
                 print('> saving dataframe to {}'.format(df_filename))
         plt.show()
-        sys.exit(0)
+        return
 
     if plot == 'progressplot':
 
@@ -291,12 +293,13 @@ def display_results(args):
             sns.relplot(x="step", y=col, hue='exp', col='nip', row='camera', style='exp', kind="line", legend="full", aspect=2, height=3, data=df)
             
         plt.show()
-        sys.exit(0)
+        return
     
     if plot == 'confusion':
         
         if isinstance(args.nips, list):
-            print('WARNING Only one NIP will be used for this plot!')
+            if len(args.nips) > 1:
+                print('WARNING Only one NIP will be used for this plot!')
             args.nips = args.nips[0]
         
         conf = confusion_data(args.nips, args.cameras, root_dir=args.dir)
@@ -320,10 +323,9 @@ def display_results(args):
 
         plt.tight_layout()
         plt.show()
-        sys.exit(0)
+        return
     
-    print('No plot matched! Available plots {}'.format(', '.join(supported_plots)))
-    sys.exit(1)
+    raise RuntimeError('No plot matched! Available plots {}'.format(', '.join(supported_plots)))
 
 
 if __name__ == "__main__":

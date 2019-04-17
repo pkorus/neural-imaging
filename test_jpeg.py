@@ -4,7 +4,7 @@ import os
 import numpy as np
 import imageio as io
 import argparse
-from helpers import imshowly
+from helpers import plotting
 from skimage.measure import compare_psnr
 from matplotlib import pylab as plt
 from models.jpeg import DJPG
@@ -12,7 +12,7 @@ from models.jpeg import DJPG
 # Disable unimportant logging and import TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-DEFAULT_IMAGE = './data/raw/nip_developed/Canon EOS 40D/libRAW/a1229-kme_091.png'
+DEFAULT_IMAGE = 'docs/schematic_overview.png'
 
 
 def test_output(image, jpeg_quality=50, rounding_approximation=None):
@@ -32,13 +32,13 @@ def test_output(image, jpeg_quality=50, rounding_approximation=None):
 
     for n in range(n_images):
         plt.subplot(n_images, 3, 1 + n*3)
-        imshowly.sh(batch_x[n].squeeze() / np.max(np.abs(batch_x)), 'Input')
+        plotting.quickshow(batch_x[n].squeeze() / np.max(np.abs(batch_x)), 'Input')
 
         plt.subplot(n_images, 3, 2 + n*3)
-        imshowly.sh(batch_y[n].squeeze() / np.max(np.abs(batch_y)), 'JPGNet')
+        plotting.quickshow(batch_y[n].squeeze() / np.max(np.abs(batch_y)), 'dJPEG Model')
 
         plt.subplot(n_images, 3, 3 + n*3)
-        imshowly.sh(batch_j[n].squeeze() / np.max(np.abs(batch_j)), 'libJPG')
+        plotting.quickshow(batch_j[n].squeeze() / np.max(np.abs(batch_j)), 'libJPG Codec')
 
     plt.show()
 
@@ -67,14 +67,14 @@ def test_quality(image, rounding_approximation=None, n_quality_levels=91):
     plt.figure(figsize=(6,6))
     plt.plot(psnrs_y, psnrs_j, 'bo', alpha=0.25)
     plt.plot([30, 50], [30, 50], 'k:')
-    plt.xlabel('PSNR for JPGNet')
+    plt.xlabel('PSNR for dJPEG')
     plt.ylabel('PSNR for libJPEG')
     plt.xlim([30, 60])
     plt.ylim([30, 50])
     if rounding_approximation is None:
-        plt.title('JPGNet vs libJPEG quality (with standard rounding)'.format(rounding_approximation))
+        plt.title('dJPEG vs libJPEG quality (with standard rounding)'.format(rounding_approximation))
     else:
-        plt.title('JPGNet vs libJPEG quality (with {} rounding approx.)'.format(rounding_approximation))
+        plt.title('dJPEG vs libJPEG quality (with {} rounding approx.)'.format(rounding_approximation))
 
     for i, q in enumerate(quality_levels):
         if q % 10 == 0:
@@ -84,7 +84,7 @@ def test_quality(image, rounding_approximation=None, n_quality_levels=91):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Test the JPGNet model')
+    parser = argparse.ArgumentParser(description='Test the dJPEG model')
     parser.add_argument('mode', help='Test mode: output / quality')
     parser.add_argument('--image', dest='image', action='store',
                         help='test image path')
@@ -93,11 +93,16 @@ def main():
     parser.add_argument('--quality', dest='quality', action='store', type=int, default=50,
                         help='the quality level or number of levels for evaluation')
     parser.add_argument('--round', dest='round', action='store', default=None,
-                        help='rounding approximation mode: sin or harmonic')
+                        help='rounding approximation mode: sin, soft, harmonic')
 
     args = parser.parse_args()
+    
+    args.image = args.image or DEFAULT_IMAGE
+    
+    if not os.path.exists(args.image):
+        print('Error: file does not exist! {}'.format(args.image))
 
-    image = io.imread(args.image or DEFAULT_IMAGE)
+    image = io.imread(args.image)
 
     if image.shape[0] > args.patch_size or image.shape[1] > args.patch_size:
         xx = (image.shape[1] - args.patch_size) // 2
