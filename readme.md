@@ -182,7 +182,7 @@ Our Forensic Analysis Network (FAN) follows the state-of-the-art design principl
 
 - Bayar, Belhassen, and Matthew C. Stamm. [Constrained convolutional neural networks: A new approach towards general purpose image manipulation detection.](https://ieeexplore.ieee.org/document/8335799) IEEE Transactions on Information Forensics and Security, 2018
 
-Our Tensorflow implementation can be found in the  `models.forensics.FAN` class. 
+While the original model used only the green channel, our FAN uses full RGB information for forensic analysis. See the `models.forensics.FAN` class for our Tensorflow implementation.
 
 ## Other Useful Scripts
 
