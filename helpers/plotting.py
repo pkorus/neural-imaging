@@ -4,6 +4,8 @@ import matplotlib.pylab as plt
 import numpy as np
 import imageio
 import helpers
+
+from itertools import chain
 from skimage.draw import line
 from scipy.ndimage.filters import gaussian_filter
 
@@ -154,3 +156,20 @@ def quickshow(x, label=None, *, axes=None, cmap='gray'):
         axes.set_title(label)
         axes.set_xticks([])
         axes.set_yticks([])        
+
+
+def sub(n_plots, figwidth=10, ncols=None):
+    subplot_x = ncols or int(np.ceil(np.sqrt(n_plots)))
+    subplot_y = int(np.ceil(n_plots / subplot_x))
+    
+    fig = plot.figure(tight_layout=True, figsize=(figwidth, figwidth * (subplot_y / subplot_x)))
+    axes = fig.subplots(nrows=subplot_y, ncols=subplot_x)
+    axes_flat = []
+
+    for ax in chain.from_iterable(zip(*axes)):
+        if len(axes_flat) < n_plots:
+            axes_flat.append(a)
+        else:
+            a.remove()
+    
+    return fig, axes_flat
