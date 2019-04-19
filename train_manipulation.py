@@ -163,10 +163,14 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     }
             
     :param data: {
-        data_x                - input RAW images (patches will be sampled while training)
-        data_y                - corresponding developed RGB images (patches will be sampled while training)
-        valid_x               - input RAW patches (for validation)
-        valid_y               - corresponding developed RGB patches (for validation)
+        training: {
+            x: (N,h,w,4)      - input RAW images (patches will be sampled while training)
+            y: (N,2h,2w,3)    - corresponding developed RGB images (patches will be sampled while training)
+        }  
+        validation: {
+            x: (N,p,p,4)      - input RAW patches (for validation)
+            y: (N,2p,2p,3)    - corresponding developed RGB patches (for validation)
+        }
     }
     
     :param directories: {
@@ -186,16 +190,19 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     
     # Check if all necessary keys are present
     if any([x not in tf_ops for x in ['sess', 'nip', 'fan', 'loss', 'opt', 'lr', 'lambda']]):
-        raise RuntimeError('Missing keys in the tf_ops dictionary!')
+        raise RuntimeError('Missing keys in the tf_ops dictionary! {}'.format(tf_ops.keys()))
         
     if any([x not in training for x in ['camera_name', 'use_pretrained_nip', 'nip_weight', 'run_number', 'n_epochs', 'learning_rate']]):
-        raise RuntimeError('Missing keys in the training dictionary!')
+        raise RuntimeError('Missing keys in the training dictionary! {}'.format(training.keys()))
 
     if any([x not in distribution for x in ['channel_jpeg_quality', 'jpeg_approximation', 'forensics_classes', 'channel_downsampling']]):
-        raise RuntimeError('Missing keys in the distribution dictionary!')
+        raise RuntimeError('Missing keys in the distribution dictionary! {}'.format(distribution.keys()))
         
-    if any([x not in data for x in ['data_x', 'data_y', 'valid_x', 'valid_y']]):
-        raise RuntimeError('Missing keys in the data dictionary!')
+    if any([x not in data for x in ['training', 'validation']]):
+        raise RuntimeError('Missing keys in the data dictionary! {}'.format(data.keys()))
+        
+    if any([x not in data['training'] for x in 'xy']) or any([x not in data['validation'] for x in 'xy']):
+        raise RuntimeError('Missing x or y data in the data dictionary! {}'.format({k: v.keys() for k, v in data.items()}))
                     
     print('\n## Training NIP/FAN for manipulation detection: cam={} / lr={:.4f} / run={:3d} / epochs={}, root={}'.format(training['camera_name'], training['nip_weight'], training['run_number'], training['n_epochs'], directories['root']), flush=True)
 
@@ -218,7 +225,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     learning_rate_decay_rate = 0.90
 
     # Setup the arrays for storing the current batch - randomly sampled from full-resolution images
-    H, W = data['data_x'].shape[1:3]
+    H, W = data['training']['x'].shape[1:3]
     learning_rate = training['learning_rate']
 
     batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
@@ -232,7 +239,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     if training['use_pretrained_nip']:
         tf_ops['nip'].load_model(camera_name=training['camera_name'], out_directory_root=directories['nip_snapshots'])
 
-    n_batches = data['data_x'].shape[0] // batch_size
+    n_batches = data['training']['x'].shape[0] // batch_size
 
     model_list = ['nip', 'fan']
 
@@ -272,8 +279,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     training_summary['Learning rate'] = '{}'.format(training['learning_rate'])
     training_summary['Learning rate decay schedule'] = '{}'.format(learning_rate_decay_schedule)
     training_summary['Learning rate decay rate'] = '{}'.format(learning_rate_decay_rate)
-    training_summary['# train. images'] = '{}'.format(data['data_x'].shape)
-    training_summary['# valid. images'] = '{}'.format(data['valid_x'].shape)
+    training_summary['# train. images'] = '{}'.format(data['training']['x'].shape)
+    training_summary['# valid. images'] = '{}'.format(data['validation']['x'].shape)
     training_summary['# batches'] = '{}'.format(batch_x.shape)
     training_summary['NIP input patch'] = '{}'.format(tf_ops['nip'].x.shape)
     training_summary['NIP output patch'] = '{}'.format(tf_ops['nip'].y.shape)
@@ -299,8 +306,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
                 for b in range(batch_size):
                     xx = np.random.randint(0, W - patch_size)
                     yy = np.random.randint(0, H - patch_size)
-                    batch_x[b, :, :, :] = data['data_x'][batch_id * batch_size + b, yy:yy + patch_size, xx:xx + patch_size, :].astype(np.float) / (2**16 - 1)
-                    batch_y[b, :, :, :] = data['data_y'][batch_id * batch_size + b, (2*yy):(2*yy + 2*patch_size), (2*xx):(2*xx + 2*patch_size), :].astype(np.float) / (2**8 - 1)
+                    batch_x[b, :, :, :] = data['training']['x'][batch_id * batch_size + b, yy:yy + patch_size, xx:xx + patch_size, :].astype(np.float) / (2**16 - 1)
+                    batch_y[b, :, :, :] = data['training']['y'][batch_id * batch_size + b, (2*yy):(2*yy + 2*patch_size), (2*xx):(2*xx + 2*patch_size), :].astype(np.float) / (2**8 - 1)
 
                 if joint_optimization:
                     # Make custom optimization step                    
@@ -330,16 +337,16 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
                 # Validate the NIP model
                 if joint_optimization:
-                    values = validation.validate_nip(tf_ops['nip'], data['valid_x'][::50], data['valid_y'][::50], None, epoch=epoch, show_ref=True, loss_type=tf_ops['nip'].loss_metric)
+                    values = validation.validate_nip(tf_ops['nip'], data['validation']['x'][::50], data['validation']['y'][::50], None, epoch=epoch, show_ref=True, loss_type=tf_ops['nip'].loss_metric)
                     for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
                         tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
 
                 # Validate the forensics network
-                accuracy = validation.validate_fan(tf_ops['fan'], data['valid_x'][::1], lambda x: batch_labels(x, n_classes), n_classes)
+                accuracy = validation.validate_fan(tf_ops['fan'], data['validation']['x'][::1], lambda x: batch_labels(x, n_classes), n_classes)
                 tf_ops['fan'].valid_perf['accuracy'].append(accuracy)
 
                 # Confusion matrix
-                conf = validation.confusion(tf_ops['fan'], data['valid_x'], lambda x: batch_labels(x, n_classes))
+                conf = validation.confusion(tf_ops['fan'], data['validation']['x'], lambda x: batch_labels(x, n_classes))
 
                 # Visualize current progress
                 # TODO Memory is leaking here - looks like some problem in matplotlib - skip for now
@@ -366,7 +373,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
             pbar.update(1)
 
     # Plot final results
-    values = validation.validate_nip(tf_ops['nip'], data['valid_x'][::50], data['valid_y'][::50], nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
+    values = validation.validate_nip(tf_ops['nip'], data['validation']['x'][::50], data['validation']['y'][::50], nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
     for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
         tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
 
@@ -421,10 +428,11 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         files, val_files = loading.discover_files(data_directory)
 
         # Load training / validation data
-        data = {}
-        data['data_x'], data['data_y'] = loading.load_fullres(files, data_directory)
-        data['valid_x'], data['valid_y'] = loading.load_patches(val_files, data_directory, valid_patch_size, n_patches, discard_flat=True)
-
+        data = {
+            'training': loading.load_images(files, data_directory, load='xy'),
+            'validation': loading.load_patches(val_files, data_directory, valid_patch_size, n_patches, discard_flat=True, load='xy')
+        }
+        
         # Repeat evaluation
         for rep in range(start_repetition, end_repetition):
             for reg in regularization_strengths:

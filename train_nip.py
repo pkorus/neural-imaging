@@ -324,8 +324,12 @@ def main():
     files, val_files = loading.discover_files(data_directory, training_spec['n_images'], training_spec['v_images'])
 
     # Load training / validation data
-    data_x, data_y = loading.load_fullres(files, data_directory)
-    valid_x, valid_y = loading.load_patches(val_files, data_directory, training_spec['valid_patch_size'], training_spec['valid_patches'], discard_flat=True)
+    
+    training = loading.load_images(files, data_directory, load='xy')
+    validation = loading.load_patches(val_files, data_directory, training_spec['valid_patch_size'], training_spec['valid_patches'], discard_flat=True, load='xy')
+    
+    data_x, data_y = training['x'], training['y']
+    valid_x, valid_y = validation['x'], validation['y']
 
     camera_name = args.camera
 
