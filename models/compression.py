@@ -15,7 +15,7 @@ class DCN:
     6. Output layer with K classes
     """
 
-    def __init__(self, sess, graph, x=None, label=None, nip_input=None, patch_size=128, n_filters=8, n_fscale=2, n_latent=1024, kernel=5, n_layers=3, dropout=0.0):
+    def __init__(self, sess, graph, x=None, label=None, nip_input=None, patch_size=128, **kwargs):
         """
         Creates a forensic analysis network.
 
@@ -36,11 +36,6 @@ class DCN:
         self.sess = tf.Session(graph=self.graph) if sess is None else sess
         self.label = '' if label is None else '_'+label
         self.patch_size = patch_size
-        self.n_layers = n_layers
-        self.n_latent = n_latent
-        self.n_filters = n_filters
-        self.n_fscale = n_fscale
-        self.kernel = kernel
         self.nip_input = nip_input
         
         with self.graph.as_default():
@@ -56,7 +51,7 @@ class DCN:
                 self.use_nip_input = True
             
             self.x = x
-            y, lr, loss, adam, opt, latent = self.construct_model()                
+            y, lr, loss, adam, opt, latent = self.construct_model(**kwargs)                
         
         self.y = y
         self.lr = lr
@@ -134,7 +129,7 @@ class DCN:
 
     def compression_stats(self, patch_size=None):
         ps = patch_size or self.patch_size
-        n_latent_bytes = 2
+        n_latent_bytes = 1
         if ps is None:
             raise ValueError('Patch size not specified!')
             
