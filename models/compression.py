@@ -80,6 +80,7 @@ class DCN:
                 v.clear()
 
             self.is_initialized = True
+            self._summary_writer = None
             self.reset_performance_stats()
 
     def compress(self, batch_x):
@@ -94,7 +95,7 @@ class DCN:
             y = self.sess.run(self.y, feed_dict={
                 self.latent: batch_z
             })
-            return y
+            return y.clip(0, 1)
             
     def process(self, batch_x):
         """
@@ -104,7 +105,7 @@ class DCN:
             y = self.sess.run(self.y, feed_dict={
                 self.x if not self.use_nip_input else self.nip_input: batch_x
             })
-            return y
+            return y.clip(0, 1)
     
     def process_direct(self, batch_x):
         """
@@ -114,7 +115,7 @@ class DCN:
             y = self.sess.run(self.y, feed_dict={
                 self.x: batch_x
             })
-            return y
+            return y.clip(0, 1)
     
     def training_step(self, batch_x, learning_rate):
         """
@@ -127,22 +128,33 @@ class DCN:
                     })
             return np.sqrt(2 * loss) # The L2 loss in TF is computed differently (half of non-square rooted norm)
 
-    def compression_stats(self, patch_size=None):
-        ps = patch_size or self.patch_size
-        n_latent_bytes = 1
+    def compression_stats(self, patch_size=None, n_latent_bytes=1):
+        ps = patch_size or self.patch_size        
         if ps is None:
             raise ValueError('Patch size not specified!')
             
         bitmap_size = ps * ps * 3
         return {
             'rate': bitmap_size / (n_latent_bytes * self.n_latent),
-            'bpp': 8 * self.n_latent * n_latent_bytes / (ps * ps)
+            'bpp': 8 * self.n_latent * n_latent_bytes / (ps * ps),
+            'bytes': self.n_latent * n_latent_bytes
         }
         
     @property
     def parameters(self):
         with self.graph.as_default():
             return [tv for tv in tf.trainable_variables() if tv.name.startswith('dcn/')]
+    
+    def get_summary_writer(self, dirname):
+        if not hasattr(self, '_summary_writer') or self._summary_writer is None:
+            
+            if not os.path.exists(dirname):
+                os.makedirs(dirname)
+            
+            with self.graph.as_default():
+                self._summary_writer = tf.summary.FileWriter(dirname, self.graph)
+                
+        return self._summary_writer
         
     def count_parameters(self):
         return np.sum([np.prod(tv.shape.as_list()) for tv in self.parameters])
@@ -173,3 +185,18 @@ class DCN:
             
         self.is_initialized = True
         self.reset_performance_stats()
+        
+    def short_name(self):        
+#         try:
+        current = self.latent
+        while len(current.shape) < 4:
+            current = current.op.inputs[0]
+            
+        if np.prod(current.shape[1:]) == self.n_latent:
+            dim_string = 'x'.join(str(x) for x in current.shape[1:])
+        else:
+            dim_string = '{}D'.format(self.latent.shape[-1])
+#         except:
+#             dim_string = '{}D'.format(self.latent.shape[-1])
+        
+        return '{}-{}'.format(type(self).__name__, dim_string)

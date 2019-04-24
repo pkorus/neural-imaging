@@ -11,26 +11,26 @@ from scipy.ndimage.filters import gaussian_filter
 
 # Helper functions for plotting images in Python (wrapper over matplotlib)    
 
-def thumbnails(images, axis=0):
+def thumbnails(images, n_cols=None):
     
-    if type(images) is np.ndarray:    
-        n_images = images.shape[axis]
-        if axis == 0:
-            img_size = images.shape[1:]
-        else:
-            img_size = images.shape[:axis]
-        images_x = int(np.ceil(np.sqrt(n_images)))
+    if type(images) is np.ndarray:
+        n_images = images.shape[0]
+        n_channels = images.shape[-1]
+        img_size = images.shape[1:]
+        if len(img_size) == 2:
+            img_size.append(1)
+            
+        images_x = n_cols or int(np.ceil(np.sqrt(n_images)))
         images_y = int(np.ceil(n_images / images_x))
-        size = (images_y, images_x)        
-        output = np.zeros((size[0] * img_size[0], size[1] * img_size[1]))
+        size = (images_y, images_x)
+        
+        # Allocate space for the thumbnails
+        output = np.zeros((size[0] * img_size[0], size[1] * img_size[1], img_size[2]))
         
         for r in range(n_images):
             bx = int(r % images_x)
             by = int(np.floor(r / images_x))
-            if axis == 0:
-                output[by*img_size[0]:(by+1)*img_size[0], bx*img_size[1]:(bx+1)*img_size[1]] = images[r,:,:].squeeze()
-            elif axis == 2:
-                output[by*img_size[0]:(by+1)*img_size[0], bx*img_size[1]:(bx+1)*img_size[1]] = images[:,:,r].squeeze()
+            output[by*img_size[0]:(by+1)*img_size[0], bx*img_size[1]:(bx+1)*img_size[1], :] = images[r].squeeze()
     
     return output
     

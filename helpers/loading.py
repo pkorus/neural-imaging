@@ -55,7 +55,10 @@ def load_images(files, data_directory, extension='png', load='xy'):
         for i, file in enumerate(files):
             npy_file = file.replace('.{}'.format(extension), '.npy')
             if 'x' in data: data['x'][i, :, :, :] = np.load(os.path.join(data_directory, npy_file))
-            if 'y' in data: data['y'][i, :, :, :] = imageio.imread(os.path.join(data_directory, file))
+            try:
+                if 'y' in data: data['y'][i, :, :, :] = imageio.imread(os.path.join(data_directory, file))
+            except:
+                print(file)
             pbar.update(1)
 
         return data
