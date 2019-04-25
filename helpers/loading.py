@@ -16,7 +16,7 @@ def discover_files(data_directory, n_images=120, v_images=30, extension='png', r
     """
 
     files = coreutils.listdir(data_directory, '.*\.{}$'.format(extension))
-    print('In total {} files available'.format(len(files)))
+    print('In total {} files available'.format(len(files)), flush=True)
 
     if randomize:
         np.random.shuffle(files)
@@ -54,11 +54,11 @@ def load_images(files, data_directory, extension='png', load='xy'):
 
         for i, file in enumerate(files):
             npy_file = file.replace('.{}'.format(extension), '.npy')
-            if 'x' in data: data['x'][i, :, :, :] = np.load(os.path.join(data_directory, npy_file))
             try:
-                if 'y' in data: data['y'][i, :, :, :] = imageio.imread(os.path.join(data_directory, file))
-            except:
-                print(file)
+                if 'x' in data: data['x'][i, :, :, :] = np.load(os.path.join(data_directory, npy_file))
+                if 'y' in data: data['y'][i, :, :, :] = imageio.imread(os.path.join(data_directory, file), pilmode='RGB')
+            except Exception as e:
+                print('Error: {} - {}'.format(file, e))
             pbar.update(1)
 
         return data
@@ -87,7 +87,7 @@ def load_patches(files, data_directory, patch_size=128, n_patches=100, discard_f
         for i, file in enumerate(files):
             npy_file = file.replace('.{}'.format(extension), '.npy')
             if 'x' in data: image_x = np.load(os.path.join(data_directory, npy_file))
-            if 'y' in data: image_y = imageio.imread(os.path.join(data_directory, file))
+            if 'y' in data: image_y = imageio.imread(os.path.join(data_directory, file), pilmode='RGB')
 
             if 'x' in data:
                 H, W = image_x.shape[0:2]

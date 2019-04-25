@@ -93,7 +93,8 @@ class DCN:
     def decompress(self, batch_z):
         with self.graph.as_default():
             y = self.sess.run(self.y, feed_dict={
-                self.latent: batch_z
+                self.latent: batch_z,
+                self.x: np.zeros((len(batch_z), self.patch_size, self.patch_size, 3))
             })
             return y.clip(0, 1)
             

@@ -7,6 +7,7 @@ import helpers
 
 from skimage.draw import line
 from scipy.ndimage.filters import gaussian_filter
+from skimage.transform import resize
 
 
 # Helper functions for plotting images in Python (wrapper over matplotlib)    
@@ -14,24 +15,42 @@ from scipy.ndimage.filters import gaussian_filter
 def thumbnails(images, n_cols=None):
     
     if type(images) is np.ndarray:
-        n_images = images.shape[0]
+        
+        n_images = images.shape[0]        
         n_channels = images.shape[-1]
         img_size = images.shape[1:]
+        
+        if len(img_size) == 2:
+            img_size.append(1)
+                        
+    elif type(images) is list or type(images) is tuple:
+        
+        n_images = len(images)
+        n_channels = images[0].shape[-1]
+        img_size = list(images[0].shape)
+        
         if len(img_size) == 2:
             img_size.append(1)
             
-        images_x = n_cols or int(np.ceil(np.sqrt(n_images)))
-        images_y = int(np.ceil(n_images / images_x))
-        size = (images_y, images_x)
+    print(img_size)
         
-        # Allocate space for the thumbnails
-        output = np.zeros((size[0] * img_size[0], size[1] * img_size[1], img_size[2]))
+    images_x = n_cols or int(np.ceil(np.sqrt(n_images)))
+    images_y = int(np.ceil(n_images / images_x))
+    size = (images_y, images_x)
         
-        for r in range(n_images):
-            bx = int(r % images_x)
-            by = int(np.floor(r / images_x))
-            output[by*img_size[0]:(by+1)*img_size[0], bx*img_size[1]:(bx+1)*img_size[1], :] = images[r].squeeze()
-    
+    # Allocate space for the thumbnails
+    output = np.zeros((size[0] * img_size[0], size[1] * img_size[1], img_size[2]))
+        
+    for r in range(n_images):
+        bx = int(r % images_x)
+        by = int(np.floor(r / images_x))
+        current = images[r].squeeze()
+        if current.shape[0] != img_size[0] or current.shape[1] != img_size[1]:
+            current = resize(current, img_size[:-1], anti_aliasing=True)
+        if len(current.shape) == 2:
+            current = np.expand_dims(current, axis=2)
+        output[by*img_size[0]:(by+1)*img_size[0], bx*img_size[1]:(bx+1)*img_size[1], :] = current
+        
     return output
     
 
@@ -79,7 +98,7 @@ def imsc(image, titles=None, figwidth=10, cmap='gray', ncols=None):
         
     if type(image) is list or type(image) is tuple:
         
-        n_images = len(images)
+        n_images = len(image)
         
         def fetch_example(image, n):
             return image[n]        
