@@ -78,7 +78,7 @@ def imsc(image, titles=None, figwidth=10, cmap='gray', ncols=None):
         
     if type(image) is list or type(image) is tuple:
         
-        n_images = len(images)
+        n_images = len(image)
         
         def fetch_example(image, n):
             return image[n]        
