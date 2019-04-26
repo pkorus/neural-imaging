@@ -8,6 +8,10 @@ import numpy as np
 import tensorflow as tf
 
 def log_image(thumbs):
+    
+    if thumbs.dtype == np.float:
+        thumbs = (255*thumbs).astype(np.uint8)
+    
     s = io.BytesIO()
     imageio.imsave(s, thumbs, format='png')
     return tf.Summary.Image(encoded_image_string=s.getvalue(), height=thumbs.shape[0], width=thumbs.shape[1])

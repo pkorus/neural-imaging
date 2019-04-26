@@ -11,7 +11,7 @@ import os
 import re
 
 
-def listdir(path, regex, dirs_only=False):
+def listdir(path, regex='.*\..*', dirs_only=False):
     """
     Returns a list of filenames in a directory matching a given regex.
     Example: listdir('~/datasets/raise/', '.*\.NEF$')
