@@ -51,15 +51,13 @@ class DCN:
                 self.use_nip_input = True
             
             self.x = x
-            y, lr, loss, adam, opt, latent = self.construct_model(**kwargs)                
-        
-        self.y = y
-        self.lr = lr
-        self.loss = loss        
-        self.adam = adam
-        self.opt = opt
-        self.latent = latent
-        
+            y, lr, loss, adam, opt, latent = self.construct_model(**kwargs)
+            
+        # Check if the model has set all expected attributes
+        setup_status = {key: hasattr(self, key) for key in ['y', 'lr', 'loss', 'adam', 'opt', 'latent', 'latent_shape', 'n_latent']}
+        if not all(setup_status.values()):
+            raise Error('The model construction function has failed to set-up some attributes: {}'.format(key for key, value in setup_status.items() if not value))
+                
         self.is_initialized = False
         self.reset_performance_stats()
 
@@ -93,8 +91,8 @@ class DCN:
     def decompress(self, batch_z):
         with self.graph.as_default():
             y = self.sess.run(self.y, feed_dict={
-                self.latent: batch_z,
-                self.x: np.zeros((len(batch_z), self.patch_size, self.patch_size, 3))
+                self.latent: batch_z
+#                 self.x: np.zeros((len(batch_z), self.patch_size, self.patch_size, 3))
             })
             return y.clip(0, 1)
             
@@ -187,17 +185,13 @@ class DCN:
         self.is_initialized = True
         self.reset_performance_stats()
         
-    def short_name(self):        
-#         try:
-        current = self.latent
-        while len(current.shape) < 4:
-            current = current.op.inputs[0]
-            
-        if np.prod(current.shape[1:]) == self.n_latent:
-            dim_string = 'x'.join(str(x) for x in current.shape[1:])
+    def short_name(self):
+        # If the latent representation 
+        if hasattr(self, 'latent_shape'):
+            dim_string = 'x'.join(str(x) for x in self.latent_shape[1:])
+        elif hasattr(self, 'n_latent'):
+            dim_string = '{}D'.format(self.n_latent)
         else:
-            dim_string = '{}D'.format(self.latent.shape[-1])
-#         except:
-#             dim_string = '{}D'.format(self.latent.shape[-1])
+            raise ValueError('The model does not report the latent space dimensionality.')
         
         return '{}-{}'.format(type(self).__name__, dim_string)
