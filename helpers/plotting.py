@@ -31,8 +31,6 @@ def thumbnails(images, n_cols=None):
         
         if len(img_size) == 2:
             img_size.append(1)
-            
-    print(img_size)
         
     images_x = n_cols or int(np.ceil(np.sqrt(n_images)))
     images_y = int(np.ceil(n_images / images_x))
