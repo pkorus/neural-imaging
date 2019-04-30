@@ -10,4 +10,4 @@ scikit-image
 matplotlib
 matplotlib2tikz
 sewar
-
+dahuffman

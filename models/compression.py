@@ -51,12 +51,40 @@ class DCN:
                 self.use_nip_input = True
             
             self.x = x
-            y, lr, loss, adam, opt, latent = self.construct_model(**kwargs)
-            
-        # Check if the model has set all expected attributes
-        setup_status = {key: hasattr(self, key) for key in ['y', 'lr', 'loss', 'adam', 'opt', 'latent', 'latent_shape', 'n_latent']}
-        if not all(setup_status.values()):
-            raise Error('The model construction function has failed to set-up some attributes: {}'.format(key for key, value in setup_status.items() if not value))
+            self.construct_model(**kwargs)
+
+            # Check if the model has set all expected attributes
+            setup_status = {key: hasattr(self, key) for key in ['y', 'latent_pre', 'latent_post', 'latent_shape', 'n_latent']}
+            if not all(setup_status.values()):
+                raise NotImplementedError('The model construction function has failed to set-up some attributes: {}'.format([key for key, value in setup_status.items() if not value]))
+                        
+            with tf.name_scope('dcn{}/optimization'.format(self.label)):
+                
+                with tf.name_scope('entropy'):
+                    
+                    # Estimate entropy
+                    values = tf.reshape(self.latent_post, (-1, 1))
+                    bin_centers = tf.constant(np.arange(-127, 129), shape=(1, 256), dtype=tf.float32)
+                    sigma = 1
+                    weights = tf.exp(-sigma * tf.pow(values - bin_centers, 2))
+                    print('Entropy weights', weights.shape)
+                    self.weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
+
+                    # Compute soft histogram
+                    histogram = tf.clip_by_value(tf.reduce_mean(weights, axis=0), 1e-6, 1)
+                    histogram = histogram / tf.reduce_sum(histogram)
+
+                    self.entropy = - tf.reduce_sum(histogram * tf.log(histogram) / 0.6931) # 0.6931 - log(2)
+                    self.histogram = histogram
+                
+                # Loss and SSIM
+                self.ssim = tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1)
+                self.loss = tf.nn.l2_loss(self.x - self.y)
+                
+                # Optimization
+                self.lr = tf.placeholder(tf.float32, name='dcn_learning_rate')
+                self.adam = tf.train.AdamOptimizer(learning_rate=self.lr)
+                self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
                 
         self.is_initialized = False
         self.reset_performance_stats()
@@ -83,49 +111,75 @@ class DCN:
 
     def compress(self, batch_x):
         with self.graph.as_default():
-            y = self.sess.run(self.latent, feed_dict={
+            y = self.sess.run(self.latent_post, feed_dict={
                 self.x if not self.use_nip_input else self.nip_input: batch_x
             })
             return y
-    
+
+    def compress_soft(self, batch_x):
+        with self.graph.as_default():
+            y = self.sess.run(self.latent_pre, feed_dict={
+                self.x if not self.use_nip_input else self.nip_input: batch_x
+            })
+            return y        
+        
     def decompress(self, batch_z):
         with self.graph.as_default():
-            y = self.sess.run(self.y, feed_dict={
-                self.latent: batch_z
-#                 self.x: np.zeros((len(batch_z), self.patch_size, self.patch_size, 3))
-            })
+            feed_dict = {
+                self.latent_post: batch_z
+            }
+            if hasattr(self, 'dropout'):
+                feed_dict[self.dropout] = 1.0
+                
+            y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
             
-    def process(self, batch_x):
+    def process(self, batch_x, dropout_keep_prob=1.0):
         """
         Returns the predicted class for an image batch. The input is fed to the NIP if the model is chained properly.
         """
         with self.graph.as_default():
-            y = self.sess.run(self.y, feed_dict={
+            feed_dict={
                 self.x if not self.use_nip_input else self.nip_input: batch_x
-            })
+            }
+            if hasattr(self, 'dropout'):
+                feed_dict[self.dropout] = dropout_keep_prob
+                
+            y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
     
-    def process_direct(self, batch_x):
+    def process_direct(self, batch_x, dropout_keep_prob=1.0):
         """
         Returns the predicted class for an image batch. The input is always fed to the FAN model directly.
         """
         with self.graph.as_default():
-            y = self.sess.run(self.y, feed_dict={
+            feed_dict = {
                 self.x: batch_x
-            })
+            }
+            if hasattr(self, 'dropout'):
+                feed_dict[self.dropout] = dropout_keep_prob
+                
+            y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
     
-    def training_step(self, batch_x, learning_rate):
+    def training_step(self, batch_x, learning_rate, dropout_keep_prob=1.0):
         """
         Make a single training step and return current loss. Only the FAN model is updated.
         """
         with self.graph.as_default():
-            _, loss = self.sess.run([self.opt, self.loss], feed_dict={
+            feed_dict = {
                     self.x if not self.use_nip_input else self.nip_input: batch_x,
                     self.lr: learning_rate
-                    })
-            return np.sqrt(2 * loss) # The L2 loss in TF is computed differently (half of non-square rooted norm)
+            }
+            if hasattr(self, 'dropout'):
+                feed_dict[self.dropout] = dropout_keep_prob
+            
+            _, loss, ssim, entropy = self.sess.run([self.opt, self.loss, self.ssim, self.entropy], feed_dict)
+            return {
+                'loss': np.sqrt(2 * loss), # The L2 loss in TF is computed differently (half of non-square rooted norm)
+                'ssim': ssim,
+                'entropy': entropy
+            }
 
     def compression_stats(self, patch_size=None, n_latent_bytes=1):
         ps = patch_size or self.patch_size        

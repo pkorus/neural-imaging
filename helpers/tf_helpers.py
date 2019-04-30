@@ -117,3 +117,28 @@ def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungrou
         <iframe seamless style="width:{}px;height:{}px;border:0" srcdoc="{}"></iframe>
     """.format(width, height, code.replace('"', '&quot;'))
     display(HTML(iframe))
+    
+def quantization(x, scope, name, rounding_approximation='soft', rounding_approximation_steps=5):
+    with tf.name_scope(scope):
+        
+        if rounding_approximation is None:
+            x = tf.round(x)
+        
+        elif rounding_approximation == 'sin':
+            x = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name=name)
+        
+        elif rounding_approximation == 'soft':
+            x_ = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name='{}_soft'.format(name))
+            x = tf.add(tf.stop_gradient(tf.round(x) - x_), x_, name=name)
+        
+        elif rounding_approximation == 'harmonic':
+            xa = x - tf.sin(2 * np.pi * x) / np.pi
+            for k in range(2, rounding_approximation_steps):
+                xa += tf.pow(-1.0, k) * tf.sin(2 * np.pi * k * x) / (k * np.pi)
+            x = xa    
+        
+        else:
+            raise ValueError('Unknown quantization! {}'.format(rounding_approximation))
+    
+    return x
+    
