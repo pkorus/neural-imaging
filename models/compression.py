@@ -38,6 +38,9 @@ class DCN:
         self.patch_size = patch_size
         self.nip_input = nip_input
         
+        # Some parameters
+        self.soft_quantization_sigma = 2
+        
         with self.graph.as_default():
             
             # Setup inputs:
@@ -54,9 +57,11 @@ class DCN:
             self.construct_model(**kwargs)
 
             # Check if the model has set all expected attributes
-            setup_status = {key: hasattr(self, key) for key in ['y', 'latent_pre', 'latent_post', 'latent_shape', 'n_latent']}
+            setup_status = {key: hasattr(self, key) for key in ['y', 'latent_pre', 'latent_post', 'latent_shape', 'n_latent', 'train_codebook', 'latent_bpf', 'scale_latent', 'entropy_weight']}
             if not all(setup_status.values()):
                 raise NotImplementedError('The model construction function has failed to set-up some attributes: {}'.format([key for key, value in setup_status.items() if not value]))
+                
+            # train_codebook=False, latent_bpf=8, scale_latent=True, entropy_weight=None
                         
             with tf.name_scope('dcn{}/optimization'.format(self.label)):
                 
@@ -64,11 +69,22 @@ class DCN:
                     
                     # Estimate entropy
                     values = tf.reshape(self.latent_post, (-1, 1))
-                    bin_centers = tf.constant(np.arange(-127, 129), shape=(1, 256), dtype=tf.float32)
-                    sigma = 1
-                    weights = tf.exp(-sigma * tf.pow(values - bin_centers, 2))
+                    
+                    # Initialize the quantization codebook
+                    qmin = -2 ** (self.latent_bpf - 1) + 1
+                    qmax = 2 ** (self.latent_bpf - 1)
+                                        
+                    print('Initializing {} codebook ({} bpf): from {} to {}'.format('trainable' if self.train_codebook else 'fixed', self.latent_bpf, qmin, qmax))
+                    if self.train_codebook:
+                        bin_centers = tf.get_variable('dcn{}/quantization/codebook'.format(self.label), shape=(1, 2 ** self.latent_bpf), initializer=tf.constant_initializer(np.arange(qmin, qmax + 1)))
+                    else:
+                        bin_centers = tf.constant(np.arange(qmin, qmax + 1), shape=(1, 2 ** self.latent_bpf), dtype=tf.float32)                        
+                    self.codebook = bin_centers
+                    
+                    # Compute soft-quantization
+                    weights = tf.exp(-self.soft_quantization_sigma * tf.pow(values - bin_centers, 2))
                     print('Entropy weights', weights.shape)
-                    self.weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
+                    self.weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)                    
 
                     # Compute soft histogram
                     histogram = tf.clip_by_value(tf.reduce_mean(weights, axis=0), 1e-6, 1)
@@ -80,8 +96,13 @@ class DCN:
                 # Loss and SSIM
                 self.ssim = tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1)
                 self.loss = tf.nn.l2_loss(self.x - self.y)
+                if self.entropy_weight is not None:
+                    self.loss = self.loss + self.entropy_weight * self.entropy
+                print('Initializing loss: L2 {}'.format('+ {} * entropy'.format(self.entropy_weight) if self.entropy_weight is not None else ''))
                 
                 # Optimization
+#                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+#                 with tf.control_dependencies(update_ops):
                 self.lr = tf.placeholder(tf.float32, name='dcn_learning_rate')
                 self.adam = tf.train.AdamOptimizer(learning_rate=self.lr)
                 self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
@@ -196,7 +217,7 @@ class DCN:
     @property
     def parameters(self):
         with self.graph.as_default():
-            return [tv for tv in tf.trainable_variables() if tv.name.startswith('dcn/')]
+            return [tv for tv in tf.trainable_variables() if tv.name.startswith('dcn{}/'.format(self.label))]
     
     def get_summary_writer(self, dirname):
         if not hasattr(self, '_summary_writer') or self._summary_writer is None:
@@ -240,12 +261,7 @@ class DCN:
         self.reset_performance_stats()
         
     def short_name(self):
-        # If the latent representation 
-        if hasattr(self, 'latent_shape'):
-            dim_string = 'x'.join(str(x) for x in self.latent_shape[1:])
-        elif hasattr(self, 'n_latent'):
-            dim_string = '{}D'.format(self.n_latent)
-        else:
+        if not hasattr(self, 'n_latent'):
             raise ValueError('The model does not report the latent space dimensionality.')
         
-        return '{}-{}'.format(type(self).__name__, dim_string)
+        return '{}-{}D'.format(type(self).__name__, self.n_latent)

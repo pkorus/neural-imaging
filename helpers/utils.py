@@ -317,3 +317,15 @@ def center_mask_2dfilter(f_size, channels):
 
     return indicator
 
+def slidingwindow(arr, window):
+    if arr.ndim != 3:
+        raise ValueError('The input array needs to be 3-D - (h,w,c)!')
+    n_windows = (arr.shape[0] // window) * (arr.shape[1] // window)
+    batch = np.zeros((n_windows, window, window, arr.shape[-1]), dtype=arr.dtype)
+    window_id = 0
+    for x in range(arr.shape[1] // window):
+        for y in range(arr.shape[0] // window):
+            batch[window_id] = arr[y*window:(y+1)*window, x*window:(x+1)*window, :]
+            window_id += 1
+    return batch
+    
