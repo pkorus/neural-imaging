@@ -2,10 +2,12 @@ import os
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
+
+from models.tfmodel import TFModel
 from helpers import utils
 
 
-class FAN:
+class FAN(TFModel):
     """
     A forensic analysis network with the following architecture:
 
@@ -33,9 +35,9 @@ class FAN:
         :param dropout: dropout rate for fully connected layers
         :param use_gap: whether to use a GAP or to reshape the final conv tensor
         """
-        
-        self.graph = tf.Graph() if graph is None else graph
-        self.sess = tf.Session(graph=self.graph) if sess is None else sess
+        super().__init__()
+#         self.graph = tf.Graph() if graph is None else graph
+#         self.sess = tf.Session(graph=self.graph) if sess is None else sess
         
         with self.graph.as_default():
             
@@ -138,24 +140,24 @@ class FAN:
         self.n_classes = n_classes
         self.n_convolutions = n_convolutions
         self.kernel = kernel
-        self.is_initialized = False
-        self.reset_performance_stats()
+#         self.is_initialized = False
+#         self.reset_performance_stats()
 
     def reset_performance_stats(self):
         self.train_perf = {'loss': []}
         self.valid_perf = {'accuracy': [], 'loss': []}
 
-    def init(self):
-        with self.graph.as_default():
-            self.sess.run(tf.variables_initializer(self.parameters))
-            self.sess.run(tf.variables_initializer(self.adam.variables()))
-            for k, v in self.train_perf.items():
-                v.clear()
-            for k, v in self.valid_perf.items():
-                v.clear()
+#     def init(self):
+#         with self.graph.as_default():
+#             self.sess.run(tf.variables_initializer(self.parameters))
+#             self.sess.run(tf.variables_initializer(self.adam.variables()))
+#             for k, v in self.train_perf.items():
+#                 v.clear()
+#             for k, v in self.valid_perf.items():
+#                 v.clear()
 
-            self.is_initialized = True
-            self.reset_performance_stats()
+#             self.is_initialized = True
+#             self.reset_performance_stats()
         
     def process(self, batch_x):
         """
@@ -222,34 +224,34 @@ class FAN:
                     })
             return loss
 
-    @property
-    def parameters(self):
-        with self.graph.as_default():
-            return [tv for tv in tf.trainable_variables() if tv.name.startswith('fan/')]
+#     @property
+#     def parameters(self):
+#         with self.graph.as_default():
+#             return [tv for tv in tf.trainable_variables() if tv.name.startswith('fan/')]
         
-    def count_parameters(self):
-        return np.sum([np.prod(tv.shape.as_list()) for tv in self.parameters])
+#     def count_parameters(self):
+#         return np.sum([np.prod(tv.shape.as_list()) for tv in self.parameters])
     
     def summary(self):
         return '{}x{} cnn with {}+1+1 conv layers + 2 fc layers [{:,} parameters]'.format(self.kernel, self.kernel, self.n_convolutions, self.count_parameters())
 
-    @property
-    def saver(self):
-        if not hasattr(self, '_saver') or self._saver is None:
-            with self.graph.as_default():
-                self._saver = tf.train.Saver(self.parameters, max_to_keep=0)
-        return self._saver
+#     @property
+#     def saver(self):
+#         if not hasattr(self, '_saver') or self._saver is None:
+#             with self.graph.as_default():
+#                 self._saver = tf.train.Saver(self.parameters, max_to_keep=0)
+#         return self._saver
 
-    def save_model(self, dirname, epoch):
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
+#     def save_model(self, dirname, epoch):
+#         if not os.path.exists(dirname):
+#             os.makedirs(dirname)
         
-        with self.graph.as_default():
-            self.saver.save(self.sess, os.path.join(dirname, 'fan'), global_step=epoch)
+#         with self.graph.as_default():
+#             self.saver.save(self.sess, os.path.join(dirname, 'fan'), global_step=epoch)
 
-    def load_model(self, dirname):
-        with self.graph.as_default():
-            self.saver.restore(self.sess, tf.train.latest_checkpoint(dirname))
+#     def load_model(self, dirname):
+#         with self.graph.as_default():
+#             self.saver.restore(self.sess, tf.train.latest_checkpoint(dirname))
             
-        self.is_initialized = True
-        self.reset_performance_stats()
+#         self.is_initialized = True
+#         self.reset_performance_stats()

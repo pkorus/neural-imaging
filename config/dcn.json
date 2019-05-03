@@ -1,0 +1,30 @@
+[
+	{
+	  "n_latent": 0,
+	  "n_filters": 8,
+	  "n_fscale": 2,
+	  "n_layers": 4,
+	  "r_layers": 0,
+	  "rounding": "soft",
+	  "dropout": false,
+	  "use_batchnorm": true,
+	  "train_codebook": false,
+	  "latent_bpf": 6,
+	  "scale_latent": true,
+	  "entropy_weight": 0
+	},
+	{
+	  "n_latent": 0,
+	  "n_filters": 8,
+	  "n_fscale": 2,
+	  "n_layers": 4,
+	  "r_layers": 0,
+	  "rounding": "soft",
+	  "dropout": false,
+	  "use_batchnorm": true,
+	  "train_codebook": false,
+	  "latent_bpf": 6,
+	  "scale_latent": true,
+	  "entropy_weight": 0
+	}
+]

@@ -2,17 +2,19 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
 import os
+
+from models.tfmodel import TFModel
 from helpers.utils import upsampling_kernel, bilin_kernel, gamma_kernels, lrelu, upsample_and_concat, identity_initializer, nm
 
 
-class NIPModel(object):
+class NIPModel(TFModel):
     """
     Abstract class for implementing neural imaging pipelines. Specific classes are expected to implement the
     'construct_model' method that builds the model, and 'parameters' method which lists its parameters. See existing
     classes for examples.
     """
 
-    def __init__(self, sess=None, graph=None, loss_metric='L2', patch_size=None, label=None, reuse_placeholders=None, **kwargs):
+    def __init__(self, sess=None, graph=None, loss_metric='L2', patch_size=None, label=None, reuse_placeholders=None, **kwargs):        
         """
         Base constructor with common setup.
 
@@ -24,9 +26,11 @@ class NIPModel(object):
         :param reuse_placeholders: Give a dictionary with 'x' and 'y' keys if multiple NIPs should use the same inputs
         :param kwargs: Additional arguments for specific NIP implementations
         """
+        
+        super().__init__()
         # Configure TF objects
-        self.graph = graph or tf.Graph()
-        self.sess = sess or tf.Session(graph=self.graph)
+#         self.graph = graph or tf.Graph()
+#         self.sess = sess or tf.Session(graph=self.graph)
 
         # Initialize input placeholders and run 'construct_model' to build the model and
         # setup its output as self.y
@@ -48,9 +52,9 @@ class NIPModel(object):
         self.construct_loss(loss_metric)
 
         # Helper flags/objects for using the model later
-        self.is_initialized = False
-        self._saver = None
-        self.reset_performance_stats()
+#         self.is_initialized = False
+#         self._saver = None
+#         self.reset_performance_stats()
     
     def construct_loss(self, loss_metric):
         with self.graph.as_default():
@@ -68,12 +72,16 @@ class NIPModel(object):
                 else:
                     raise ValueError('Unsupported loss metric!')
 
-                # Learning rate
-                self.lr = tf.placeholder(tf.float32, name='nip_learning_rate')
+                # In case the model used batch norm
+                update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+                with tf.control_dependencies(update_ops):                
+                    
+                    # Learning rate
+                    self.lr = tf.placeholder(tf.float32, name='nip_learning_rate')
 
-                # Create the optimizer and make sure only the parameters of the current model are updated
-                self.adam = tf.train.AdamOptimizer(learning_rate=self.lr, name='nip_adam{}'.format(self.label))
-                self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
+                    # Create the optimizer and make sure only the parameters of the current model are updated
+                    self.adam = tf.train.AdamOptimizer(learning_rate=self.lr, name='nip_adam{}'.format(self.label))
+                    self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
     
     def construct_model(self):
         """
@@ -91,69 +99,78 @@ class NIPModel(object):
         Make a single training step and return the loss.
         """
         with self.graph.as_default():
-            _, loss = self.sess.run([self.opt, self.loss], feed_dict={
+            feed_dict={
                     self.x: batch_x,
                     self.y_gt: batch_y,
                     self.lr: learning_rate
-                    })
+            }
+            if hasattr(self, 'is_training'):
+                feed_dict['is_training'] = True
+                
+            _, loss = self.sess.run([self.opt, self.loss], feed_dict=feed_dict)
             return loss
         
-    def process(self, batch_x):
+    def process(self, batch_x, is_training=False):
         """
         Develop RAW input and return RGB image.
         """
         if batch_x.ndim == 3:
             batch_x = np.expand_dims(batch_x, 0)
+        
         with self.graph.as_default():
-            y = self.sess.run(self.y, feed_dict={self.x: batch_x})
+            feed_dict={self.x: batch_x}
+            if hasattr(self, 'is_training'):
+                feed_dict['is_training'] = is_training
+                
+            y = self.sess.run(self.y, feed_dict=feed_dict)
             return y
         
-    def init(self):
-        with self.graph.as_default():
-            self.sess.run(tf.variables_initializer(self.adam.variables()))
-            self.sess.run(tf.variables_initializer(self.parameters))
-        self.is_initialized = True
-        self.reset_performance_stats()        
+#     def init(self):
+#         with self.graph.as_default():
+#             self.sess.run(tf.variables_initializer(self.adam.variables()))
+#             self.sess.run(tf.variables_initializer(self.parameters))
+#         self.is_initialized = True
+#         self.reset_performance_stats()        
 
-    @property
-    def saver(self):
-        if not hasattr(self, '_saver') or self._saver is None:
-            with self.graph.as_default():
-                self._saver = tf.train.Saver(self.parameters, max_to_keep=0)
-        return self._saver
+#     @property
+#     def saver(self):
+#         if not hasattr(self, '_saver') or self._saver is None:
+#             with self.graph.as_default():
+#                 self._saver = tf.train.Saver(self.parameters, max_to_keep=0)
+#         return self._saver
 
-    def save_model(self, camera_name, out_directory_root, epoch):
-        # The output directory can have formatting instructions - check if they exist and fill them with NIP info
-        if '{' in out_directory_root:
-            dirname = out_directory_root
-            dirname = dirname.replace('{camera}', camera_name)
-            dirname = dirname.replace('{nip-model}', type(self).__name__)
-        else:
-            dirname = os.path.join(out_directory_root, camera_name, type(self).__name__)
+#     def save_model(self, camera_name, out_directory_root, epoch):
+#         # The output directory can have formatting instructions - check if they exist and fill them with NIP info
+#         if '{' in out_directory_root:
+#             dirname = out_directory_root
+#             dirname = dirname.replace('{camera}', camera_name)
+#             dirname = dirname.replace('{nip-model}', type(self).__name__)
+#         else:
+#             dirname = os.path.join(out_directory_root, camera_name, type(self).__name__)
         
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
+#         if not os.path.exists(dirname):
+#             os.makedirs(dirname)
         
-        with self.graph.as_default():
-            self.saver.save(self.sess, os.path.join(dirname, 'nip'), global_step=epoch)
+#         with self.graph.as_default():
+#             self.saver.save(self.sess, os.path.join(dirname, 'nip'), global_step=epoch)
 
-    def load_model(self, camera_name, out_directory_root):
-        # The output directory can have formatting instructions - check if they exist and fill them with NIP info
-        if '{' in out_directory_root:        
-            dirname = out_directory_root
-            dirname = dirname.replace('{camera}', camera_name)
-            dirname = dirname.replace('{nip-model}', type(self).__name__)
-        else:
-            dirname = os.path.join(out_directory_root, camera_name, type(self).__name__)
+#     def load_model(self, camera_name, out_directory_root):
+#         # The output directory can have formatting instructions - check if they exist and fill them with NIP info
+#         if '{' in out_directory_root:        
+#             dirname = out_directory_root
+#             dirname = dirname.replace('{camera}', camera_name)
+#             dirname = dirname.replace('{nip-model}', type(self).__name__)
+#         else:
+#             dirname = os.path.join(out_directory_root, camera_name, type(self).__name__)
 
-        if not os.path.exists(dirname):
-            raise FileNotFoundError('Directory not found: {}'.format(dirname))
+#         if not os.path.exists(dirname):
+#             raise FileNotFoundError('Directory not found: {}'.format(dirname))
 
-        with self.graph.as_default():
-            self.saver.restore(self.sess, tf.train.latest_checkpoint(dirname))
+#         with self.graph.as_default():
+#             self.saver.restore(self.sess, tf.train.latest_checkpoint(dirname))
             
-        self.is_initialized = True
-        self.reset_performance_stats()
+#         self.is_initialized = True
+#         self.reset_performance_stats()
     
     def reset_performance_stats(self):
         # Training statistics
@@ -320,7 +337,9 @@ class DNet(NIPModel):
     def construct_model(self, n_layers=15, kernel=3, n_features=64):
 
         with self.graph.as_default():
-            with tf.name_scope('dnet{}'.format(self.label)):
+                        
+            with tf.name_scope('{}'.format(self.model_name)):
+                self.is_training = tf.get_variable('is_training'.format(self.label), shape=(), dtype=tf.bool, initializer=tf.constant_initializer(True))
                 k_initializer = tf.variance_scaling_initializer
 
                 # Initialize the upsampling kernel
@@ -332,18 +351,18 @@ class DNet(NIPModel):
                 # Convolutions on the sub-sampled input tensor
                 deep_x = self.x
                 for r in range(n_layers):
-                    deep_y = tf.layers.conv2d(deep_x, 12 if r == n_layers - 1 else n_features, kernel, use_bias=False, activation=None, name='dnet{}/conv{}'.format(self.label, r), padding='VALID', kernel_initializer=k_initializer) #
+                    deep_y = tf.layers.conv2d(deep_x, 12 if r == n_layers - 1 else n_features, kernel, use_bias=False, activation=None, name='{}/conv{}'.format(self.model_name, r), padding='VALID', kernel_initializer=k_initializer) #
                     print('CNN layer out: {}'.format(deep_y.shape))
-                    deep_y = tf.layers.batch_normalization(deep_y, name='dnet{}/bn{}'.format(self.label, r))
-                    deep_y = tf.nn.relu(deep_y, name='dnet{}/conv{}/Relu'.format(self.label, r))
+                    deep_y = tf.layers.batch_normalization(deep_y, name='{}/bn{}'.format(self.model_name, r), is_training=self.is_training)
+                    deep_y = tf.nn.relu(deep_y, name='{}/conv{}/Relu'.format(self.model_name, r))
                     deep_x = tf.pad(deep_y, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
 
                 # Upsample the input
-                h12 = tf.layers.conv2d(self.x, 12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, name='dnet{}/conv_h12'.format(self.label), trainable=False)
-                bayer = tf.depth_to_space(h12, 2, name="dnet{}/upscaled_bayer".format(self.label))
+                h12 = tf.layers.conv2d(self.x, 12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, name='{}/conv_h12'.format(self.model_name), trainable=False)
+                bayer = tf.depth_to_space(h12, 2, name="{}/upscaled_bayer".format(self.model_name))
 
                 # Upscale the conv. features and concatenate with the input RGB channels
-                features = tf.depth_to_space(deep_x, 2, name='dnet{}/upscaled_features'.format(self.label))
+                features = tf.depth_to_space(deep_x, 2, name='{}/upscaled_features'.format(self.model_name))
                 bayer_features = tf.concat((features, bayer), axis=3)            
 
                 print('Final deep X: {}'.format(deep_x.shape))
@@ -352,32 +371,32 @@ class DNet(NIPModel):
                 print('Concat shape: {}'.format(bayer_features.shape))
 
                 # Project the concatenated 6-D features (R G B bayer from input + 3 channels from convolutions)
-                pu = tf.layers.conv2d(bayer_features, n_features, kernel, kernel_initializer=k_initializer, use_bias=True, activation=tf.nn.relu, name='dnet{}/conv_postupscale'.format(self.label), padding='VALID', bias_initializer=tf.zeros_initializer)
+                pu = tf.layers.conv2d(bayer_features, n_features, kernel, kernel_initializer=k_initializer, use_bias=True, activation=tf.nn.relu, name='{}/conv_postupscale'.format(self.model_name), padding='VALID', bias_initializer=tf.zeros_initializer)
 
                 print('Post upscale: {}'.format(pu.shape))
 
                 # Final 1x1 conv to project each 64-D feature vector into the RGB colorspace
                 pu = tf.pad(pu, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
-                rgb = tf.layers.conv2d(pu, 3, 1, kernel_initializer=tf.ones_initializer, use_bias=False, activation=None, name='dnet{}/conv_final'.format(self.label), padding='VALID')            
+                rgb = tf.layers.conv2d(pu, 3, 1, kernel_initializer=tf.ones_initializer, use_bias=False, activation=None, name='{}/conv_final'.format(self.model_name), padding='VALID')            
 
                 print('RGB affine: {}'.format(rgb.shape))
 
                 self.yy = rgb
                 print('Y: {}'.format(self.yy.shape))
 
-            self.y = tf.clip_by_value(self.yy, 0, 1, name='dnet{}/y'.format(self.label))
+            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.model_name))
 
-    @property
-    def parameters(self):
-        with self.graph.as_default():
-            return [tv for tv in tf.trainable_variables() if tv.name.startswith('dnet{}'.format(self.label))]
+#     @property
+#     def parameters(self):
+#         with self.graph.as_default():
+#             return [tv for tv in tf.trainable_variables() if tv.name.startswith('dnet{}'.format(self.label))]
 
-    def init(self):
-        # This seems to be needed, because the 'moving_mean' variables are not initialized from the checkpoints
-        super().init()
-        with self.graph.as_default():
-            self.sess.run(tf.variables_initializer([tv for tv in tf.global_variables() if tv.name.startswith('dnet{}'.format(self.label))]))
+#     def init(self):
+#         # This seems to be needed, because the 'moving_mean' variables are not initialized from the checkpoints
+#         super().init()
+#         with self.graph.as_default():
+#             self.sess.run(tf.variables_initializer([tv for tv in tf.global_variables() if tv.name.startswith('dnet{}'.format(self.label))]))
 
-    def load_model(self, camera_name, out_directory_root):
-        self.init()
-        super().load_model(camera_name, out_directory_root)
+#     def load_model(self, camera_name, out_directory_root):
+#         self.init()
+#         super().load_model(camera_name, out_directory_root)

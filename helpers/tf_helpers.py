@@ -118,24 +118,40 @@ def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungrou
     """.format(width, height, code.replace('"', '&quot;'))
     display(HTML(iframe))
     
-def quantization(x, scope, name, rounding_approximation='soft', rounding_approximation_steps=5):
+def quantization(x, scope, name, rounding='soft', rounding_approximation_steps=5, codebook_tensor=None, soft_quantization_sigma=2):
+    
     with tf.name_scope(scope):
         
-        if rounding_approximation is None:
+        if rounding is None:
             x = tf.round(x)
         
-        elif rounding_approximation == 'sin':
+        elif rounding == 'sin':
             x = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name=name)
         
-        elif rounding_approximation == 'soft':
+        elif rounding == 'soft':
             x_ = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name='{}_soft'.format(name))
             x = tf.add(tf.stop_gradient(tf.round(x) - x_), x_, name=name)
         
-        elif rounding_approximation == 'harmonic':
+        elif rounding == 'harmonic':
             xa = x - tf.sin(2 * np.pi * x) / np.pi
             for k in range(2, rounding_approximation_steps):
                 xa += tf.pow(-1.0, k) * tf.sin(2 * np.pi * k * x) / (k * np.pi)
-            x = xa    
+            x = xa
+            
+        elif rounding == 'identity':
+            x = x
+            
+        elif rounding == 'soft-codebook':
+            print(x.shape)
+            values = tf.reshape(x, (-1, 1))
+            # Compute soft-quantization
+            weights = tf.exp(-soft_quantization_sigma * tf.pow(values - codebook_tensor, 2))
+            print('Entropy weights', weights.shape)
+            weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
+            soft = tf.reduce_mean(weights * codebook_tensor, axis=1)
+            soft = tf.reshape(soft, tf.shape(x))            
+            x_ = soft
+            x = tf.add(tf.stop_gradient(tf.round(x) - x_), x_, name=name)
         
         else:
             raise ValueError('Unknown quantization! {}'.format(rounding_approximation))

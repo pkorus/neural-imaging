@@ -174,11 +174,11 @@ def quickshow(x, label=None, *, axes=None, cmap='gray'):
         axes.set_yticks([])        
 
 
-def sub(n_plots, figwidth=10, ncols=None):
+def sub(n_plots, figwidth=10, figheight=None, ncols=None):
     subplot_x = ncols or int(np.ceil(np.sqrt(n_plots)))
     subplot_y = int(np.ceil(n_plots / subplot_x))
     
-    fig = plot.figure(tight_layout=True, figsize=(figwidth, figwidth * (subplot_y / subplot_x)))
+    fig = plot.figure(tight_layout=True, figsize=(figwidth, figheight or figwidth * (subplot_y / subplot_x)))
     axes = fig.subplots(nrows=subplot_y, ncols=subplot_x)
     axes_flat = []
 
