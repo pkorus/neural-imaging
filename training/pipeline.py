@@ -32,7 +32,7 @@ def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=
         images_y = np.ceil(data.count_validation / images_x)
         plt.figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
         
-    developed_out = np.zeros_like(data['validation']['y'])
+    developed_out = np.zeros_like(data['validation']['y'], dtype=np.float32)
 
     for b in range(data.count_validation):
 
@@ -158,14 +158,8 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     # Limit the number of checkpoints to 5
     model.saver.saver_def.max_to_keep = 5
     
-    n_batches = data['training']['x'].shape[0] // batch_size
+    n_batches = data.count_training // batch_size
     learning_rate = 1e-4
-
-    # Setup the array for storing the current batch - randomly sampled from full-resolution images
-#     H, W = data_x.shape[1:3]
-
-    # batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
-    # batch_y = np.zeros((batch_size, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)
 
     if not resume:
         losses_buf = deque(maxlen=10)
@@ -219,16 +213,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
         for epoch in range(start_epoch, n_epochs):
 
             for batch_id in range(n_batches):
-                
                 batch_x, batch_y = data.next_training_batch(batch_id, batch_size, patch_size)
-                
-#                 # Fill the batch with random crops of the images
-#                 for b in range(batch_size):
-#                     xx = np.random.randint(0, W - patch_size)
-#                     yy = np.random.randint(0, H - patch_size)
-#                     batch_x[b, :, :, :] = data['train']['x'][batch_id * batch_size + b , yy:yy + patch_size, xx:xx + patch_size, :].astype(np.float) / (2**16 - 1)
-#                     batch_y[b, :, :, :] = data['train']['y'][batch_id * batch_size + b , (2*yy):(2*yy + 2*patch_size), (2*xx):(2*xx + 2*patch_size), :].astype(np.float) / (2**8 - 1)
-
                 loss = model.training_step(batch_x, batch_y, learning_rate)
                 loss_local.append(loss)
 
@@ -236,7 +221,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
             losses_buf.append(performance['train_loss'][-1])
 
             if epoch == start_epoch:
-                developed = np.zeros_like(data['validation']['y'])
+                developed = np.zeros_like(data['validation']['y'], dtype=np.float32)
 
             if epoch % sampling_rate == 0:
                 # Use the current model to develop images in the validation set
