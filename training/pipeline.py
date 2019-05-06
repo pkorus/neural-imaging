@@ -24,6 +24,9 @@ def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=
     
     ssims, psnrs, losss = [], [], []
 
+    if loss_metric not in ['L2', 'L1']:
+        raise ValueError('Unsupported loss ({})!'.format(loss_metric))
+
     if savefig:
         images_x = np.minimum(data.count_validation, 10 if not show_ref else 5)
         images_y = np.ceil(data.count_validation / images_x)
@@ -32,20 +35,26 @@ def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=
     developed_out = np.zeros_like(data['validation']['y'])
 
     for b in range(data.count_validation):
+
+        # Fetch the next example and develop the RGB image
         example_x, example_y = data.next_validation_batch(b, 1)
         developed = model.process(example_x)
         developed = np.clip(developed, 0, 1)
         developed_out[b, :, :, :] = developed
         developed = developed[:, :, :, :].squeeze()        
-        reference = example_y
+        reference = example_y.squeeze()
+
+        # Compute loss & quality metrics
         ssim = float(compare_ssim(reference, developed, multichannel=True))
         psnr = float(compare_psnr(reference, developed))
+
         if loss_metric == 'L2':
             loss = float(np.mean(np.power(255.0*reference - 255.0*developed, 2.0)))
         elif loss_metric == 'L1':
             loss = float(np.mean(np.abs(255.0*reference - 255.0*developed)))
         else:
             raise ValueError('Unsupported loss ({})!'.format(loss_metric))
+
         ssims.append(ssim)
         psnrs.append(psnr)
         losss.append(loss)
@@ -53,7 +62,7 @@ def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=
         if savefig:
             plt.subplot(images_y, images_x, b+1)
             if show_ref:
-                plt.imshow(np.concatenate( (reference, developed), axis=1))
+                plt.imshow(np.concatenate((reference, developed), axis=1))
             else:
                 plt.imshow(developed)
             plt.xticks([])
@@ -155,8 +164,8 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     # Setup the array for storing the current batch - randomly sampled from full-resolution images
 #     H, W = data_x.shape[1:3]
 
-    batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
-    batch_y = np.zeros((batch_size, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)        
+    # batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
+    # batch_y = np.zeros((batch_size, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)
 
     if not resume:
         losses_buf = deque(maxlen=10)
@@ -211,7 +220,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
 
             for batch_id in range(n_batches):
                 
-                batch_x = data.next_training_batch(batch_id, batch_size, patch_size)
+                batch_x, batch_y = data.next_training_batch(batch_id, batch_size, patch_size)
                 
 #                 # Fill the batch with random crops of the images
 #                 for b in range(batch_size):
