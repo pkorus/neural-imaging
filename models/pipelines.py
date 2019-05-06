@@ -51,11 +51,6 @@ class NIPModel(TFModel):
         self.loss_metric = loss_metric
         self.construct_loss(loss_metric)
 
-        # Helper flags/objects for using the model later
-#         self.is_initialized = False
-#         self._saver = None
-#         self.reset_performance_stats()
-    
     def construct_loss(self, loss_metric):
         with self.graph.as_default():
             with tf.name_scope('nip_optimization'):
@@ -105,7 +100,7 @@ class NIPModel(TFModel):
                     self.lr: learning_rate
             }
             if hasattr(self, 'is_training'):
-                feed_dict['is_training'] = True
+                feed_dict[self.is_training] = True
                 
             _, loss = self.sess.run([self.opt, self.loss], feed_dict=feed_dict)
             return loss
@@ -120,60 +115,12 @@ class NIPModel(TFModel):
         with self.graph.as_default():
             feed_dict={self.x: batch_x}
             if hasattr(self, 'is_training'):
-                feed_dict['is_training'] = is_training
+                feed_dict[self.is_training] = is_training
                 
             y = self.sess.run(self.y, feed_dict=feed_dict)
             return y
-        
-#     def init(self):
-#         with self.graph.as_default():
-#             self.sess.run(tf.variables_initializer(self.adam.variables()))
-#             self.sess.run(tf.variables_initializer(self.parameters))
-#         self.is_initialized = True
-#         self.reset_performance_stats()        
-
-#     @property
-#     def saver(self):
-#         if not hasattr(self, '_saver') or self._saver is None:
-#             with self.graph.as_default():
-#                 self._saver = tf.train.Saver(self.parameters, max_to_keep=0)
-#         return self._saver
-
-#     def save_model(self, camera_name, out_directory_root, epoch):
-#         # The output directory can have formatting instructions - check if they exist and fill them with NIP info
-#         if '{' in out_directory_root:
-#             dirname = out_directory_root
-#             dirname = dirname.replace('{camera}', camera_name)
-#             dirname = dirname.replace('{nip-model}', type(self).__name__)
-#         else:
-#             dirname = os.path.join(out_directory_root, camera_name, type(self).__name__)
-        
-#         if not os.path.exists(dirname):
-#             os.makedirs(dirname)
-        
-#         with self.graph.as_default():
-#             self.saver.save(self.sess, os.path.join(dirname, 'nip'), global_step=epoch)
-
-#     def load_model(self, camera_name, out_directory_root):
-#         # The output directory can have formatting instructions - check if they exist and fill them with NIP info
-#         if '{' in out_directory_root:        
-#             dirname = out_directory_root
-#             dirname = dirname.replace('{camera}', camera_name)
-#             dirname = dirname.replace('{nip-model}', type(self).__name__)
-#         else:
-#             dirname = os.path.join(out_directory_root, camera_name, type(self).__name__)
-
-#         if not os.path.exists(dirname):
-#             raise FileNotFoundError('Directory not found: {}'.format(dirname))
-
-#         with self.graph.as_default():
-#             self.saver.restore(self.sess, tf.train.latest_checkpoint(dirname))
-            
-#         self.is_initialized = True
-#         self.reset_performance_stats()
     
     def reset_performance_stats(self):
-        # Training statistics
         self.train_perf = {'loss': []}
         self.valid_perf = {'loss': [], 'psnr': [], 'ssim': []}        
 
@@ -183,13 +130,6 @@ class NIPModel(TFModel):
             return '{}'.format(type(self).__name__)
         else:
             return '{}{}'.format(type(self).__name__, self.label)
-
-    @property
-    def parameters(self):
-        """
-        Return an iterable with model parameters. Use tf.trainable_variables() and filter based on your parameters names (with prefix).
-        """
-        raise NotImplementedError()
     
     def count_parameters(self):
         return np.sum([np.prod(tv.shape.as_list()) for tv in self.parameters])
@@ -245,11 +185,6 @@ class UNet(NIPModel):
             with tf.name_scope('unet{}'.format(self.label)):
                 self.yy = tf.depth_to_space(conv10, 2)
             self.y = tf.clip_by_value(self.yy, 0, 1, name='unet{}/y'.format(self.label))            
-                
-    @property
-    def parameters(self):
-        with self.graph.as_default():
-            return [tv for tv in tf.trainable_variables() if tv.name.startswith('unet{}'.format(self.label))]
 
 
 class INet(NIPModel):
@@ -309,11 +244,6 @@ class INet(NIPModel):
             
             self.y = tf.clip_by_value(self.yy, 0, 1, name='inet{}/y'.format(self.label))
 
-    @property
-    def parameters(self):
-        with self.graph.as_default():
-            return [tv for tv in tf.trainable_variables() if tv.name.startswith('inet{}'.format(self.label))]
-
     def init(self):
         # TODO That's a fairly ugly way to do it - need to find a better solution
         super().init()
@@ -353,7 +283,7 @@ class DNet(NIPModel):
                 for r in range(n_layers):
                     deep_y = tf.layers.conv2d(deep_x, 12 if r == n_layers - 1 else n_features, kernel, use_bias=False, activation=None, name='{}/conv{}'.format(self.model_name, r), padding='VALID', kernel_initializer=k_initializer) #
                     print('CNN layer out: {}'.format(deep_y.shape))
-                    deep_y = tf.layers.batch_normalization(deep_y, name='{}/bn{}'.format(self.model_name, r), is_training=self.is_training)
+                    deep_y = tf.layers.batch_normalization(deep_y, name='{}/bn{}'.format(self.model_name, r), training=self.is_training)
                     deep_y = tf.nn.relu(deep_y, name='{}/conv{}/Relu'.format(self.model_name, r))
                     deep_x = tf.pad(deep_y, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
 

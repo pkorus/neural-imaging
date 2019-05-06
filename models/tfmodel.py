@@ -1,6 +1,8 @@
 import os
 import tensorflow as tf
 import numpy as np
+from collections import OrderedDict
+
 
 class TFModel(object):
 
@@ -13,8 +15,7 @@ class TFModel(object):
         self._saver = None
         self._summary_writer = None
         self.reset_performance_stats()        
-        
-    
+
     def reset_performance_stats(self):
         self.train_perf = {'loss': []}
         self.valid_perf = {'loss': []}
@@ -27,10 +28,7 @@ class TFModel(object):
             self._summary_writer = None
             self._saver = None
             self.reset_performance_stats()
-    
-#     def training_step(self, batch_x, batch_y, learning_rate, **kwargs):
-#         raise NotImplementedError()
-            
+
     @property
     def parameters(self):
         with self.graph.as_default():
@@ -61,7 +59,6 @@ class TFModel(object):
 
     @property
     def saver(self):
-#         class_name = type(self).__name__.lower()
         if not hasattr(self, '_saver') or self._saver is None:
             with self.graph.as_default():
                 self._saver = tf.train.Saver(self.parameters, max_to_keep=0)
