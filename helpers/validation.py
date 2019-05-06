@@ -9,65 +9,56 @@ from skimage.measure import compare_ssim, compare_psnr
 from models.pipelines import NIPModel
 
 
-def confusion(mc, valid_x, valid_y, label_multiplier=1):
+def confusion(mc, data, lagel_generator, label_multiplier=1):
     """ Generates a confusion matrix for a FAN model."""
-    
-    if valid_x.dtype.name != 'float32':
-        raise ValueError('The input data should be float32 type')
-    if valid_x.max() > 1:
-        raise ValueError('The input data has values exceeding 1.')
-            
-    batch_size = np.minimum(50, valid_x.shape[0])
-    n_batches = valid_x.shape[0] // batch_size
+
+    batch_size = np.minimum(10, data.count_validation)
+    n_batches = data.count_validation // batch_size
     n_classes = mc.n_classes
     
     conf = np.zeros((n_classes, n_classes))
     
     for batch in range(n_batches):
-        batch_x = valid_x[(batch*batch_size):(batch+1)*batch_size]
-        if type(valid_y) is types.FunctionType:
-            batch_y = valid_y(len(batch_x))
+        batch_x, _ = data.next_validation_batch(batch, batch_size)
+
+        if type(lagel_generator) is types.FunctionType:
+            batch_y = lagel_generator(len(batch_x))
         else:
-            batch_y = valid_y[(batch*batch_size*label_multiplier):(batch+1)*batch_size*label_multiplier]
+            batch_y = lagel_generator[(batch*batch_size*label_multiplier):(batch+1)*batch_size*label_multiplier]
         predicted_labels = mc.process(batch_x)
         
         for c in range(n_classes):
             for c_ in range(n_classes):
                 conf[c, c_] += np.sum( (batch_y == c) * (predicted_labels == c_))
 
-    return conf / len(valid_x)
+    return conf / data.count_validation
 
 
-def validate_nip(model, valid_x, valid_y, save_dir=False, epoch=0, show_ref=False, loss_type='L2'):
+def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type='L2'):
     """ Develops image patches using the given NIP and returns standard image quality measures.
         If requested, resulting patches are visualized as thumbnails and saved to a directory.
     """
-    if valid_x.dtype.name != 'float32':
-        raise ValueError('The input data should be float32 type')
-    if valid_x.max() > 1:
-        raise ValueError('The input data has values exceeding 1.')
-            
+
     ssims = []
     psnrs = []
     losss = []
 
     if save_dir is not None:
         # Setup output figure
-        images_x = np.minimum(valid_x.shape[0], 10 if not show_ref else 5)
-        images_y = np.ceil(valid_x.shape[0] / images_x)
+        images_x = np.minimum(data.count_validation, 10 if not show_ref else 5)
+        images_y = np.ceil(data.count_validation / images_x)
         fig = plt.figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
         
-    developed_out = np.zeros_like(valid_y)
+    developed_out = np.zeros_like(data['validation']['y'], dtype=np.float32)
 
-    for b in range(valid_x.shape[0]):
-        
-        # Use NIP to develop the image
-        developed = model.process(valid_x[b:b+1, :, :, :])
+    for b in range(data.count_validation):
+        example_x, example_y = data.next_validation_batch(b, 1)
+        developed = model.process(example_x)
         developed = np.clip(developed, 0, 1)
         developed_out[b, :, :, :] = developed
-        developed = developed[:, :, :, :].squeeze()        
-        reference = valid_y[b, :, :, :]
-        
+        developed = developed[:, :, :, :].squeeze()
+        reference = example_y.squeeze()
+
         # Compute stats
         ssim = compare_ssim(reference, developed, multichannel=True)
         psnr = compare_psnr(reference, developed)
@@ -95,12 +86,12 @@ def validate_nip(model, valid_x, valid_y, save_dir=False, epoch=0, show_ref=Fals
             ax.set_title('{:.1f} dB / {:.2f}'.format(psnr, ssim), fontsize=6)
 
     if save_dir is not None:
-        # Save the figure
-        if '{' in save_dir and '}' in save_dir:
-            dirname = save_dir.replace('{nip-model}', type(model).__name__)
-        else:
-            dirname = os.path.join(save_dir, type(model).__name__)      
-                
+        # # Save the figure
+        # if '{' in save_dir and '}' in save_dir:
+        #     dirname = save_dir.replace('{nip-model}', type(model).__name__)
+        # else:
+        dirname = os.path.join(save_dir, type(model).__name__)
+
         if not os.path.exists(dirname):
             os.makedirs(dirname)
         fig.savefig('{}/nip_validation_{:05d}.jpg'.format(dirname, epoch), bbox_inches='tight', dpi=150)
@@ -110,25 +101,22 @@ def validate_nip(model, valid_x, valid_y, save_dir=False, epoch=0, show_ref=Fals
     return ssims, psnrs, losss
 
 
-def validate_fan(mc, valid_x, valid_y, label_multiplier, get_labels=False):
+def validate_fan(mc, data, label_generator, label_multiplier, get_labels=False):
     """ Computes the average accuracy for a forensics network. """
-    
-    if valid_x.dtype.name != 'float32':
-        raise ValueError('The input data should be float32 type')
-    if valid_x.max() > 1:
-        raise ValueError('The input data has values exceeding 1.')
-        
-    batch_size = np.minimum(10, valid_x.shape[0])
-    n_batches = valid_x.shape[0] // batch_size
+
+    batch_size = np.minimum(10, data.count_validation)
+    n_batches = data.count_validation // batch_size
     out_labels = []
     accurracies = []
 
     for batch in range(n_batches):
-        batch_x = valid_x[(batch*batch_size):(batch+1)*batch_size]
-        if type(valid_y) is types.FunctionType:
-            batch_y = valid_y(len(batch_x))
+
+        batch_x, _ = data.next_validation_batch(batch, batch_size)
+
+        if type(label_generator) is types.FunctionType:
+            batch_y = label_generator(len(batch_x))
         else:
-            batch_y = valid_y[(batch*batch_size*label_multiplier):(batch+1)*batch_size*label_multiplier]
+            batch_y = label_generator[(batch * batch_size * label_multiplier):(batch + 1) * batch_size * label_multiplier]
 
         if label_multiplier * len(batch_x) != len(batch_y):
             raise RuntimeError('Number of labels is not equal to the number of examples! {} x {} vs. {}'.format(label_multiplier, len(batch_x), len(batch_y)))
@@ -252,17 +240,9 @@ def save_training_progress(training_summary, model, fan, conf, root_dir):
             training['forensics']['validation']['confusion'] = conf.tolist()
 
     # Make dirs if needed
-    if isinstance(model, NIPModel):        
-        if '{' in root_dir and '}' in root_dir:
-            dirname = root_dir.replace('{nip-model}', type(model).__name__)
-        else:
-            dirname = os.path.join(root_dir, type(model).__name__)
-    else:
-        dirname = root_dir
-        
-    if not os.path.exists(dirname):
-        os.makedirs(dirname)
+    if not os.path.exists(root_dir):
+        os.makedirs(root_dir)
     
     # Save as JSON
-    with open(os.path.join(dirname, 'training.json'), 'w') as f:
+    with open(os.path.join(root_dir, 'training.json'), 'w') as f:
         json.dump(training, f, indent=4)

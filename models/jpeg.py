@@ -1,6 +1,6 @@
 import tensorflow as tf
-import numpy as np
-from helpers.utils import jpeg_qtable, tf_helpers
+from helpers.utils import jpeg_qtable
+from helpers import tf_helpers
 
 
 class DJPG:

@@ -1,10 +1,9 @@
+import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-import numpy as np
-import os
 
 from models.tfmodel import TFModel
-from helpers.utils import upsampling_kernel, bilin_kernel, gamma_kernels, lrelu, upsample_and_concat, identity_initializer, nm
+from helpers.utils import upsampling_kernel, bilin_kernel, gamma_kernels, lrelu, upsample_and_concat
 
 
 class NIPModel(TFModel):
@@ -26,11 +25,7 @@ class NIPModel(TFModel):
         :param reuse_placeholders: Give a dictionary with 'x' and 'y' keys if multiple NIPs should use the same inputs
         :param kwargs: Additional arguments for specific NIP implementations
         """
-        
         super().__init__(sess, graph, label)
-        # Configure TF objects
-#         self.graph = graph or tf.Graph()
-#         self.sess = sess or tf.Session(graph=self.graph)
 
         # Initialize input placeholders and run 'construct_model' to build the model and
         # setup its output as self.y
@@ -315,18 +310,3 @@ class DNet(NIPModel):
                 print('Y: {}'.format(self.yy.shape))
 
             self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.model_name))
-
-#     @property
-#     def parameters(self):
-#         with self.graph.as_default():
-#             return [tv for tv in tf.trainable_variables() if tv.name.startswith('dnet{}'.format(self.label))]
-
-#     def init(self):
-#         # This seems to be needed, because the 'moving_mean' variables are not initialized from the checkpoints
-#         super().init()
-#         with self.graph.as_default():
-#             self.sess.run(tf.variables_initializer([tv for tv in tf.global_variables() if tv.name.startswith('dnet{}'.format(self.label))]))
-
-#     def load_model(self, camera_name, out_directory_root):
-#         self.init()
-#         super().load_model(camera_name, out_directory_root)

@@ -18,7 +18,7 @@ from models.forensics import FAN
 from models.jpeg import DJPG
 
 # Helper functions
-from helpers import coreutils, tf_helpers, validation, loading
+from helpers import coreutils, tf_helpers, validation
 
 
 @coreutils.logCall
@@ -196,19 +196,24 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
     if any([x not in distribution for x in ['channel_jpeg_quality', 'jpeg_approximation', 'forensics_classes', 'channel_downsampling']]):
         raise RuntimeError('Missing keys in the distribution dictionary! {}'.format(distribution.keys()))
-        
-    if any([x not in data for x in ['training', 'validation']]):
-        raise RuntimeError('Missing keys in the data dictionary! {}'.format(data.keys()))
-        
-    if any([x not in data['training'] for x in 'xy']) or any([x not in data['validation'] for x in 'xy']):
-        raise RuntimeError('Missing x or y data in the data dictionary! {}'.format({k: v.keys() for k, v in data.items()}))
-                    
+
+    if data is None:
+        raise ValueError('Training data seems not to be loaded!')
+
+    try:
+        batch_x, batch_y = data.next_training_batch(0, 5, training['patch_size'] * 2)
+        if batch_x.shape != (5, training['patch_size'], training['patch_size'], 4) or batch_y.shape != (5, 2 * training['patch_size'], 2 * training['patch_size'], 3):
+            raise ValueError('The training batch returned by the dataset is of invalid size!')
+
+    except Exception as e:
+        raise ValueError('Data set error: {}'.format(e))
+
     print('\n## Training NIP/FAN for manipulation detection: cam={} / lr={:.4f} / run={:3d} / epochs={}, root={}'.format(training['camera_name'], training['nip_weight'], training['run_number'], training['n_epochs'], directories['root']), flush=True)
 
-    nip_save_dir = os.path.join(directories['root'], training['camera_name'], '{nip-model}', 'lr-{:0.4f}'.format(training['nip_weight']), '{:03d}'.format(training['run_number']))
+    nip_save_dir = os.path.join(directories['root'], training['camera_name'], type(tf_ops['nip']).__name__, 'lr-{:0.4f}'.format(training['nip_weight']), '{:03d}'.format(training['run_number']))
     print('(progress) ->', nip_save_dir)
 
-    model_directory = os.path.join(nip_save_dir.replace('{nip-model}', type(tf_ops['nip']).__name__), 'models')
+    model_directory = os.path.join(nip_save_dir, 'models')
     print('(model) ---->', model_directory)
 
     # Enable joint optimization if NIP weight is non-zero
@@ -216,19 +221,19 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
     # Basic setup
     problem_description = 'manipulation detection'
-    patch_size = 128
-    batch_size = 20
-    sampling_rate = 50
+    patch_size = training['patch_size']
+    batch_size = training['batch_size']
+    sampling_rate = training['sampling_rate']
 
     learning_rate_decay_schedule = 100
     learning_rate_decay_rate = 0.90
 
     # Setup the arrays for storing the current batch - randomly sampled from full-resolution images
-    H, W = data['training']['x'].shape[1:3]
+    # H, W = data['training']['x'].shape[1:3]
     learning_rate = training['learning_rate']
 
-    batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
-    batch_y = np.zeros((batch_size, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)
+    # batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
+    # batch_y = np.zeros((batch_size, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)
 
     # Initialize models
     tf_ops['fan'].init()
@@ -236,9 +241,9 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     tf_ops['sess'].run(tf.global_variables_initializer())
 
     if training['use_pretrained_nip']:
-        tf_ops['nip'].load_model(camera_name=training['camera_name'], out_directory_root=directories['nip_snapshots'])
+        tf_ops['nip'].load_model(os.path.join(directories['nip_snapshots'], training['camera_name']))
 
-    n_batches = data['training']['x'].shape[0] // batch_size
+    n_batches = data.count_training // batch_size
 
     model_list = ['nip', 'fan']
 
@@ -302,12 +307,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
             for batch_id in range(n_batches):
 
                 # Extract random patches for the current batch of images
-                batch_x = data.next_training_batch(batch_id, batch_size, patch_size)
-#                 for b in range(batch_size):
-#                     xx = np.random.randint(0, W - patch_size)
-#                     yy = np.random.randint(0, H - patch_size)
-#                     batch_x[b, :, :, :] = data['training']['x'][batch_id * batch_size + b, yy:yy + patch_size, xx:xx + patch_size, :].astype(np.float) / (2**16 - 1)
-#                     batch_y[b, :, :, :] = data['training']['y'][batch_id * batch_size + b, (2*yy):(2*yy + 2*patch_size), (2*xx):(2*xx + 2*patch_size), :].astype(np.float) / (2**8 - 1)
+                batch_x, batch_y = data.next_training_batch(batch_id, batch_size, 2 * patch_size)
 
                 if joint_optimization:
                     # Make custom optimization step                    
@@ -337,16 +337,16 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
                 # Validate the NIP model
                 if joint_optimization:
-                    values = validation.validate_nip(tf_ops['nip'], data['validation']['x'][::50], data['validation']['y'][::50], None, epoch=epoch, show_ref=True, loss_type=tf_ops['nip'].loss_metric)
+                    values = validation.validate_nip(tf_ops['nip'], data, None, epoch=epoch, show_ref=True, loss_type=tf_ops['nip'].loss_metric)
                     for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
                         tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
 
                 # Validate the forensics network
-                accuracy = validation.validate_fan(tf_ops['fan'], data['validation']['x'][::1], lambda x: batch_labels(x, n_classes), n_classes)
+                accuracy = validation.validate_fan(tf_ops['fan'], data, lambda x: batch_labels(x, n_classes), n_classes)
                 tf_ops['fan'].valid_perf['accuracy'].append(accuracy)
 
                 # Confusion matrix
-                conf = validation.confusion(tf_ops['fan'], data['validation']['x'], lambda x: batch_labels(x, n_classes))
+                conf = validation.confusion(tf_ops['fan'], data, lambda x: batch_labels(x, n_classes))
 
                 # Visualize current progress
                 # TODO Memory is leaking here - looks like some problem in matplotlib - skip for now
@@ -357,8 +357,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
                 # Monitor memory usage
                 # gc.collect()
-                memory['tf-ram'].append(round(tf_helpers.memory_usage_tf(tf_ops['sess']) / 1024 / 1024, 1))
-                memory['tf-vars'].append(round(tf_helpers.memory_usage_tf_variables() / 1024 / 1024, 1))
+                # memory['tf-ram'].append(round(tf_helpers.memory_usage_tf(tf_ops['sess']) / 1024 / 1024, 1))
+                # memory['tf-vars'].append(round(tf_helpers.memory_usage_tf_variables() / 1024 / 1024, 1))
                 memory['cpu-proc'].append(round(coreutils.memory_usage_proc(), 1))
                 memory['cpu-resource'].append(round(coreutils.memory_usage_resource(), 1))
 
@@ -373,9 +373,12 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
             pbar.update(1)
 
     # Plot final results
-    values = validation.validate_nip(tf_ops['nip'], data['validation']['x'][::50], data['validation']['y'][::50], nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
+    values = validation.validate_nip(tf_ops['nip'], data, nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
     for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
         tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
+
+    # Compute confusion matrix
+    conf = validation.confusion(tf_ops['fan'], data, lambda x: batch_labels(x, n_classes))
 
     # Save model progress
     validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], conf, nip_save_dir)
@@ -386,7 +389,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     # Save models
     # Root     : train_manipulation / camera_name / {INet} / lr-01 / 001 / models / {INet/FAN}
     print('Saving models...')
-    tf_ops['nip'].save_model(training['camera_name'], os.path.join(model_directory, '{nip-model}'), epoch)
+
+    tf_ops['nip'].save_model(os.path.join(model_directory, type(tf_ops['nip']).__name__, training['camera_name']), epoch)
     tf_ops['fan'].save_model(os.path.join(model_directory, 'FAN'), epoch)
     
     return nip_save_dir.replace('{nip-model}', type(tf_ops['nip']).__name__)
