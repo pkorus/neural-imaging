@@ -30,6 +30,7 @@ class DCN(TFModel):
         self.nip_input = nip_input
         self.latent_bpf = kwargs['latent_bpf']
         self.train_codebook = kwargs['train_codebook']
+        self.args = kwargs
         
         # Some parameters
         self.soft_quantization_sigma = 2
@@ -110,8 +111,11 @@ class DCN(TFModel):
         raise Error('Not implemented!')
         
     def reset_performance_stats(self):
-        self.train_perf = {'loss': []}
-        self.valid_perf = {'loss': []}
+        self.performance = {
+            'loss': {'training': [], 'validation': []},
+            'entropy': {'training': [], 'validation': []},
+            'ssim': {'training': [], 'validation': []}
+        }
 
     def compress(self, batch_x, is_training=False):
         with self.graph.as_default():
@@ -229,7 +233,7 @@ class DCN(TFModel):
         if not hasattr(self, 'n_latent'):
             raise ValueError('The model does not report the latent space dimensionality.')
         
-        return '{}-{}D'.format(type(self).__name__, self.n_latent)
+        return '{}-{}D'.format(type(self).__name__, self.n_latent)        
     
     
 class AutoencoderDCN(DCN):

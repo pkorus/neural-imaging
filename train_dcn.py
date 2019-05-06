@@ -97,14 +97,17 @@ def main():
 
     training_spec = {
         'seed': 1234,
+        'dataset': args.data,
         'n_images': int(args.split.split(':')[0]),
         'v_images': int(args.split.split(':')[1]),
-        'valid_patches': int(args.split.split(':')[2])        
+        'valid_patches': int(args.split.split(':')[2])
         'n_epochs': args.epochs,
         'batch_size': 40,
         'patch_size': args.patch_size,
         'sample_dropout': False,
         'learning_rate': args.learning_rate,
+        'learning_rate_reduction_schedule': 1000,
+        'learning_rate_reduction_factor': 0.5,
         'sampling_rate': 100,
         'current_epoch': 0,
         'validation_is_training': args.validation_is_training,

@@ -1,6 +1,7 @@
 import os
 import tqdm
 import io
+import json
 import imageio
 import numpy as np
 import tensorflow as tf
@@ -15,6 +16,47 @@ import matplotlib.pyplot as plt
 from helpers import loading, plotting, utils, summaries, tf_helpers, dataset
 from models import compression
 
+
+def visualize_codebook(dcn):
+
+    qmin = -2 ** (dcn.latent_bpf - 1) + 1
+    qmax = 2 ** (dcn.latent_bpf - 1)
+
+    uniform_cbook = np.arange(qmin, qmax + 1)
+    codebook = dcn.sess.run(dcn.codebook).reshape((-1)).tolist()
+
+    fig = plt.figure(figsize=(10, 1))
+
+    for x1, x2 in zip(codebook, uniform_cbook):
+        fig.gca().plot([x1, x2], [0, 1], 'k:')
+
+    fig.gca().plot(codebook, np.zeros_like(codebook), 'x')
+    fig.gca().plot(uniform_cbook, np.ones_like(uniform_cbook), 'ro')
+    fig.gca().set_ylim([-1, 2])
+    fig.gca().set_yticks([])
+    fig.gca().set_xticks(uniform_cbook)
+    s = io.BytesIO()
+    fig.savefig(s, format='png', bbox_inches='tight')
+    plt.close(fig)
+    return imageio.imread(s.getvalue())
+
+
+def save_progress(dcn, training, out_dir):
+
+    filename = os.path.join(out_dir, 'progress.json')
+    
+    output_stats = {
+        'training_spec': training,
+        'dcn': {
+            'model': type(dcn).__name__,
+            'args': dcn.args,
+            'codebook': dcn.sess.run(dcn.codebook).reshape((-1,)).tolist()
+        },
+        'performance': dcn.performance,
+    }    
+    
+    with open(filename, 'w') as f:
+        json.dump(output_stats, f, indent=4)
 
 def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
     """
@@ -41,11 +83,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
     v_batches = data['validation']['y'].shape[0] // training['batch_size']
 
     # Structures for storing performance stats
-    perf = {
-        'loss': {'training': [], 'validation': []},
-        'entropy': {'training': [], 'validation': []},
-        'ssim': {'training': [], 'validation': []}
-    }
+    perf = dcn.performance
 
     caches = {
         'loss': {'training': deque(maxlen=n_batches), 'validation': deque(maxlen=v_batches)},
@@ -59,14 +97,14 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
     # Create a summary writer and create the necessary directories
     sw = dcn.get_summary_writer(model_output_dirname)
 
-    with tqdm.tqdm(total=training['n_epochs'], ncols=160, desc='Train') as pbar:
+    with tqdm.tqdm(total=training['n_epochs'], ncols=160, desc=dcn.name) as pbar:
 
         for epoch in range(0, training['n_epochs']):
             
             training['current_epoch'] = epoch
 
-            if epoch > 0 and epoch % 1000 == 0:
-                learning_rate = learning_rate / 2
+            if epoch > 0 and epoch % training['learning_rate_reduction_schedule'] == 0:
+                learning_rate *= training['learning_rate_reduction_factor']
 
             # Iterate through batches of the training data 
             for batch_id in range(n_batches): # TODO n_batches
@@ -98,7 +136,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
 
             # Record average values for the whole epoch
             for key in ['loss', 'ssim', 'entropy']:
-                perf[key]['training'].append(np.mean(caches[key]['training']))
+                perf[key]['training'].append(float(np.mean(caches[key]['training'])))
 
             # Get some extra stats
             if dcn.scale_latent:
@@ -111,7 +149,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
             # Iterate through batches of the validation data
             if epoch % training['sampling_rate'] == 0:
                 for batch_id in range(v_batches): # TODO v_batches
-                    batch_x = data.next_validation_batch(batch_id, training['batch_size'], training['patch_size'])
+                    batch_x = data.next_validation_batch(batch_id, training['batch_size'])
                     batch_y = dcn.process(batch_x, is_training=training['validation_is_training'])
 
                     # Compute loss
@@ -123,8 +161,8 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                     ssim_value = np.mean([ssim(batch_x[r], batch_y[r], multichannel=True) for r in range(len(batch_x))]) 
                     caches['ssim']['validation'].append(ssim_value)
 
-                perf['loss']['validation'].append(np.mean(caches['loss']['validation']))
-                perf['ssim']['validation'].append(np.mean(caches['ssim']['validation']))
+                perf['loss']['validation'].append(float(np.mean(caches['loss']['validation'])))
+                perf['ssim']['validation'].append(float(np.mean(caches['ssim']['validation'])))
 
                 # Save current snapshot
                 thumbs = (255 * plotting.thumbnails(np.concatenate((batch_x[::2], batch_y[::2]), axis=0), n_cols=20)).astype(np.uint8)
@@ -141,15 +179,25 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 summary.value.add(tag='ssim/validation', simple_value=perf['ssim']['validation'][-1])
                 summary.value.add(tag='ssim/training', simple_value=perf['ssim']['training'][-1])
                 summary.value.add(tag='entropy/training', simple_value=perf['entropy']['training'][-1])
-                summary.value.add(tag='codebook/min', simple_value=codebook.min())
-                summary.value.add(tag='codebook/max', simple_value=codebook.max())
-                summary.value.add(tag='codebook/mean', simple_value=codebook.mean())
-                summary.value.add(tag='codebook/diff_variance', simple_value=np.var(np.convolve(codebook, [-1, 1], mode='valid')))
                 summary.value.add(tag='scaling', simple_value=scaling)
                 summary.value.add(tag='images/reconstructed', image=summaries.log_image(rescale(thumbs_few, 1.0, anti_aliasing=True)))
                 summary.value.add(tag='histograms/latent', histo=summaries.log_histogram(batch_z))
+                
+                if dcn.train_codebook:
+                    summary.value.add(tag='codebook/min', simple_value=codebook.min())
+                    summary.value.add(tag='codebook/max', simple_value=codebook.max())
+                    summary.value.add(tag='codebook/mean', simple_value=codebook.mean())
+                    summary.value.add(tag='codebook/diff_variance', simple_value=np.var(np.convolve(codebook, [-1, 1], mode='valid')))                    
+                    summary.value.add(tag='codebook/centroids', image=summaries.log_image(visualize_codebook(dcn)))
+
                 sw.add_summary(summary, epoch)
                 sw.flush()
+                
+                # Save stats to a JSON log
+                save_progress(dcn, training, model_output_dirname)                                
+                
+                # Save current checkpoint
+                dcn.save_model(model_output_dirname, epoch)
 
             # Fetch Batch Norm
             if dcn.use_batchnorm:

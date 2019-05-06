@@ -11,8 +11,8 @@ import matplotlib.pylab as plt
 from tqdm import tqdm
 from skimage.measure import compare_ssim, compare_psnr, compare_mse
 
-from helpers import coreutils
-from training import train_nip_model
+from helpers import coreutils, dataset
+from training.pipeline import train_nip_model
 
 # Set progress bar width
 TQDM_WIDTH = 120
@@ -23,7 +23,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 def main():
 
-    global data_x, data_y, valid_x, valid_y, camera_name, out_directory_root, val_files
+#     global data_x, data_y, valid_x, valid_y, camera_name, out_directory_root, val_files
 
     parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
     parser.add_argument('--cam', dest='camera', action='store', help='camera')
@@ -75,15 +75,14 @@ def main():
     training_spec = {
         'seed': 1234,
         'n_images': 120,
-        'v_images': 30,
+        'v_images': 20,
         'valid_patch_size': 256,
         'valid_patches': 1
     }
 
     np.random.seed(training_spec['seed'])
     
-    data = dataset.IPDataset(data_directory, training_spec['n_images'], training_spec['v_images'], load='xy', val_patch_size=training['patch_size'])
-
+    data = dataset.IPDataset(data_directory, n_images=training_spec['n_images'], v_images=training_spec['v_images'], load='xy', val_rgb_patch_size=training_spec['valid_patch_size'], val_n_patches=training_spec['valid_patches'])
 
     # Find available images
 #     files, val_files = loading.discover_files(data_directory, training_spec['n_images'], training_spec['v_images'])
@@ -103,7 +102,7 @@ def main():
 
     # Train the Desired NIP Models
     for pipe in args.nips:
-        train_nip_model(pipe, args.epochs, 1e-4, patch_size=args.patch_size, resume=args.resume, nip_params=args.nip_params)
+        train_nip_model(pipe, camera_name, args.epochs, validation_loss_threshold=1e-4, patch_size=args.patch_size, resume=args.resume, nip_params=args.nip_params, data=data)
 
 
 if __name__ == "__main__":

@@ -20,24 +20,24 @@ TQDM_WIDTH = 120
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-def validate(model, valid_x, valid_y, savefig=False, epoch=0, show_ref=False, loss_metric='L2'):
-    global camera_name, out_directory_root, val_files
-
+def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=0, show_ref=False, loss_metric='L2'):
+    
     ssims, psnrs, losss = [], [], []
 
     if savefig:
-        images_x = np.minimum(valid_x.shape[0], 10 if not show_ref else 5)
-        images_y = np.ceil(valid_x.shape[0] / images_x)
+        images_x = np.minimum(data.count_validation, 10 if not show_ref else 5)
+        images_y = np.ceil(data.count_validation / images_x)
         plt.figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
         
-    developed_out = np.zeros_like(valid_y)
+    developed_out = np.zeros_like(data['validation']['y'])
 
-    for b in range(valid_x.shape[0]):
-        developed = model.process(valid_x[b:b+1, :, :, :])
+    for b in range(data.count_validation):
+        example_x, example_y = data.next_validation_batch(b, 1)
+        developed = model.process(example_x)
         developed = np.clip(developed, 0, 1)
         developed_out[b, :, :, :] = developed
         developed = developed[:, :, :, :].squeeze()        
-        reference = valid_y[b, :, :, :]
+        reference = example_y
         ssim = float(compare_ssim(reference, developed, multichannel=True))
         psnr = float(compare_psnr(reference, developed))
         if loss_metric == 'L2':
@@ -58,7 +58,7 @@ def validate(model, valid_x, valid_y, savefig=False, epoch=0, show_ref=False, lo
                 plt.imshow(developed)
             plt.xticks([])
             plt.yticks([])
-            plt.title('{} : {:.1f} dB / {:.2f}'.format(val_files[b], psnr, ssim), fontsize=6)
+            plt.title('{} : {:.1f} dB / {:.2f}'.format(data.files['validation'][b], psnr, ssim), fontsize=6)
 
     if savefig:
         dirname = os.path.join(out_directory_root, camera_name, type(model).__name__)
@@ -123,6 +123,16 @@ def save_progress(arch, performance, training_summary, camera_name, out_director
 def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_threshold=1e-3, sampling_rate=100, resume=False, patch_size=64, batch_size=20, nip_params=None, data=None, out_directory_root='./data/raw/nip_model_snapshots'):
 
     nip_params = nip_params or {}
+    
+    if data is None:
+        raise ValueError('Training data seems not to be loaded!')
+        
+    try:
+        status = [key in data['training'] for key in 'xy'] + [key in data['validation'] for key in 'xy']
+        if not all(status):
+            raise ValueError('Data sanity check failed - make sure input and output samples are available for both training and validation.')
+    except:
+        raise ValueError('Error accessing some of the data components.')
 
     # Lazy loading to prevent delays in basic CLI interaction
     from models import pipelines
@@ -138,15 +148,12 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     
     # Limit the number of checkpoints to 5
     model.saver.saver_def.max_to_keep = 5
-
-    if 'data_x' not in globals() or 'data_y' not in globals():
-        raise ValueError('Training data seems not to be loaded!')
     
-    n_batches = data['train']['x'].shape[0] // batch_size
+    n_batches = data['training']['x'].shape[0] // batch_size
     learning_rate = 1e-4
 
     # Setup the array for storing the current batch - randomly sampled from full-resolution images
-    H, W = data_x.shape[1:3]
+#     H, W = data_x.shape[1:3]
 
     batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
     batch_y = np.zeros((batch_size, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)        
@@ -184,8 +191,8 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     training_summary['Architecture'] = model.summary()
     training_summary['Max epochs'] = n_epochs
     training_summary['Learning rate'] = learning_rate
-    training_summary['Training data size'] = data['train']['x'].shape
-    training_summary['Validation data size'] = data['valid']['x'].shape
+    training_summary['Training data size'] = data['training']['x'].shape
+    training_summary['Validation data size'] = data['validation']['x'].shape
     training_summary['# batches'] = n_batches
     training_summary['Patch size'] = patch_size
     training_summary['Batch size'] = batch_size
@@ -220,19 +227,19 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
             losses_buf.append(performance['train_loss'][-1])
 
             if epoch == start_epoch:
-                developed = np.zeros_like(valid_y)
+                developed = np.zeros_like(data['validation']['y'])
 
             if epoch % sampling_rate == 0:
                 # Use the current model to develop images in the validation set
                 developed_old = developed
-                ssims, psnrs, v_losses, developed = validate(model, data['valid']['x'], data['valid']['y'], True, epoch, True, loss_metric=model.loss_metric)
+                ssims, psnrs, v_losses, developed = validate(model, camera_name, data, out_directory_root, True, epoch, True, loss_metric=model.loss_metric)
                 performance['ssim'].append(float(np.mean(ssims)))
                 performance['psnr'].append(float(np.mean(psnrs)))
                 performance['loss'].append(float(np.mean(v_losses)))
 
                 # Compare the current images to the ones from a previous model iteration
                 dpsnrs = []
-                for v in range(data['valid']['x'].shape[0]):
+                for v in range(data['validation']['x'].shape[0]):
                     dpsnrs.append(compare_mse(developed_old[v, :, :, :], developed[v, :, :, :]))
 
                 performance['dmse'].append(np.mean(dpsnrs))
@@ -240,8 +247,8 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
                 # Generate progress summary
                 training_summary['Epoch'] = epoch
                 visualize_progress(type(model).__name__, performance, patch_size, camera_name, out_directory_root, False, sampling_rate)
-                save_progress(type(model).__name__, performance, training_summary, camera_name, out_directory_root)
-                model.save_model(camera_name, out_directory_root, epoch)
+                save_progress(type(model).__name__, performance, training_summary, camera_name, out_directory_root)                
+                model.save_model(os.path.join(out_directory_root, camera_name), epoch)
 
                 # Check for convergence
                 if len(performance['loss']) > 10:

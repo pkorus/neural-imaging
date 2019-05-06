@@ -77,8 +77,8 @@ def load_patches(files, data_directory, patch_size=128, n_patches=100, discard_f
     """
     v_images = len(files)
     data = {}
-    if 'x' in load: data['x'] = np.zeros((v_images * n_patches, patch_size, patch_size, 4), dtype=np.float32)
-    if 'y' in load: data['y'] = np.zeros((v_images * n_patches, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)
+    if 'x' in load: data['x'] = np.zeros((v_images * n_patches, patch_size, patch_size, 4), dtype=np.uint16)
+    if 'y' in load: data['y'] = np.zeros((v_images * n_patches, 2 * patch_size, 2 * patch_size, 3), dtype=np.uint8)
 
     with tqdm.tqdm(total=v_images * n_patches, ncols=100, desc='Loading patches') as pbar:
 
@@ -103,8 +103,9 @@ def load_patches(files, data_directory, patch_size=128, n_patches=100, discard_f
                 while not found: 
                     xx = np.random.randint(0, W - patch_size)
                     yy = np.random.randint(0, H - patch_size)
-                    if 'x' in data: data['x'][vpatch_id] = image_x[yy:yy + patch_size, xx:xx + patch_size, :].astype(np.float32) / (2**16 - 1)
-                    if 'y' in data: data['y'][vpatch_id] = image_y[(2*yy):2*(yy + patch_size), (2*xx):2*(xx + patch_size), :].astype(np.float32) / (2**8 - 1)
+                    
+                    if 'x' in data: data['x'][vpatch_id] = image_x[yy:yy + patch_size, xx:xx + patch_size, :] # astype(np.float32) / (2**16 - 1)
+                    if 'y' in data: data['y'][vpatch_id] = image_y[(2*yy):2*(yy + patch_size), (2*xx):2*(xx + patch_size), :] #.astype(np.float32) / (2**8 - 1)
 
                     # Check if the found patch is acceptable:
                     # - eliminate empty patches

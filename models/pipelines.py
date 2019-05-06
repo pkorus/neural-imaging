@@ -27,7 +27,7 @@ class NIPModel(TFModel):
         :param kwargs: Additional arguments for specific NIP implementations
         """
         
-        super().__init__()
+        super().__init__(sess, graph, label)
         # Configure TF objects
 #         self.graph = graph or tf.Graph()
 #         self.sess = sess or tf.Session(graph=self.graph)

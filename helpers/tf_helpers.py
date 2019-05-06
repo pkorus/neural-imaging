@@ -142,11 +142,8 @@ def quantization(x, scope, name, rounding='soft', rounding_approximation_steps=5
             x = x
             
         elif rounding == 'soft-codebook':
-            print(x.shape)
             values = tf.reshape(x, (-1, 1))
-            # Compute soft-quantization
             weights = tf.exp(-soft_quantization_sigma * tf.pow(values - codebook_tensor, 2))
-            print('Entropy weights', weights.shape)
             weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
             soft = tf.reduce_mean(weights * codebook_tensor, axis=1)
             soft = tf.reshape(soft, tf.shape(x))            
