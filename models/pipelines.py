@@ -88,7 +88,7 @@ class NIPModel(TFModel):
         Make a single training step and return the loss.
         """
         with self.graph.as_default():
-            feed_dict={
+            feed_dict = {
                     self.x: batch_x,
                     self.y_gt: batch_y,
                     self.lr: learning_rate
@@ -130,7 +130,7 @@ class NIPModel(TFModel):
             
     def summary(self):
         return '{} model [{:,} params]'.format(type(self).__name__, self.count_parameters())
-    
+
 
 class UNet(NIPModel):
     """

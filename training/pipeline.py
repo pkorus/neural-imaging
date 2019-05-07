@@ -226,7 +226,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
         for epoch in range(start_epoch, n_epochs):
 
             for batch_id in range(n_batches):
-                batch_x, batch_y = data.next_training_batch(batch_id, batch_size, patch_size)
+                batch_x, batch_y = data.next_training_batch(batch_id, batch_size, patch_size, discard_flat=False)
                 loss = model.training_step(batch_x, batch_y, learning_rate)
                 loss_local.append(loss)
 

@@ -53,8 +53,9 @@ class IPDataset(object):
             panic_counter = 5
             
             while not found:
-                xx = np.random.randint(0, self.W - rgb_patch_size)
-                yy = np.random.randint(0, self.H - rgb_patch_size)
+                # Sample a random patch from full resolution images - the number needs to be even to ensure proper Bayer alignment
+                xx = 2 * np.random.randint(0, self.W // 2 - raw_patch_size)
+                yy = 2 * np.random.randint(0, self.H // 2 - raw_patch_size)
 
                 # Check if the found patch is acceptable: eliminate empty patches
                 if discard_flat:
@@ -92,7 +93,7 @@ class IPDataset(object):
             patch_size = 2 * self.data['validation']['x'].shape[1]
             
         batch = {
-            'x': np.zeros((batch_size, patch_size // 2, patch_size // 2, 4), dtype=np.float32) if 'x' in self.loaded_data else None,
+            'x': np.zeros((batch_size, patch_size // 2, patch_size // 2, 4), dtype=np.float32) if 'x' in self._loaded_data else None,
             'y': np.zeros((batch_size, patch_size, patch_size, 3), dtype=np.float32) if 'y' in self._loaded_data else None
         }
         
