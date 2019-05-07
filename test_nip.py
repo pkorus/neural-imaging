@@ -59,7 +59,7 @@ def develop_image(camera, pipeline, ps=128, image_id=None, root_dir='./data/raw'
     model = nip_model(sess, tf.get_default_graph())
     log.info('Using NIP: {}'.format(model.summary()))
     model.init()
-    model.load_model(camera, root_dirname)
+    model.load_model(os.path.join(root_dirname, camera))
 
     # Load sample data
     sample_x = np.load(os.path.join(dirname, files[image_id]))

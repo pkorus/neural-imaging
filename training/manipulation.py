@@ -241,7 +241,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     tf_ops['sess'].run(tf.global_variables_initializer())
 
     if training['use_pretrained_nip']:
-        tf_ops['nip'].load_model(os.path.join(directories['nip_snapshots'], training['camera_name']))
+        tf_ops['nip'].load_model(os.path.join(directories['nip_snapshots'], training['camera_name'], type(tf_ops['nip']).__name__))
 
     n_batches = data.count_training // batch_size
 
@@ -390,7 +390,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     # Root     : train_manipulation / camera_name / {INet} / lr-01 / 001 / models / {INet/FAN}
     print('Saving models...')
 
-    tf_ops['nip'].save_model(os.path.join(model_directory, type(tf_ops['nip']).__name__, training['camera_name']), epoch)
+    tf_ops['nip'].save_model(os.path.join(model_directory, type(tf_ops['nip']).__name__), epoch)
     tf_ops['fan'].save_model(os.path.join(model_directory, 'FAN'), epoch)
     
     return nip_save_dir.replace('{nip-model}', type(tf_ops['nip']).__name__)

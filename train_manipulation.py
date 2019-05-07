@@ -26,8 +26,8 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         'batch_size': 20,
         'sampling_rate': 50,
         'learning_rate': 1e-4,
-        'n_images': 120,
-        'v_images': 30,
+        'n_images': 20,
+        'v_images': 20,
         'val_n_patches': 4
     }
 

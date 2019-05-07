@@ -1,6 +1,7 @@
 import numpy as np
 from helpers import loading
 
+
 class IPDataset(object):
     
     def __init__(self, data_directory, randomize=False, load='xy', val_rgb_patch_size=128, val_n_patches=2, n_images=120, v_images=30):
@@ -91,7 +92,7 @@ class IPDataset(object):
             patch_size = 2 * self.data['validation']['x'].shape[1]
             
         batch = {
-            'x': np.zeros((batch_size, patch_size // 2, patch_size // 2, 4), dtype=np.float32) if 'x' in self._loaded_data else None,
+            'x': np.zeros((batch_size, patch_size // 2, patch_size // 2, 4), dtype=np.float32) if 'x' in self.loaded_data else None,
             'y': np.zeros((batch_size, patch_size, patch_size, 3), dtype=np.float32) if 'y' in self._loaded_data else None
         }
         
@@ -116,4 +117,4 @@ class IPDataset(object):
     @property
     def count_validation(self):
         key = self._loaded_data[0]
-        return self.data['validation'][key].shape[0]        
+        return self.data['validation'][key].shape[0]

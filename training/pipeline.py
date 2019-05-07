@@ -73,7 +73,7 @@ def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=
             plt.title('{} : {:.1f} dB / {:.2f}'.format(data.files['validation'][label_index], psnr, ssim), fontsize=6)
 
     if savefig:
-        dirname = os.path.join(out_directory_root, camera_name, type(model).__name__)
+        dirname = os.path.join(out_directory_root, camera_name, model.model_name)
         if not os.path.exists(dirname):
             os.makedirs(dirname)
         plt.savefig(os.path.join(dirname, 'validation_{:05d}.jpg'.format(epoch)), bbox_inches='tight', dpi=150)
@@ -83,7 +83,7 @@ def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=
 
 
 # Show the training progress
-def visualize_progress(arch, performance, patch_size, camera_name, out_directory_root, plot=False, sampling_rate=100):
+def visualize_progress(arch, performance, patch_size, camera_name, out_directory, plot=False, sampling_rate=100):
     from helpers import utils
 
     v_range = np.arange(0, sampling_rate*len(performance['ssim']), sampling_rate)
@@ -91,10 +91,10 @@ def visualize_progress(arch, performance, patch_size, camera_name, out_directory
     plt.figure(figsize=(16, 6))
     plt.subplot(2,2,1)
     plt.semilogy(performance['train_loss'], alpha=0.15)
+    plt.plot(utils.ma_conv(performance['train_loss'], np.maximum(10, len(performance['train_loss']) // 25)))
     plt.plot(v_range, np.array(performance['loss']), '.-', alpha=0.5)
-    plt.plot(utils.ma_conv(performance['train_loss'], np.maximum(10, len(performance['train_loss']) // 25 )))    
     plt.ylabel('Loss')
-    plt.legend(['loss (batch)', 'loss (valid.)', 'mov. avg loss (valid.)'])
+    plt.legend(['loss (batch)', 'mov. avg loss (batch)', 'loss (valid.)'])
 
     if len(performance['loss']) > 10:
         n_tail = 5
@@ -119,13 +119,13 @@ def visualize_progress(arch, performance, patch_size, camera_name, out_directory
     if plot:
         plt.show()
     else:
-        plt.savefig(os.path.join(out_directory_root, camera_name, arch, 'progress.png'), bbox_inches='tight', dpi=150)
+        plt.savefig(os.path.join(out_directory, 'progress.png'), bbox_inches='tight', dpi=150)
         plt.close()
 
 
-def save_progress(arch, performance, training_summary, camera_name, out_directory_root):
+def save_progress(performance, training_summary, out_directory):
 
-    filename = os.path.join(out_directory_root, camera_name, arch, 'progress.json')
+    filename = os.path.join(out_directory, 'progress.json')
     output_stats = {'Performance': performance}
     output_stats.update(training_summary)
     with open(filename, 'w') as f:
@@ -158,9 +158,12 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     sess = tf.Session()
     model = getattr(pipelines, architecture)(sess, tf.get_default_graph(), loss_metric='L2', **nip_params)
     model.sess.run(tf.global_variables_initializer())
-    
+
+    # Set up training output
+    out_directory = os.path.join(out_directory_root, camera_name, model.model_name)
+
     # Limit the number of checkpoints to 5
-    # model.saver.saver_def.max_to_keep = 5
+    model.saver.saver_def.max_to_keep = 5
     model.saver._max_to_keep = 5
     
     n_batches = data.count_training // batch_size
@@ -174,9 +177,13 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
         start_epoch = 0
     else:
         # Find training summary
-        summary_file = os.path.join(out_directory_root, camera_name, architecture, 'progress.json')
+        summary_file = os.path.join(out_directory_root, camera_name, model.model_name, 'progress.json')
+
+        if not os.path.isfile(summary_file):
+            raise FileNotFoundError('Could not open file {}'.format(summary_file))
+
         print('Resuming training from: {}'.format(summary_file))
-        model.load_model(camera_name, out_directory_root)
+        model.load_model(os.path.join(out_directory_root, camera_name))
 
         with open(summary_file) as f:
             summary_data = json.load(f)
@@ -184,10 +191,10 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
         # Read performance stats to date
         performance = {}
         for key in ['ssim', 'psnr', 'loss', 'dmse', 'train_loss']:
-            performance['Performance'][key] = summary_data[key]
+            performance[key] = summary_data['Performance'][key]
 
         # Initialize counters
-        start_epoch = summary_data['epoch']
+        start_epoch = summary_data['Epoch']
         losses_buf = deque(maxlen=10)
         loss_local = deque(maxlen=n_batches)
         for x in performance['loss'][-10:]:
@@ -246,9 +253,9 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
 
                 # Generate progress summary
                 training_summary['Epoch'] = epoch
-                visualize_progress(type(model).__name__, performance, patch_size, camera_name, out_directory_root, False, sampling_rate)
-                save_progress(type(model).__name__, performance, training_summary, camera_name, out_directory_root)                
-                model.save_model(os.path.join(out_directory_root, camera_name, type(model).__name__), epoch)
+                visualize_progress(type(model).__name__, performance, patch_size, camera_name, out_directory, False, sampling_rate)
+                save_progress(performance, training_summary, out_directory)
+                model.save_model(out_directory, epoch)
 
                 # Check for convergence
                 if len(performance['loss']) > 10:
@@ -264,5 +271,5 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
             pbar.set_postfix(loss=np.mean(losses_buf), psnr=performance['psnr'][-1], ldmse=np.log10(performance['dmse'][-1]))
             pbar.update(1)
 
-    model.save_model(os.path.join(out_directory_root, camera_name, type(model).__name__) , epoch)
+    model.save_model(out_directory , epoch)
     return model

@@ -90,11 +90,11 @@ def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type
         # if '{' in save_dir and '}' in save_dir:
         #     dirname = save_dir.replace('{nip-model}', type(model).__name__)
         # else:
-        dirname = os.path.join(save_dir, type(model).__name__)
+        # dirname = os.path.join(save_dir, type(model).__name__)
 
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
-        fig.savefig('{}/nip_validation_{:05d}.jpg'.format(dirname, epoch), bbox_inches='tight', dpi=150)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        fig.savefig('{}/nip_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=150)
         plt.close(fig)
         del fig
     
@@ -185,16 +185,10 @@ def visualize_manipulation_training(nip, fornet, conf, epoch, save_dir=None, cla
     ax.set_ylabel('TRUE class')
     ax.set_title('Accuracy: {:.2f}'.format(np.mean(np.diag(conf))))
 
-    if save_dir is not None:    
-        # Save the figure
-        if '{' in save_dir and '}' in save_dir:
-            dirname = save_dir.replace('{nip-model}', type(nip).__name__)
-        else:
-            dirname = os.path.join(save_dir, type(nip).__name__)
-        
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
-        fig.savefig('{}/manip_validation_{:05d}.jpg'.format(dirname, epoch), bbox_inches='tight', dpi=100)
+    if save_dir is not None:
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        fig.savefig('{}/manip_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=100)
         plt.close(fig)    
         del fig
 

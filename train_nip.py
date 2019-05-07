@@ -78,7 +78,7 @@ def main():
     data = dataset.IPDataset(data_directory, n_images=training_spec['n_images'], v_images=training_spec['v_images'], load='xy', val_rgb_patch_size=training_spec['valid_patch_size'], val_n_patches=training_spec['valid_patches'])
 
     for key in ['Training', 'Validation']:
-        print('{:>16s} [{:5.1f} GB] : X -> {},\tY -> {} '.format(
+        print('{:>16s} [{:5.1f} GB] : X -> {}, Y -> {} '.format(
             '{} data'.format(key),
             coreutils.mem(data[key.lower()]['x']) + coreutils.mem(data[key.lower()]['y']),
             data[key.lower()]['x'].shape,

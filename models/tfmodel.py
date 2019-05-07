@@ -64,18 +64,35 @@ class TFModel(object):
                 self._saver = tf.train.Saver(self.parameters, max_to_keep=0)
         return self._saver
 
-    def save_model(self, dirname=None, epoch=0):
-        class_name = type(self).__name__.lower()
+    def save_model(self, dirname, epoch=0):
+
         if not os.path.exists(dirname):
             os.makedirs(dirname)
         
         with self.graph.as_default():
-            self.saver.save(self.sess, os.path.join(dirname, class_name), global_step=epoch)
+            self.saver.save(self.sess, os.path.join(dirname, self.model_name), global_step=epoch)
 
     def load_model(self, dirname):
+
+        self.init()
+        print('Initializing params: ')
+        for a in self.parameters:
+            print('  ', a.name)
+
+        # Try to load the model from the given directory
+        latest_checkpoint = tf.train.latest_checkpoint(dirname)
+
+        # If no model available, append current model name
+        if latest_checkpoint is None:
+            dirname = os.path.join(dirname, self.model_name)
+            latest_checkpoint = tf.train.latest_checkpoint(dirname)
+
+        if latest_checkpoint is None:
+            raise RuntimeError('Model checkpoint not found at {}'.format(dirname))
+
         with self.graph.as_default():
-            self.saver.restore(self.sess, tf.train.latest_checkpoint(dirname))
-            
+            self.saver.restore(self.sess, latest_checkpoint)
+
         self.is_initialized = True
         self.reset_performance_stats()
         
