@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 # coding: utf-8
 import os
-import sys
 import json
-import argparse
 from collections import deque, OrderedDict
 
 import numpy as np
 import matplotlib.pylab as plt
 from tqdm import tqdm
 from skimage.measure import compare_ssim, compare_psnr, compare_mse
-
-from helpers import coreutils
 
 # Set progress bar width
 TQDM_WIDTH = 120
@@ -144,11 +140,12 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
         raise ValueError('Training data seems not to be loaded!')
         
     try:
-        status = [key in data['training'] for key in 'xy'] + [key in data['validation'] for key in 'xy']
-        if not all(status):
-            raise ValueError('Data sanity check failed - make sure input and output samples are available for both training and validation.')
-    except:
-        raise ValueError('Error accessing some of the data components.')
+        batch_x, batch_y = data.next_training_batch(0, 5, patch_size * 2)
+        if batch_x.shape != (5, patch_size, patch_size, 4) or batch_x.shape != (5, 2 * patch_size, 2 * patch_size, 3):
+            raise ValueError('The training batch returned by the dataset is of invalid size!')
+
+    except Exception as e:
+        raise ValueError('Data set error: {}'.format(e))
 
     # Lazy loading to prevent delays in basic CLI interaction
     from models import pipelines

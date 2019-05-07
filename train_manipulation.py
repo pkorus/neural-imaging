@@ -2,25 +2,15 @@
 # coding: utf-8
 
 # Basic imports
-import gc
 import os
 import argparse
-import numpy as np
-import tqdm
-from collections import deque, OrderedDict
 
 # Disable unimportant logging and import TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import tensorflow as tf
-
-# Load my TF models
-from models import pipelines
-from models.forensics import FAN
-from models.jpeg import DJPG
 
 # Helper functions
-from helpers import coreutils, tf_helpers, validation, loading
-from training import construct_models, train_manipulation_nip
+from helpers import coreutils, dataset
+from training.manipulation import construct_models, train_manipulation_nip
 
 
 @coreutils.logCall
@@ -28,17 +18,17 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     """
     Repeat training for multiple NIP regularization strengths.
     """
-    
-    # Data set setup
-    valid_patch_size = 128
-    n_patches = 100
-    
+
     training = {
         'use_pretrained_nip': use_pretrained,
         'n_epochs': n_epochs,
+        'patch_size': 128,
+        'batch_size': 20,
+        'sampling_rate': 50,
         'learning_rate': 1e-4,
         'n_images': 120,
-        'v_images': 30 
+        'v_images': 30,
+        'val_n_patches': 4
     }
 
     # Experiment setup
@@ -58,15 +48,8 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         data_directory = os.path.join('./data/raw/nip_training_data/', camera_name)
 
         # Find available images
-        data = dataset.IPDataset(data_directory, training['n_images'], training['v_images'], load='xy', val_patch_size=training['patch_size'])
-#         files, val_files = loading.discover_files(data_directory)
+        data = dataset.IPDataset(data_directory, n_images=training['n_images'], v_images=training['v_images'], load='xy', val_rgb_patch_size=2 * training['patch_size'], val_n_patches=training['val_n_patches'])
 
-#         # Load training / validation data
-#         data = {
-#             'training': loading.load_images(files, data_directory, load='xy'),
-#             'validation': loading.load_patches(val_files, data_directory, valid_patch_size, n_patches, discard_flat=True, load='xy')
-#         }
-        
         # Repeat evaluation
         for rep in range(start_repetition, end_repetition):
             for reg in regularization_strengths:
