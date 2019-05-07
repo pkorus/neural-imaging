@@ -33,6 +33,7 @@ def visualize_codebook(dcn):
     fig.gca().plot(codebook, np.zeros_like(codebook), 'x')
     fig.gca().plot(uniform_cbook, np.ones_like(uniform_cbook), 'ro')
     fig.gca().set_ylim([-1, 2])
+    fig.gca().set_xlim([qmin - 1, qmax + 1])
     fig.gca().set_yticks([])
     fig.gca().set_xticks(uniform_cbook)
     s = io.BytesIO()

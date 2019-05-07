@@ -92,7 +92,7 @@ class IPDataset(object):
             patch_size = 2 * self.data['validation']['x'].shape[1]
             
         batch = {
-            'x': np.zeros((batch_size, patch_size // 2, patch_size // 2, 4), dtype=np.float32) if 'x' in self.loaded_data else None,
+            'x': np.zeros((batch_size, patch_size // 2, patch_size // 2, 4), dtype=np.float32) if 'x' in self._loaded_data else None,
             'y': np.zeros((batch_size, patch_size, patch_size, 3), dtype=np.float32) if 'y' in self._loaded_data else None
         }
         
