@@ -134,8 +134,8 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
         
     try:
         batch_x, batch_y = data.next_training_batch(0, 5, patch_size * 2)
-        if batch_x.shape != (5, patch_size, patch_size, 4) or batch_x.shape != (5, 2 * patch_size, 2 * patch_size, 3):
-            raise ValueError('The training batch returned by the dataset is of invalid size!')
+        if batch_x.shape != (5, patch_size, patch_size, 4) or batch_y.shape != (5, 2 * patch_size, 2 * patch_size, 3):
+            raise ValueError('The training batch returned by the dataset instance is of invalid size!')
 
     except Exception as e:
         raise ValueError('Data set error: {}'.format(e))
@@ -153,7 +153,8 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     model.sess.run(tf.global_variables_initializer())
     
     # Limit the number of checkpoints to 5
-    model.saver.saver_def.max_to_keep = 5
+    # model.saver.saver_def.max_to_keep = 5
+    model.saver._max_to_keep = 5
     
     n_batches = data.count_training // batch_size
     learning_rate = 1e-4
