@@ -131,6 +131,25 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
 
                 # Make a training step
                 values = dcn.training_step(batch_x, learning_rate, dropout_keep_prob=keep_prob)
+                
+                # TODO temporary nan hook                
+                if np.isnan(values['loss']):
+                    print('NaN loss detected - dumping current variables')
+                    codebook = dcn.sess.run(dcn.codebook).reshape((-1,))
+                    # Get some extra stats
+                    if dcn.scale_latent:
+                        scaling = dcn.sess.run(dcn.graph.get_tensor_by_name('autoencoderdcn/encoder/latent_scaling:0'))
+                    else:
+                        scaling = np.nan
+                    print('Scaling: {}'.format(scaling))
+                    print('Codebook: {}'.format(codebook.tolist()))                    
+                    # Dump all variables to check which is nan
+                    for var in dcn.parameters:
+                        if np.any(np.isnan(dcn.sess.run(var))):
+                            nan_perc = np.mean(np.isnan(dcn.sess.run(var)))
+                            print('!! NaNs found in {} --> {}'.format(var.name, nan_perc))
+                    return None
+                
                 for key, value in values.items():
                     caches[key]['training'].append(value)                
 

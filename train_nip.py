@@ -69,7 +69,7 @@ def main():
         'n_images': 120,
         'v_images': 30,
         'valid_patch_size': 256,
-        'valid_patches': 10
+        'valid_patches': 1
     }
 
     np.random.seed(training_spec['seed'])
@@ -87,7 +87,7 @@ def main():
 
     # Train the Desired NIP Models
     for pipe in args.nips:
-        train_nip_model(pipe, args.camera, args.epochs, validation_loss_threshold=1e-4, patch_size=args.patch_size, resume=args.resume, nip_params=args.nip_params, data=data, out_directory_root=args.out_dir)
+        train_nip_model(pipe, args.camera, args.epochs, validation_loss_threshold=1e-5, patch_size=args.patch_size, resume=args.resume, nip_params=args.nip_params, data=data, out_directory_root=args.out_dir)
 
 
 if __name__ == "__main__":

@@ -82,10 +82,15 @@ class DCN(TFModel):
                     # Estimate entropy
                     values = tf.reshape(self.latent_post, (-1, 1))
                     
+                    assert(self.codebook.shape[0] == 1)
+                    assert(self.codebook.shape[1] > 1)                    
+                    
                     # Compute soft-quantization
                     weights = tf.exp(-self.soft_quantization_sigma * tf.pow(values - self.codebook, 2))
-                    print('Entropy weights', weights.shape)
                     self.weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)                    
+                    
+                    assert(weights.shape[1] == np.prod(self.codebook.shape))
+                    
                     # Compute soft histogram
                     histogram = tf.clip_by_value(tf.reduce_mean(weights, axis=0), 1e-6, 1)
                     histogram = histogram / tf.reduce_sum(histogram)
@@ -94,7 +99,7 @@ class DCN(TFModel):
                     self.histogram = histogram
                 
                 # Loss and SSIM
-                self.ssim = tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1)
+                self.ssim = tf.reduce_mean(tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1))
                 self.loss = tf.nn.l2_loss(self.x - self.y)
                 if self.entropy_weight is not None:
                     self.loss = self.loss + self.entropy_weight * self.entropy
