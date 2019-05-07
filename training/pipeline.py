@@ -67,7 +67,14 @@ def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=
                 plt.imshow(developed)
             plt.xticks([])
             plt.yticks([])
-            plt.title('{} : {:.1f} dB / {:.2f}'.format(data.files['validation'][b], psnr, ssim), fontsize=6)
+            label_index = int(b // (data.count_validation / len(data.files['validation'])))
+            if label_index >= len(data.files['validation']):
+                print('DUmp: ')
+                print('b=', b)
+                print('cv=', data.count_validation)
+                print('lv=', len(data.files['validation']))
+                print('li', label_index)
+            plt.title('{} : {:.1f} dB / {:.2f}'.format(data.files['validation'][label_index], psnr, ssim), fontsize=6)
 
     if savefig:
         dirname = os.path.join(out_directory_root, camera_name, type(model).__name__)
@@ -88,10 +95,10 @@ def visualize_progress(arch, performance, patch_size, camera_name, out_directory
     plt.figure(figsize=(16, 6))
     plt.subplot(2,2,1)
     plt.semilogy(performance['train_loss'], alpha=0.15)
-    plt.plot(utils.ma_conv(performance['train_loss'], np.maximum(10, len(performance['train_loss']) // 25 )))
     plt.plot(v_range, np.array(performance['loss']), '.-', alpha=0.5)
+    plt.plot(utils.ma_conv(performance['train_loss'], np.maximum(10, len(performance['train_loss']) // 25 )))    
     plt.ylabel('Loss')
-    plt.legend(['batch loss', 'average', 'loss (valid.)'])
+    plt.legend(['loss (batch)', 'loss (valid.)', 'mov. avg loss (valid.)'])
 
     if len(performance['loss']) > 10:
         n_tail = 5
@@ -201,6 +208,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     training_summary['Batch size'] = batch_size
     training_summary['Sampling rate'] = sampling_rate
     training_summary['Start epoch'] = start_epoch
+    training_summary['Output directory'] = out_directory_root
 
     print('\n## Training summary')
     for k, v in training_summary.items():
@@ -242,7 +250,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
                 training_summary['Epoch'] = epoch
                 visualize_progress(type(model).__name__, performance, patch_size, camera_name, out_directory_root, False, sampling_rate)
                 save_progress(type(model).__name__, performance, training_summary, camera_name, out_directory_root)                
-                model.save_model(os.path.join(out_directory_root, camera_name), epoch)
+                model.save_model(os.path.join(out_directory_root, camera_name, type(model).__name__), epoch)
 
                 # Check for convergence
                 if len(performance['loss']) > 10:
@@ -258,5 +266,5 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
             pbar.set_postfix(loss=np.mean(losses_buf), psnr=performance['psnr'][-1], ldmse=np.log10(performance['dmse'][-1]))
             pbar.update(1)
 
-    model.save_model(os.path.join(out_directory_root, camera_name) , epoch)
+    model.save_model(os.path.join(out_directory_root, camera_name, type(model).__name__) , epoch)
     return model

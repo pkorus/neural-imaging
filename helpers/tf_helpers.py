@@ -118,7 +118,7 @@ def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungrou
     """.format(width, height, code.replace('"', '&quot;'))
     display(HTML(iframe))
     
-def quantization(x, scope, name, rounding='soft', rounding_approximation_steps=5, codebook_tensor=None, soft_quantization_sigma=2):
+def quantization(x, scope, name, rounding='soft', rounding_approximation_steps=5, codebook_tensor=None, soft_quantization_sigma=1):
     
     with tf.name_scope(scope):
         
@@ -142,13 +142,23 @@ def quantization(x, scope, name, rounding='soft', rounding_approximation_steps=5
             x = x
             
         elif rounding == 'soft-codebook':
+            
+            assert(codebook_tensor.shape[0] == 1)
+            assert(codebook_tensor.shape[1] > 1)            
+
             values = tf.reshape(x, (-1, 1))
-            weights = tf.exp(-soft_quantization_sigma * tf.pow(values - codebook_tensor, 2))
+            weights = tf.exp(-soft_quantization_sigma * tf.pow(values - codebook_tensor, 2)) 
             weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
-            soft = tf.reduce_mean(weights * codebook_tensor, axis=1)
+            
+            assert(weights.shape[1] == np.prod(codebook_tensor.shape))
+
+            soft = tf.reduce_mean( tf.matmul(weights, tf.transpose(codebook_tensor)), axis=1)
             soft = tf.reshape(soft, tf.shape(x))            
-            x_ = soft
-            x = tf.add(tf.stop_gradient(tf.round(x) - x_), x_, name=name)
+
+            hard = tf.gather(codebook_tensor, tf.argmax(weights, axis=1), axis=1)
+            hard = tf.reshape(hard, tf.shape(x))            
+
+            x = tf.stop_gradient(hard - soft) +  soft
         
         else:
             raise ValueError('Unknown quantization! {}'.format(rounding_approximation))

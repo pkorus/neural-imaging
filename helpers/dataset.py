@@ -110,9 +110,10 @@ class IPDataset(object):
     
     @property
     def count_training(self):
-        return len(self.files['training'])
+        key = self._loaded_data[0]
+        return self.data['training'][key].shape[0]
     
     @property
     def count_validation(self):
-        return len(self.files['validation'])
-        
+        key = self._loaded_data[0]
+        return self.data['validation'][key].shape[0]        
