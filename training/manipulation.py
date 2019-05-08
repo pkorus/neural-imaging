@@ -261,6 +261,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     batch_l = batch_labels(batch_size, n_classes)
 
     # Collect memory usage (seems to be leaking in matplotlib)
+    collect_memory_stats = {'tf': False, 'ram': True}
     memory = {'tf-ram': [], 'tf-vars': [], 'cpu-proc': [], 'cpu-resource': [] }
 
     # Collect and print training summary
@@ -289,7 +290,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     training_summary['NIP input patch'] = '{}'.format(tf_ops['nip'].x.shape)
     training_summary['NIP output patch'] = '{}'.format(tf_ops['nip'].y.shape)
     training_summary['FAN input patch'] = '{}'.format(tf_ops['fan'].x.shape)
-    training_summary['memory_consumption'] = memory
+    if any(collect_memory_stats.values()):
+        training_summary['memory_consumption'] = memory
 
     print('\n')
     for k, v in training_summary.items():
@@ -357,19 +359,31 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
                 # Monitor memory usage
                 # gc.collect()
-                # memory['tf-ram'].append(round(tf_helpers.memory_usage_tf(tf_ops['sess']) / 1024 / 1024, 1))
-                # memory['tf-vars'].append(round(tf_helpers.memory_usage_tf_variables() / 1024 / 1024, 1))
-                memory['cpu-proc'].append(round(coreutils.memory_usage_proc(), 1))
-                memory['cpu-resource'].append(round(coreutils.memory_usage_resource(), 1))
+                if collect_memory_stats['tf']:
+                    memory['tf-ram'].append(round(tf_helpers.memory_usage_tf(tf_ops['sess']) / 1024 / 1024, 1))
+                    memory['tf-vars'].append(round(tf_helpers.memory_usage_tf_variables() / 1024 / 1024, 1))
+
+                if collect_memory_stats['ram']:
+                    memory['cpu-proc'].append(round(coreutils.memory_usage_proc(), 1))
+                    memory['cpu-resource'].append(round(coreutils.memory_usage_resource(), 1))
 
             if epoch % learning_rate_decay_schedule == 0:
                 learning_rate *= learning_rate_decay_rate
 
-            pbar.set_postfix(nip=np.log10(np.mean(loss_last_k_epochs['nip'])).round(1),
-                             fan=np.mean(loss_last_k_epochs['fan']),
-                             acc=tf_ops['fan'].valid_perf['accuracy'][-1],
-                             psnr=tf_ops['nip'].valid_perf['psnr'][-1] if len(tf_ops['nip'].valid_perf['psnr']) > 0 else np.nan,
-                             ram=round(memory['cpu-proc'][-1]//1024, 2))
+            # Update the progress bar
+            progress_stats = {
+                'nip': np.log10(np.mean(loss_last_k_epochs['nip'])).round(1),
+                'fan': np.mean(loss_last_k_epochs['fan']),
+                'acc': tf_ops['fan'].valid_perf['accuracy'][-1],
+            }
+
+            if len(tf_ops['nip'].valid_perf['psnr']) > 0:
+                progress_stats['psnr'] = tf_ops['nip'].valid_perf['psnr'][-1]
+
+            if collect_memory_stats['ram']:
+                progress_stats['ram'] = round(memory['cpu-proc'][-1]//1024, 2)
+
+            pbar.set_postfix(**progress_stats)
             pbar.update(1)
 
     # Plot final results
