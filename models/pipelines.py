@@ -69,7 +69,7 @@ class NIPModel(TFModel):
                     self.lr = tf.placeholder(tf.float32, name='nip_learning_rate')
 
                     # Create the optimizer and make sure only the parameters of the current model are updated
-                    self.adam = tf.train.AdamOptimizer(learning_rate=self.lr, name='nip_adam{}'.format(self.model_name))
+                    self.adam = tf.train.AdamOptimizer(learning_rate=self.lr, name='nip_adam{}'.format(self.scoped_name))
                     self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
     
     def construct_model(self):
@@ -78,7 +78,7 @@ class NIPModel(TFModel):
         The output is expected to be clipped to [0,1]. For better optimization stability, the model can set self.yy to
         non-clipped output (will be used for gradient computation).
 
-        A string prefix (self.model_name) should be used for variables / named scopes to facilitate using multiple NIPs
+        A string prefix (self.scoped_name) should be used for variables / named scopes to facilitate using multiple NIPs
         in a single TF graph.
         """
         raise NotImplementedError()
@@ -105,12 +105,17 @@ class NIPModel(TFModel):
         """
         if batch_x.ndim == 3:
             batch_x = np.expand_dims(batch_x, 0)
-        
+
+        # TODO Temporary print command
+        # print('Processing a {} sample'.format(batch_x.shape))
+
         with self.graph.as_default():
             feed_dict = {self.x: batch_x}
             if hasattr(self, 'is_training'):
                 feed_dict[self.is_training] = is_training
-                
+                # TODO Temporary print command
+                print('Processing with is_training={}'.format(is_training))
+
             y = self.sess.run(self.y, feed_dict=feed_dict)
             return y
     
@@ -118,18 +123,18 @@ class NIPModel(TFModel):
         self.train_perf = {'loss': []}
         self.valid_perf = {'loss': [], 'psnr': [], 'ssim': []}        
 
-    @property
-    def name(self):
-        if self.model_name is None:
-            return '{}'.format(type(self).__name__)
-        else:
-            return '{}{}'.format(type(self).__name__, self.model_name)
+    # @property
+    # def name(self):
+    #     if self.scoped_name is None:
+    #         return '{}'.format(type(self).__name__)
+    #     else:
+    #         return '{}{}'.format(type(self).__name__, self.scoped_name)
     
-    def count_parameters(self):
-        return np.sum([np.prod(tv.shape.as_list()) for tv in self.parameters])
+    # def count_parameters(self):
+    #     return np.sum([np.prod(tv.shape.as_list()) for tv in self.parameters])
             
-    def summary(self):
-        return '{} model [{:,} params]'.format(type(self).__name__, self.count_parameters())
+    # def summary(self):
+    #     return '{} model [{:,} params]'.format(type(self).__name__, self.count_parameters())
 
 
 class UNet(NIPModel):
@@ -139,46 +144,46 @@ class UNet(NIPModel):
         
     def construct_model(self):
         with self.graph.as_default():            
-            conv1 = slim.conv2d(self.x, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv1_1'.format(self.model_name))
-            conv1 = slim.conv2d(conv1, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv1_2'.format(self.model_name))
-            pool1 = slim.max_pool2d(conv1, [2, 2], padding='SAME', scope='{}/max_pool_1'.format(self.model_name))
+            conv1 = slim.conv2d(self.x, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv1_1'.format(self.scoped_name))
+            conv1 = slim.conv2d(conv1, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv1_2'.format(self.scoped_name))
+            pool1 = slim.max_pool2d(conv1, [2, 2], padding='SAME', scope='{}/max_pool_1'.format(self.scoped_name))
 
-            conv2 = slim.conv2d(pool1, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv2_1'.format(self.model_name))
-            conv2 = slim.conv2d(conv2, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv2_2'.format(self.model_name))
-            pool2 = slim.max_pool2d(conv2, [2, 2], padding='SAME', scope='{}/max_pool_2'.format(self.model_name))
+            conv2 = slim.conv2d(pool1, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv2_1'.format(self.scoped_name))
+            conv2 = slim.conv2d(conv2, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv2_2'.format(self.scoped_name))
+            pool2 = slim.max_pool2d(conv2, [2, 2], padding='SAME', scope='{}/max_pool_2'.format(self.scoped_name))
 
-            conv3 = slim.conv2d(pool2, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv3_1'.format(self.model_name))
-            conv3 = slim.conv2d(conv3, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv3_2'.format(self.model_name))
-            pool3 = slim.max_pool2d(conv3, [2, 2], padding='SAME', scope='{}/max_pool_3'.format(self.model_name))
+            conv3 = slim.conv2d(pool2, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv3_1'.format(self.scoped_name))
+            conv3 = slim.conv2d(conv3, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv3_2'.format(self.scoped_name))
+            pool3 = slim.max_pool2d(conv3, [2, 2], padding='SAME', scope='{}/max_pool_3'.format(self.scoped_name))
 
-            conv4 = slim.conv2d(pool3, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv4_1'.format(self.model_name))
-            conv4 = slim.conv2d(conv4, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv4_2'.format(self.model_name))
-            pool4 = slim.max_pool2d(conv4, [2, 2], padding='SAME', scope='{}/max_pool_4'.format(self.model_name))
+            conv4 = slim.conv2d(pool3, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv4_1'.format(self.scoped_name))
+            conv4 = slim.conv2d(conv4, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv4_2'.format(self.scoped_name))
+            pool4 = slim.max_pool2d(conv4, [2, 2], padding='SAME', scope='{}/max_pool_4'.format(self.scoped_name))
 
-            conv5 = slim.conv2d(pool4, 512, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv5_1'.format(self.model_name))
-            conv5 = slim.conv2d(conv5, 512, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv5_2'.format(self.model_name))
+            conv5 = slim.conv2d(pool4, 512, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv5_1'.format(self.scoped_name))
+            conv5 = slim.conv2d(conv5, 512, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv5_2'.format(self.scoped_name))
 
-            up6 = upsample_and_concat(conv5, conv4, 256, 512, name='weights', scope='{}/upsample_1'.format(self.model_name))
-            conv6 = slim.conv2d(up6, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv6_1'.format(self.model_name))
-            conv6 = slim.conv2d(conv6, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv6_2'.format(self.model_name))
+            up6 = upsample_and_concat(conv5, conv4, 256, 512, name='weights', scope='{}/upsample_1'.format(self.scoped_name))
+            conv6 = slim.conv2d(up6, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv6_1'.format(self.scoped_name))
+            conv6 = slim.conv2d(conv6, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv6_2'.format(self.scoped_name))
 
-            up7 = upsample_and_concat(conv6, conv3, 128, 256, name='weights', scope='{}/upsample_2'.format(self.model_name))
-            conv7 = slim.conv2d(up7, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv7_1'.format(self.model_name))
-            conv7 = slim.conv2d(conv7, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv7_2'.format(self.model_name))
+            up7 = upsample_and_concat(conv6, conv3, 128, 256, name='weights', scope='{}/upsample_2'.format(self.scoped_name))
+            conv7 = slim.conv2d(up7, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv7_1'.format(self.scoped_name))
+            conv7 = slim.conv2d(conv7, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv7_2'.format(self.scoped_name))
 
-            up8 = upsample_and_concat(conv7, conv2, 64, 128, name='weights', scope='{}/upsample_3'.format(self.model_name))
-            conv8 = slim.conv2d(up8, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv8_1'.format(self.model_name))
-            conv8 = slim.conv2d(conv8, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv8_2'.format(self.model_name))
+            up8 = upsample_and_concat(conv7, conv2, 64, 128, name='weights', scope='{}/upsample_3'.format(self.scoped_name))
+            conv8 = slim.conv2d(up8, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv8_1'.format(self.scoped_name))
+            conv8 = slim.conv2d(conv8, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv8_2'.format(self.scoped_name))
 
-            up9 = upsample_and_concat(conv8, conv1, 32, 64, name='weights', scope='{}/upsample_4'.format(self.model_name))
-            conv9 = slim.conv2d(up9, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv9_1'.format(self.model_name))
-            conv9 = slim.conv2d(conv9, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv9_2'.format(self.model_name))
+            up9 = upsample_and_concat(conv8, conv1, 32, 64, name='weights', scope='{}/upsample_4'.format(self.scoped_name))
+            conv9 = slim.conv2d(up9, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv9_1'.format(self.scoped_name))
+            conv9 = slim.conv2d(conv9, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv9_2'.format(self.scoped_name))
 
-            conv10 = slim.conv2d(conv9, 12, [1, 1], rate=1, activation_fn=None, scope='{}/conv10'.format(self.model_name))
+            conv10 = slim.conv2d(conv9, 12, [1, 1], rate=1, activation_fn=None, scope='{}/conv10'.format(self.scoped_name))
 
-            with tf.name_scope('{}'.format(self.model_name)):
+            with tf.name_scope('{}'.format(self.scoped_name)):
                 self.yy = tf.depth_to_space(conv10, 2)
-            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.model_name))            
+            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))            
 
 
 class INet(NIPModel):
@@ -191,7 +196,7 @@ class INet(NIPModel):
         self.cfa_pattern = cfa_pattern
 
         with self.graph.as_default():
-            with tf.variable_scope('{}'.format(self.model_name)):
+            with tf.variable_scope('{}'.format(self.scoped_name)):
 
                 # Initialize the upsampling kernel
                 upk = upsampling_kernel(cfa_pattern)
@@ -236,22 +241,9 @@ class INet(NIPModel):
                     rgb_g0 = tf.layers.conv2d(srgb, 12, 1, kernel_initializer=tf.constant_initializer(gamma_d1k), bias_initializer=tf.constant_initializer(gamma_d1b), use_bias=True, activation=tf.nn.tanh, name='conv_encode')
                     self.yy = tf.layers.conv2d(rgb_g0, 3, 1, kernel_initializer=tf.constant_initializer(gamma_d2k), bias_initializer=tf.constant_initializer(gamma_d2b), use_bias=True, activation=None, name='conv_decode')
             
-            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.model_name))
+            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))
 
-    def init(self):
-        # TODO That's a fairly ugly way to do it - need to find a better solution
-        super().init()
-        if not self.trainable_upsampling:
-            with self.graph.as_default():
-                with tf.variable_scope('{}/upsampling/conv_h12'.format(self.model_name), reuse=True):
-                    self.sess.run(tf.variables_initializer([tf.get_variable('kernel')]))
-    #
-    # def load_model(self, camera_name, out_directory_root):
-    #     if not self.trainable_upsampling:
-    #         self.init()
-    #     super().load_model(camera_name, out_directory_root)
 
-            
 class DNet(NIPModel):
     """
     Neural imaging pipeline adapted from a joint demosaicing-&-denoising model:
@@ -262,8 +254,8 @@ class DNet(NIPModel):
 
         with self.graph.as_default():
                         
-            with tf.name_scope('{}'.format(self.model_name)):
-                self.is_training = tf.get_variable('is_training'.format(self.model_name), shape=(), dtype=tf.bool, initializer=tf.constant_initializer(True))
+            with tf.name_scope('{}'.format(self.scoped_name)):
+                self.is_training = tf.get_variable('is_training'.format(self.scoped_name), shape=(), dtype=tf.bool, initializer=tf.constant_initializer(True))
                 k_initializer = tf.variance_scaling_initializer
 
                 # Initialize the upsampling kernel
@@ -275,18 +267,19 @@ class DNet(NIPModel):
                 # Convolutions on the sub-sampled input tensor
                 deep_x = self.x
                 for r in range(n_layers):
-                    deep_y = tf.layers.conv2d(deep_x, 12 if r == n_layers - 1 else n_features, kernel, use_bias=False, activation=None, name='{}/conv{}'.format(self.model_name, r), padding='VALID', kernel_initializer=k_initializer) #
+                    deep_y = tf.layers.conv2d(deep_x, 12 if r == n_layers - 1 else n_features, kernel, use_bias=False, activation=None, name='{}/conv{}'.format(self.scoped_name, r), padding='VALID', kernel_initializer=k_initializer) #
                     print('CNN layer out: {}'.format(deep_y.shape))
-                    deep_y = tf.layers.batch_normalization(deep_y, name='{}/bn{}'.format(self.model_name, r), training=self.is_training)
-                    deep_y = tf.nn.relu(deep_y, name='{}/conv{}/Relu'.format(self.model_name, r))
+                    deep_y = tf.layers.batch_normalization(deep_y, name='{}/bn{}'.format(self.scoped_name, r), training=self.is_training)
+                    # deep_y = tf.layers.batch_normalization(deep_y, name='{}/bn{}'.format(self.scoped_name, r))
+                    deep_y = tf.nn.relu(deep_y, name='{}/conv{}/Relu'.format(self.scoped_name, r))
                     deep_x = tf.pad(deep_y, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
 
                 # Upsample the input
-                h12 = tf.layers.conv2d(self.x, 12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, name='{}/conv_h12'.format(self.model_name), trainable=False)
-                bayer = tf.depth_to_space(h12, 2, name="{}/upscaled_bayer".format(self.model_name))
+                h12 = tf.layers.conv2d(self.x, 12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, name='{}/conv_h12'.format(self.scoped_name), trainable=False)
+                bayer = tf.depth_to_space(h12, 2, name="{}/upscaled_bayer".format(self.scoped_name))
 
                 # Upscale the conv. features and concatenate with the input RGB channels
-                features = tf.depth_to_space(deep_x, 2, name='{}/upscaled_features'.format(self.model_name))
+                features = tf.depth_to_space(deep_x, 2, name='{}/upscaled_features'.format(self.scoped_name))
                 bayer_features = tf.concat((features, bayer), axis=3)            
 
                 print('Final deep X: {}'.format(deep_x.shape))
@@ -295,17 +288,17 @@ class DNet(NIPModel):
                 print('Concat shape: {}'.format(bayer_features.shape))
 
                 # Project the concatenated 6-D features (R G B bayer from input + 3 channels from convolutions)
-                pu = tf.layers.conv2d(bayer_features, n_features, kernel, kernel_initializer=k_initializer, use_bias=True, activation=tf.nn.relu, name='{}/conv_postupscale'.format(self.model_name), padding='VALID', bias_initializer=tf.zeros_initializer)
+                pu = tf.layers.conv2d(bayer_features, n_features, kernel, kernel_initializer=k_initializer, use_bias=True, activation=tf.nn.relu, name='{}/conv_postupscale'.format(self.scoped_name), padding='VALID', bias_initializer=tf.zeros_initializer)
 
                 print('Post upscale: {}'.format(pu.shape))
 
                 # Final 1x1 conv to project each 64-D feature vector into the RGB colorspace
                 pu = tf.pad(pu, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
-                rgb = tf.layers.conv2d(pu, 3, 1, kernel_initializer=tf.ones_initializer, use_bias=False, activation=None, name='{}/conv_final'.format(self.model_name), padding='VALID')            
+                rgb = tf.layers.conv2d(pu, 3, 1, kernel_initializer=tf.ones_initializer, use_bias=False, activation=None, name='{}/conv_final'.format(self.scoped_name), padding='VALID')            
 
                 print('RGB affine: {}'.format(rgb.shape))
 
                 self.yy = rgb
                 print('Y: {}'.format(self.yy.shape))
 
-            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.model_name))
+            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))

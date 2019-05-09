@@ -13,8 +13,7 @@ from skimage.measure import compare_ssim as ssim
 import matplotlib.pyplot as plt
 
 # Own libraries and modules
-from helpers import loading, plotting, utils, summaries, tf_helpers, dataset
-from models import compression
+from helpers import plotting, summaries
 
 
 def visualize_codebook(dcn):
@@ -59,6 +58,7 @@ def save_progress(dcn, training, out_dir):
     with open(filename, 'w') as f:
         json.dump(output_stats, f, indent=4)
 
+
 def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
     """
     tf_ops = {
@@ -92,13 +92,16 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
         'ssim': {'training': deque(maxlen=n_batches), 'validation': deque(maxlen=v_batches)}
     }
 
+    n_tail = 3
     learning_rate = training['learning_rate']
-    model_output_dirname = os.path.join(directory, dcn.name)
+    model_output_dirname = os.path.join(directory, dcn.model_code, dcn.scoped_name)
+
+    print('Output directory: {}'.format(model_output_dirname))
 
     # Create a summary writer and create the necessary directories
     sw = dcn.get_summary_writer(model_output_dirname)
 
-    with tqdm.tqdm(total=training['n_epochs'], ncols=160, desc=dcn.name) as pbar:
+    with tqdm.tqdm(total=training['n_epochs'], ncols=160, desc=dcn.model_code.split('/')[-1]) as pbar:
 
         for epoch in range(0, training['n_epochs']):
             
@@ -108,7 +111,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 learning_rate *= training['learning_rate_reduction_factor']
 
             # Iterate through batches of the training data 
-            for batch_id in range(n_batches): # TODO n_batches
+            for batch_id in range(n_batches):
 
                 # Pick random patch size - will be resized later for augmentation
                 current_patch = np.random.choice(np.arange(training['patch_size'], 2 * training['patch_size']), 1) if np.random.uniform() < training['augmentation_probs']['resize'] else training['patch_size']
@@ -168,7 +171,8 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
 
             # Iterate through batches of the validation data
             if epoch % training['sampling_rate'] == 0:
-                for batch_id in range(v_batches): # TODO v_batches
+
+                for batch_id in range(v_batches):
                     batch_x = data.next_validation_batch(batch_id, training['batch_size'])
                     batch_y = dcn.process(batch_x, is_training=training['validation_is_training'])
 
@@ -176,8 +180,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                     loss_value = np.linalg.norm(batch_x - batch_y)
                     caches['loss']['validation'].append(loss_value)                
 
-                    # Compute SSIM            
-    #                 ssim_value = np.mean([ssim((255*batch_x[r]).astype(np.uint8), (255*batch_y[r]).astype(np.uint8)) for r in range(len(batch_x))])
+                    # Compute SSIM
                     ssim_value = np.mean([ssim(batch_x[r], batch_y[r], multichannel=True) for r in range(len(batch_x))]) 
                     caches['ssim']['validation'].append(ssim_value)
 
@@ -190,7 +193,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 imageio.imsave(os.path.join(model_output_dirname, 'thumbnails-{:05d}.png'.format(epoch)), thumbs)
 
                 # Sample latent space
-                batch_z = dcn.compress(batch_x) # data.next_validation_batch(0, 256)
+                batch_z = dcn.compress(batch_x)
 
                 # Save summaries to TB            
                 summary = tf.Summary()
@@ -219,30 +222,45 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 # Save current checkpoint
                 dcn.save_model(model_output_dirname, epoch)
 
-            # Fetch Batch Norm
+                # Check for convergence or model deterioration
+                if len(perf['ssim']['validation']) > 5:
+                    current = np.mean(perf['ssim']['validation'][-n_tail:-1])
+                    previous = np.mean(perf['ssim']['validation'][-(n_tail + 1):-2])
+                    perf_change = abs((current - previous) / previous)
+
+                    if perf_change < training['convergence_threshold']:
+                        print('Early stopping - the model converged, validation SSIM change {}'.format(perf_change))
+                        break
+
+                    if current < previous:
+                        print('Early stopping - SSIM deterioration {} -> {}'.format(previous, current))
+                        break
+
+            progress_dict = {
+                'L': np.mean(perf['loss']['training'][-3:]),
+                'Lv': np.mean(perf['loss']['validation'][-1:]),
+                'lr': '{:.1e}'.format(learning_rate),
+                'ssim': '{:.2f}'.format(perf['ssim']['validation'][-1]),
+                'H': '{:.1f}'.format(np.mean(perf['entropy']['training'][-1:])),
+                'S': '{:.1f}'.format(scaling),
+                # 'Qvar': np.var(np.convolve(codebook, [-1, 1], mode='valid')),
+            }
+
             if dcn.use_batchnorm:
+                # Get current batch / population stats
                 prebn = dcn.sess.run(dcn.pre_bn, feed_dict={dcn.x: batch_x})
-                bM = np.mean(prebn, axis=(0,1,2))
-                bV = np.var(prebn, axis=(0,1,2))
+                bM = np.mean(prebn, axis=(0, 1, 2))
+                bV = np.var(prebn, axis=(0, 1, 2))
                 pM = dcn.sess.run(dcn.graph.get_tensor_by_name('autoencoderdcn/encoder/bn_0/moving_mean:0'))
                 pV = dcn.sess.run(dcn.graph.get_tensor_by_name('autoencoderdcn/encoder/bn_0/moving_variance:0'))
-            else:
-                pM = []
-                pV = []
-                bM = []
-                bV = []
+                # Append summary
+                progress_dict['MVp'] = '{:.2f}/{:.2f}'.format(np.mean(pM), np.mean(pV))
+                progress_dict['MVb'] = '{:.2f}/{:.2f}'.format(np.mean(bM), np.mean(bV))
 
             # Update progress bar
-            pbar.set_postfix(L=np.mean(perf['loss']['training'][-3:]), 
-                             Lv=np.mean(perf['loss']['validation'][-1:]),
-    #                          lr='{:.8f}'.format(learning_rate),
-                             ssim=perf['ssim']['validation'][-1],
-                             H=np.mean(perf['entropy']['training'][-1:]), 
-                             S=scaling,
-                             Qvar=np.var(np.convolve(codebook, [-1, 1], mode='valid')),
-                             pM=np.mean(pM),
-                             pV=np.mean(pV),
-                             bM=np.mean(bM),
-                             bV=np.mean(bV)
-                            )
+            pbar.set_postfix(progress_dict)
             pbar.update(1)
+
+    # Save the final model
+    save_progress(dcn, training, model_output_dirname)
+    dcn.save_model(model_output_dirname, epoch)

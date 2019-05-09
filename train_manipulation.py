@@ -14,7 +14,7 @@ from training.manipulation import construct_models, train_manipulation_nip
 
 
 @coreutils.logCall
-def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', jpeg_quality=50, jpeg_mode='sin', use_pretrained=True, end_repetition=10, start_repetition=0, n_epochs=1001, nip_directory=None):
+def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', jpeg_quality=50, jpeg_mode='sin', use_pretrained=True, end_repetition=10, start_repetition=0, n_epochs=1001, nip_directory=None, split='120:30:4', regularization_strengths=None):
     """
     Repeat training for multiple NIP regularization strengths.
     """
@@ -26,20 +26,26 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         'batch_size': 20,
         'sampling_rate': 50,
         'learning_rate': 1e-4,
-        'n_images': 120,
-        'v_images': 30,
-        'val_n_patches': 4
+        'n_images': int(split.split(':')[0]),
+        'v_images': int(split.split(':')[1]),
+        'val_n_patches': int(split.split(':')[2])
     }
 
-    if root_directory is None or not os.path.isdir(root_directory):
+    if root_directory is None:
         raise FileNotFoundError('Invalid root directory: {}'.format(root_directory))
+
+    if not os.path.isdir(root_directory):
+        os.makedirs(root_directory)
 
     if nip_directory is None or not os.path.isdir(nip_directory):
         raise FileNotFoundError('Invalid NIP snapshots directory: {}'.format(nip_directory))
 
     # Experiment setup
     camera_names = camera_names or ['Nikon D90', 'Nikon D7000', 'Canon EOS 5D', 'Canon EOS 40D']
-    regularization_strengths = [0, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 0.1, 0.25, 0.5, 1]
+    if regularization_strengths is None or len(regularization_strengths) == 0:
+        regularization_strengths = [0, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 0.1, 0.25, 0.5, 1]
+    else:
+        regularization_strengths = [float(x) for x in regularization_strengths]
 
     # Construct the TF model
     tf_ops, distribution = construct_models(nip_model, distribution_jpeg=jpeg_quality, loss_metric=loss_metric, jpeg_approx=jpeg_mode)
@@ -88,10 +94,14 @@ def main():
                         help='last iteration (exclusive, default 10)')
     parser.add_argument('--epochs', dest='epochs', action='store', default=1001, type=int,
                         help='number of epochs (default 1001)')
+    parser.add_argument('--split', dest='split', action='store', default='120:30:4',
+                        help='data split with #training:#validation:#validation_patches - e.g., 120:30:4')
+    parser.add_argument('--reg', dest='regularization_strengths', action='append',
+                        help='set custom regularization strength for the NIP (repeat for multiple values)')
 
     args = parser.parse_args()
 
-    batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.jpeg_quality, args.jpeg_mode, not args.from_scratch, start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs, nip_directory=args.nip_directory)
+    batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.jpeg_quality, args.jpeg_mode, not args.from_scratch, start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs, nip_directory=args.nip_directory, split=args.split, regularization_strengths=args.regularization_strengths)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ class DCN(TFModel):
     6. Output layer with K classes
     """
 
-    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, **kwargs):
+    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, **kwargs):
         """
         Creates a forensic analysis network.
 
@@ -28,8 +28,12 @@ class DCN(TFModel):
         super().__init__(sess, graph, label)
         self.patch_size = patch_size
         self.nip_input = nip_input
-        self.latent_bpf = kwargs['latent_bpf']
-        self.train_codebook = kwargs['train_codebook']
+        self.latent_bpf = latent_bpf
+        self.train_codebook = train_codebook
+
+        # Add parameters to kwargs so that they can be forwarded to the sub-class constructor
+        kwargs['latent_bpf'] = latent_bpf
+        kwargs['train_codebook'] = train_codebook
         self.args = kwargs
         
         # Some parameters
@@ -42,7 +46,7 @@ class DCN(TFModel):
             # - if external input is given (from a NIP model), remember the input to the NIP model to facilitate 
             #   convenient operation of the class (see helper methods 'process*')
             if x is None:
-                x = tf.placeholder(tf.float32, shape=(None, patch_size, patch_size, 3), name='x_{}'.format(self.model_name))
+                x = tf.placeholder(tf.float32, shape=(None, patch_size, patch_size, 3), name='x_{}'.format(self.scoped_name))
                 self.use_nip_input = False
             else:
                 self.use_nip_input = True
@@ -50,7 +54,7 @@ class DCN(TFModel):
             self.x = x
             
             # Setup quantization codebook
-            with tf.name_scope('{}/optimization'.format(self.model_name)):
+            with tf.name_scope('{}/optimization'.format(self.scoped_name)):
                 
                 with tf.name_scope('entropy'):
                                         
@@ -60,7 +64,7 @@ class DCN(TFModel):
                                         
                     print('Initializing {} codebook ({} bpf): from {} to {}'.format('trainable' if self.train_codebook else 'fixed', self.latent_bpf, qmin, qmax))
                     if self.train_codebook:
-                        bin_centers = tf.get_variable('{}/quantization/codebook'.format(self.model_name), shape=(1, 2 ** self.latent_bpf), initializer=tf.constant_initializer(np.arange(qmin, qmax + 1)))
+                        bin_centers = tf.get_variable('{}/quantization/codebook'.format(self.scoped_name), shape=(1, 2 ** self.latent_bpf), initializer=tf.constant_initializer(np.arange(qmin, qmax + 1)))
                     else:
                         bin_centers = tf.constant(np.arange(qmin, qmax + 1), shape=(1, 2 ** self.latent_bpf), dtype=tf.float32)                        
                     self.codebook = bin_centers                
@@ -75,7 +79,7 @@ class DCN(TFModel):
                 
             # train_codebook=False, latent_bpf=8, scale_latent=True, entropy_weight=None
                         
-            with tf.name_scope('{}/optimization'.format(self.model_name)):
+            with tf.name_scope('{}/optimization'.format(self.scoped_name)):
                 
                 with tf.name_scope('entropy'):
                     
@@ -108,12 +112,12 @@ class DCN(TFModel):
                 # Optimization
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
                 with tf.control_dependencies(update_ops):
-                    self.lr = tf.placeholder(tf.float32, name='{}_learning_rate'.format(self.model_name))
+                    self.lr = tf.placeholder(tf.float32, name='{}_learning_rate'.format(self.scoped_name))
                     self.adam = tf.train.AdamOptimizer(learning_rate=self.lr)
                     self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
                 
     def construct_model(self):
-        raise Error('Not implemented!')
+        raise NotImplementedError('Not implemented!')
         
     def reset_performance_stats(self):
         self.performance = {
@@ -234,7 +238,7 @@ class DCN(TFModel):
         return 'dcn with {} conv layers and {}-D latent representation [{:,} parameters]'.format(self.n_layers, self.n_latent, self.count_parameters())
     
     @property
-    def name(self):
+    def model_code(self):
         if not hasattr(self, 'n_latent'):
             raise ValueError('The model does not report the latent space dimensionality.')
         
@@ -272,26 +276,26 @@ class AutoencoderDCN(DCN):
         net = self.x
         print('in size: {}'.format(net.shape))
 
-        # Encoder ---------------------------------------------------------------------------------------------------------------
+        # Encoder ------------------------------------------------------------------------------------------------------
         
         # Add convolutional layers
         n_filters = self.n_filters
 
         for r in range(self.n_layers):
             current_activation = activation if (n_latent > 0 or (n_latent == 0 and r < self.n_layers - 1)) else latent_activation
-            net = tf.contrib.layers.conv2d(net, n_filters, self.kernel, stride=2, scope='{}/encoder/conv_{}'.format(self.model_name, r), activation_fn=current_activation)
+            net = tf.contrib.layers.conv2d(net, n_filters, self.kernel, stride=2, scope='{}/encoder/conv_{}'.format(self.scoped_name, r), activation_fn=current_activation)
             print('conv size: {} + {}'.format(net.shape, current_activation.__name__ if current_activation is not None else None))
             if r != self.n_layers - 1:
                 n_filters *= self.n_fscale
             
         # Add residual blocks
         for r in range(self.r_layers):
-            resnet = tf.contrib.layers.conv2d(tf.nn.leaky_relu(net, name='{}/encoder/res_{}/lrelu'.format(self.model_name, r)),    n_filters, 3, stride=1, activation_fn=activation, scope='{}/encoder/res_{}/conv_{}'.format(self.model_name, r, 0))
-            resnet = tf.contrib.layers.conv2d(resnet, n_filters, 3, stride=1, activation_fn=None,       scope='{}/encoder/res_{}/conv_{}'.format(self.model_name, r, 1))
-            net = tf.add(net, resnet, name='{}/encoder/res_{}/sum'.format(self.model_name, r))
+            resnet = tf.contrib.layers.conv2d(tf.nn.leaky_relu(net, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r)),    n_filters, 3, stride=1, activation_fn=activation, scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 0))
+            resnet = tf.contrib.layers.conv2d(resnet, n_filters, 3, stride=1, activation_fn=None,       scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
+            net = tf.add(net, resnet, name='{}/encoder/res_{}/sum'.format(self.scoped_name, r))
             print('residual block: {}'.format(net.shape))        
 
-        # Latent representation -----------------------------------------------------------------------------------------------------------
+        # Latent representation ----------------------------------------------------------------------------------------
 
         # Compute the shape of the latent representation
         z_spatial = int(self.patch_size / (2**self.n_layers))
@@ -300,25 +304,25 @@ class AutoencoderDCN(DCN):
 
         # If a smaller linear bottleneck is specified explicitly - add dense layers to make the projection
         if n_latent is not None and n_latent != 0:
-            flat = tf.contrib.layers.flatten(net, scope='{}/encoder/flatten_{}'.format(self.model_name, 0))
+            flat = tf.contrib.layers.flatten(net, scope='{}/encoder/flatten_{}'.format(self.scoped_name, 0))
             print('flatten size: {}'.format(flat.shape))
             
             if n_latent > 0:
-                flat = tf.contrib.layers.fully_connected(flat, self.n_latent, activation_fn=latent_activation, scope='{}/encoder/dense_{}'.format(self.model_name, 0))
-                latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.model_name))
+                flat = tf.contrib.layers.fully_connected(flat, self.n_latent, activation_fn=latent_activation, scope='{}/encoder/dense_{}'.format(self.scoped_name, 0))
+                latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.scoped_name))
                 print('dense size: {}'.format(flat.shape))
             else:
-                latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.model_name))                
+                latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.scoped_name))                
         else:
-            latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.model_name))
+            latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.scoped_name))
 
         # Add batch norm to normalize the latent representation
         if use_batchnorm:            
             self.pre_bn = latent # TODO Temporarily added for debugging
-            self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.model_name))
+            self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
 #                 self.is_training = tf.get_variable('is_training', shape=(), dtype=tf.bool, initializer=tf.constant_initializer(True), trainable=False)
             
-            latent = tf.contrib.layers.batch_norm(latent, scale=False, is_training=self.is_training, scope='{}/encoder/bn_{}'.format(self.model_name, 0))
+            latent = tf.contrib.layers.batch_norm(latent, scale=False, is_training=self.is_training, scope='{}/encoder/bn_{}'.format(self.scoped_name, 0))
             print('batch norm: {}'.format(latent.shape))
             
             
@@ -326,23 +330,23 @@ class AutoencoderDCN(DCN):
         if self.scale_latent:
 #             scaling_factor = np.max((1, np.power(2, self.latent_bpf - 2)))
             scaling_factor = 1
-            alphas = tf.get_variable('{}/encoder/latent_scaling'.format(self.model_name), shape=(), dtype=tf.float32, initializer=tf.constant_initializer(scaling_factor))
-            latent = tf.multiply(alphas, latent, name='{}/encoder/latent_scaled'.format(self.model_name))            
+            alphas = tf.get_variable('{}/encoder/latent_scaling'.format(self.scoped_name), shape=(), dtype=tf.float32, initializer=tf.constant_initializer(scaling_factor))
+            latent = tf.multiply(alphas, latent, name='{}/encoder/latent_scaled'.format(self.scoped_name))            
             print('Scaling latent representation - init:{}'.format(scaling_factor))
         
         # Add identity to facilitate better display in the TF graph
-        latent = tf.identity(latent, name='{}/latent'.format(self.model_name))
+        latent = tf.identity(latent, name='{}/latent'.format(self.scoped_name))
 
         # Quantize the latent representation and remember tensors before and after the process
         self.latent_pre = latent
-        latent = tf_helpers.quantization(latent, '{}/quantization'.format(self.model_name), 'latent_quantized', rounding, codebook_tensor=self.codebook)              
+        latent = tf_helpers.quantization(latent, '{}/quantization'.format(self.scoped_name), 'latent_quantized', rounding, codebook_tensor=self.codebook)              
         print('quantization with {} rounding'.format(rounding))
         self.latent_post = latent
         self.n_latent = int(np.prod(latent.shape[1:]))
         print('latent size: {} + quant:{}'.format(latent.shape, rounding))
         
         if n_latent > 0:
-            inet = tf.contrib.layers.fully_connected(latent, int(np.prod(self.latent_shape[1:])), activation_fn=activation, scope='{}/decoder/dense_{}'.format(self.model_name, 0))
+            inet = tf.contrib.layers.fully_connected(latent, int(np.prod(self.latent_shape[1:])), activation_fn=activation, scope='{}/decoder/dense_{}'.format(self.scoped_name, 0))
             print('dense size: {} + {}'.format(inet.shape, activation))
         else:
             inet = latent
@@ -350,35 +354,35 @@ class AutoencoderDCN(DCN):
         # Add dropout
         if dropout:
             if not hasattr(self, 'is_training'):
-                self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.model_name))
-            self.dropout = tf.placeholder(tf.float32, name='{}/droprate'.format(self.model_name), shape=())
-            inet = tf.contrib.layers.dropout(inet, keep_prob=self.dropout, scope='{}/dropout'.format(self.model_name), is_training=self.is_training)
+                self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
+            self.dropout = tf.placeholder(tf.float32, name='{}/droprate'.format(self.scoped_name), shape=())
+            inet = tf.contrib.layers.dropout(inet, keep_prob=self.dropout, scope='{}/dropout'.format(self.scoped_name), is_training=self.is_training)
             print('dropout size: {}'.format(net.shape))
             
-        # Decoder ---------------------------------------------------------------------------------------------------------------
+        # Decoder ------------------------------------------------------------------------------------------------------
         
         # Just in case - make sure we have a multidimensional tensor before we start the convolutions
-        inet = tf.reshape(inet, self.latent_shape, name='{}/decoder/reshape_{}'.format(self.model_name, 0))
+        inet = tf.reshape(inet, self.latent_shape, name='{}/decoder/reshape_{}'.format(self.scoped_name, 0))
         print('reshape size: {}'.format(inet.shape))
 
         # Add residual blocks
         for r in range(self.r_layers):
-            resnet = tf.contrib.layers.conv2d(tf.nn.leaky_relu(inet, name='{}/encoder/res_{}/lrelu'.format(self.model_name, r)),   n_filters, 3, stride=1, activation_fn=activation, scope='{}/decoder/res_{}/conv_{}'.format(self.model_name, r, 0))
-            resnet = tf.contrib.layers.conv2d(resnet, n_filters, 3, stride=1, activation_fn=None,       scope='{}/decoder/res_{}/conv_{}'.format(self.model_name, r, 1))
-            inet = tf.add(inet, resnet, name='{}/decoder/res_{}/sum'.format(self.model_name, r))
+            resnet = tf.contrib.layers.conv2d(tf.nn.leaky_relu(inet, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r)),   n_filters, 3, stride=1, activation_fn=activation, scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 0))
+            resnet = tf.contrib.layers.conv2d(resnet, n_filters, 3, stride=1, activation_fn=None,       scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
+            inet = tf.add(inet, resnet, name='{}/decoder/res_{}/sum'.format(self.scoped_name, r))
             print('residual block: {}'.format(net.shape))                
         
         # Transposed convolutions
         for r in range(self.n_layers):            
             current_activation = last_activation if r == self.n_layers - 1 else activation
-            inet = tf.contrib.layers.conv2d(inet, 2 * n_filters, self.kernel, stride=1, scope='{}/decoder/tconv_{}'.format(self.model_name, r), activation_fn=current_activation)
+            inet = tf.contrib.layers.conv2d(inet, 2 * n_filters, self.kernel, stride=1, scope='{}/decoder/tconv_{}'.format(self.scoped_name, r), activation_fn=current_activation)
             print('conv size: {} + {}'.format(inet.shape, current_activation.__name__ if current_activation is not None else None))
-            inet = tf.depth_to_space(inet, 2, name='{}/decoder/d2s_{}'.format(self.model_name, r))
-#             inet = tf.contrib.layers.conv2d_transpose(inet, 3 if r == self.n_layers - 1 else n_filters, self.kernel, stride=2,  activation_fn=current_activation, scope='{}/tconv_{}'.format(self.model_name, r))
+            inet = tf.depth_to_space(inet, 2, name='{}/decoder/d2s_{}'.format(self.scoped_name, r))
+#             inet = tf.contrib.layers.conv2d_transpose(inet, 3 if r == self.n_layers - 1 else n_filters, self.kernel, stride=2,  activation_fn=current_activation, scope='{}/tconv_{}'.format(self.scoped_name, r))
             print('d2s size: {} + {}'.format(inet.shape, None))
             n_filters = n_filters // self.n_fscale
 
-        inet = tf.contrib.layers.conv2d(inet, 3, self.kernel, stride=1, activation_fn=last_activation, scope='{}/decoder/tconv_out'.format(self.model_name))
+        inet = tf.contrib.layers.conv2d(inet, 3, self.kernel, stride=1, activation_fn=last_activation, scope='{}/decoder/tconv_out'.format(self.scoped_name))
         print('conv->out size: {} + {}'.format(inet.shape, last_activation))
         y = tf.identity(inet, name='y')
             
@@ -386,7 +390,7 @@ class AutoencoderDCN(DCN):
         self.latent = latent
     
     @property
-    def name(self):
+    def model_code(self):
         parameter_summary = []
         
         if hasattr(self, 'latent_shape'):
@@ -411,4 +415,4 @@ class AutoencoderDCN(DCN):
         if self.entropy_weight is not None:
             parameter_summary.append('H+{:.2f}'.format(self.entropy_weight))
 
-        return '{}/{}'.format(super().name, '-'.join(parameter_summary))
+        return '{}/{}'.format(super().model_code, '-'.join(parameter_summary))

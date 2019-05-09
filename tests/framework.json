@@ -1,0 +1,48 @@
+{
+  "train-nip": {
+    "log": "train-nip.log",
+    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 100 --out {root}/nip_snapshots",
+    "files": [
+      "nip_snapshots/{}/inet/progress.json",
+      "nip_snapshots/{}/inet/inet-99.meta",
+      "nip_snapshots/{}/inet/inet-99.index"
+    ],
+    "performance" : {
+      "file": "nip_snapshots/{}/inet/progress.json",
+      "values": {
+        "Performance/psnr": 40
+      }
+    }
+  },
+  "resume-nip": {
+    "log": "resume-nip.log",
+    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 400 --out {root}/nip_snapshots --resume",
+    "files": [
+      "nip_snapshots/{}/inet/progress.json",
+      "nip_snapshots/{}/inet/inet-399.meta",
+      "nip_snapshots/{}/inet/inet-399.index"
+    ],
+    "performance": {
+      "file": "nip_snapshots/{}/inet/progress.json",
+      "values": {
+        "Performance/psnr": 41
+      }
+    }
+  },
+  "train-manipulation": {
+    "log": "train-manipulation.log",
+    "command": "python3 train_manipulation.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 51 --dir {root}/manipulation --end 1 --nip-dir {root}/nip_snapshots --reg 0.1",
+    "files": [
+      "manipulation/{}/INet/lr-0.1000/000/training.json",
+      "manipulation/{}/INet/lr-0.1000/000/models/fan/fan-50.meta",
+      "manipulation/{}/INet/lr-0.1000/000/models/inet/inet-50.meta"
+    ],
+    "performance" : {
+      "file": "manipulation/{}/INet/lr-0.1000/000/training.json",
+      "values": {
+        "nip/validation/psnr": 40,
+        "forensics/validation/accuracy": 0.2
+      }
+    }
+  }
+}
