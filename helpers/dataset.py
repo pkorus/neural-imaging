@@ -4,7 +4,7 @@ from helpers import loading
 
 class IPDataset(object):
     
-    def __init__(self, data_directory, randomize=False, load='xy', val_rgb_patch_size=128, val_n_patches=2, n_images=120, v_images=30):
+    def __init__(self, data_directory, *, randomize=False, load='xy', n_images=120, v_images=30, val_rgb_patch_size=128, val_n_patches=1):
         
         if not any(load == allowed for allowed in ['xy', 'x', 'y']):
             raise ValueError('Invalid X/Y data requested!')
