@@ -61,7 +61,7 @@ class TFModel(object):
     def saver(self):
         if not hasattr(self, '_saver') or self._saver is None:
             with self.graph.as_default():
-                self._saver = tf.train.Saver(self.parameters, max_to_keep=0)
+                self._saver = tf.train.Saver(self.parameters, max_to_keep=5)
         return self._saver
 
     def save_model(self, dirname, epoch=0):
