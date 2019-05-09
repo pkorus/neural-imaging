@@ -15,8 +15,7 @@ TQDM_WIDTH = 120
 # Disable unimportant logging and import TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-
-def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=0, show_ref=False, loss_metric='L2'):
+def validate(model, data, out_directory, savefig=False, epoch=0, show_ref=False, loss_metric='L2'):
     
     ssims, psnrs, losss = [], [], []
 
@@ -73,10 +72,9 @@ def validate(model, camera_name, data, out_directory_root, savefig=False, epoch=
             plt.title('{} : {:.1f} dB / {:.2f}'.format(data.files['validation'][label_index], psnr, ssim), fontsize=6)
 
     if savefig:
-        dirname = os.path.join(out_directory_root, camera_name, model.model_name)
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
-        plt.savefig(os.path.join(dirname, 'validation_{:05d}.jpg'.format(epoch)), bbox_inches='tight', dpi=150)
+        if not os.path.exists(out_directory):
+            os.makedirs(out_directory)
+        plt.savefig(os.path.join(out_directory, 'validation_{:05d}.jpg'.format(epoch)), bbox_inches='tight', dpi=150)
         plt.close()
     
     return ssims, psnrs, losss, developed_out
@@ -132,9 +130,7 @@ def save_progress(performance, training_summary, out_directory):
         json.dump(output_stats, f, indent=4)
 
 
-def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_threshold=1e-3, sampling_rate=100, resume=False, patch_size=64, batch_size=20, nip_params=None, data=None, out_directory_root='./data/raw/nip_model_snapshots'):
-
-    nip_params = nip_params or {}
+def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshold=1e-3, sampling_rate=100, resume=False, patch_size=64, batch_size=20, data=None, out_directory_root='./data/raw/nip_model_snapshots'):
     
     if data is None:
         raise ValueError('Training data seems not to be loaded!')
@@ -147,20 +143,8 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     except Exception as e:
         raise ValueError('Data set error: {}'.format(e))
 
-    # Lazy loading to prevent delays in basic CLI interaction
-    from models import pipelines
-    import tensorflow as tf
-
-    if not issubclass(getattr(pipelines, architecture), pipelines.NIPModel):
-        supported_nips = [x for x in dir(pipelines) if x != 'NIPModel' and type(getattr(pipelines, x)) is type and issubclass(getattr(pipelines, x), pipelines.NIPModel)]
-        raise ValueError('Invalid NIP model ({})! Available NIPs: ({})'.format(architecture, supported_nips))
-
-    sess = tf.Session()
-    model = getattr(pipelines, architecture)(sess, tf.get_default_graph(), loss_metric='L2', **nip_params)
-    model.sess.run(tf.global_variables_initializer())
-
     # Set up training output
-    out_directory = os.path.join(out_directory_root, camera_name, model.model_name)
+    out_directory = os.path.join(out_directory_root, camera_name, model.scoped_name)
 
     # Limit the number of checkpoints to 5
     model.saver.saver_def.max_to_keep = 5
@@ -168,6 +152,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     
     n_batches = data.count_training // batch_size
     learning_rate = 1e-4
+    n_tail = 5
 
     if not resume:
         losses_buf = deque(maxlen=10)
@@ -177,7 +162,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
         start_epoch = 0
     else:
         # Find training summary
-        summary_file = os.path.join(out_directory_root, camera_name, model.model_name, 'progress.json')
+        summary_file = os.path.join(out_directory_root, camera_name, model.scoped_name, 'progress.json')
 
         if not os.path.isfile(summary_file):
             raise FileNotFoundError('Could not open file {}'.format(summary_file))
@@ -213,7 +198,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
     training_summary['Batch size'] = batch_size
     training_summary['Sampling rate'] = sampling_rate
     training_summary['Start epoch'] = start_epoch
-    training_summary['Output directory'] = out_directory_root
+    training_summary['Output directory'] = out_directory
 
     print('\n## Training summary')
     for k, v in training_summary.items():
@@ -239,7 +224,7 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
             if epoch % sampling_rate == 0:
                 # Use the current model to develop images in the validation set
                 developed_old = developed
-                ssims, psnrs, v_losses, developed = validate(model, camera_name, data, out_directory_root, True, epoch, True, loss_metric=model.loss_metric)
+                ssims, psnrs, v_losses, developed = validate(model, data, out_directory, True, epoch, True, loss_metric=model.loss_metric)
                 performance['ssim'].append(float(np.mean(ssims)))
                 performance['psnr'].append(float(np.mean(psnrs)))
                 performance['loss'].append(float(np.mean(v_losses)))
@@ -253,13 +238,12 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
 
                 # Generate progress summary
                 training_summary['Epoch'] = epoch
-                visualize_progress(type(model).__name__, performance, patch_size, camera_name, out_directory, False, sampling_rate)
+                visualize_progress(model.class_name, performance, patch_size, camera_name, out_directory, False, sampling_rate)
                 save_progress(performance, training_summary, out_directory)
                 model.save_model(out_directory, epoch)
 
                 # Check for convergence
                 if len(performance['loss']) > 10:
-                    n_tail = 5
                     current = np.mean(performance['loss'][-n_tail:-1])
                     previous = np.mean(performance['loss'][-(n_tail + 1):-2])
                     vloss_change = abs((current - previous) / previous)
@@ -271,5 +255,9 @@ def train_nip_model(architecture, camera_name, n_epochs=10000, validation_loss_t
             pbar.set_postfix(loss=np.mean(losses_buf), psnr=performance['psnr'][-1], ldmse=np.log10(performance['dmse'][-1]))
             pbar.update(1)
 
-    model.save_model(out_directory , epoch)
-    return model
+    training_summary['Epoch'] = epoch
+    visualize_progress(model.class_name, performance, patch_size, camera_name, out_directory, False, sampling_rate)
+    save_progress(performance, training_summary, out_directory)
+    model.save_model(out_directory, epoch)
+
+    return out_directory

@@ -1,30 +1,17 @@
 #!/usr/bin/env python3
 # coding: utf-8
-import io
 import os
 import sys
 import json
-import tqdm
-import imageio
 import argparse
 import numpy as np
 import tensorflow as tf
 
-from collections import deque, OrderedDict
-from skimage.transform import resize, rescale
-from skimage.measure import compare_ssim as ssim
-from scipy.cluster.vq import vq
-
-import matplotlib.pyplot as plt
-
 # Own libraries and modules
-from helpers import loading, plotting, utils, summaries, tf_helpers, dataset
+from helpers import dataset, coreutils
 from models import compression
 
 from training.compression import train_dcn
-
-# Set progress bar width
-TQDM_WIDTH = 120
 
 # Disable unimportant logging and import TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -47,16 +34,16 @@ def main():
     parser.add_argument('--params', dest='dcn_params', action='append', help='Extra parameters for DCN constructor (JSON string)')
     parser.add_argument('--param_list', dest='dcn_param_list', default=None, help='JSON file with a dictionary of DCN configurations')    
     
-    # Genereal
+    # General
     parser.add_argument('--out', dest='out_dir', action='store', default='./data/raw/compression/',
                         help='output directory for storing trained models')
-    parser.add_argument('--epochs', dest='epochs', action='store', default=5000, type=int,
+    parser.add_argument('--epochs', dest='epochs', action='store', default=1500, type=int,
                         help='maximum number of training epochs')
     parser.add_argument('--lr', dest='learning_rate', action='store', default=1e-4, type=float,
                         help='learning rate')
-    parser.add_argument('--vtrain', dest='validation_is_training', action='store', default=True, type=bool,
+    parser.add_argument('--v_train', dest='validation_is_training', action='store_true', default=True,
                         help='Use the model in training mode while testing')
-    parser.add_argument('--noflip', dest='noflip', action='store_true', default=False, type=bool,
+    parser.add_argument('--no_flip', dest='noflip', action='store_true', default=False,
                         help='disable flipping (data augmentation)')
     parser.add_argument('--resume', dest='resume', action='store_true', default=False,
                         help='Resume training from last checkpoint, if possible')
@@ -68,12 +55,6 @@ def main():
         parser.print_usage()
         sys.exit(1)
 
-    # Lazy loading after parameter sanitization finished
-    from helpers import loading
-
-    data_directory = os.path.join(args.data_dir, args.camera)
-    out_directory_root = args.out_dir
-    
     parameter_list = []
 
     try:
@@ -81,7 +62,7 @@ def main():
             parameter_list.append(json.loads(args.dcn_params.replace('\'', '"')))
 
         if args.dcn_param_list is not None:
-            with open(dcn_param_list) as f:
+            with open(args.dcn_param_list) as f:
                 parameter_list.extend(json.load(f))
 
     except json.decoder.JSONDecodeError as e:
@@ -89,10 +70,10 @@ def main():
         sys.exit(2)
     
     try:
-        if args.nip_params is not None:
-            args.nip_params = json.loads(args.nip_params.replace('\'', '"'))
+        if args.dcn_params is not None:
+            args.dcn_params = json.loads(args.dcn_params.replace('\'', '"'))
     except json.decoder.JSONDecodeError:
-        print('WARNING', 'JSON parsing error for: ', args.nip_params.replace('\'', '"'))
+        print('WARNING', 'JSON parsing error for: ', args.dcn_params.replace('\'', '"'))
         sys.exit(2)
 
     training_spec = {
@@ -100,7 +81,7 @@ def main():
         'dataset': args.data,
         'n_images': int(args.split.split(':')[0]),
         'v_images': int(args.split.split(':')[1]),
-        'valid_patches': int(args.split.split(':')[2])
+        'valid_patches': int(args.split.split(':')[2]),
         'n_epochs': args.epochs,
         'batch_size': 40,
         'patch_size': args.patch_size,
@@ -109,6 +90,7 @@ def main():
         'learning_rate_reduction_schedule': 1000,
         'learning_rate_reduction_factor': 0.5,
         'sampling_rate': 100,
+        'convergence_threshold': 1e-4,
         'current_epoch': 0,
         'validation_is_training': args.validation_is_training,
         'augmentation_probs': {
@@ -116,37 +98,46 @@ def main():
             'flip_h': 0.0 if args.noflip else 0.5,
             'flip_v': 0.0 if args.noflip else 0.5
         }
-    }    
+    }
 
-    print('DCN : {}'.format(args.dcn))    
-    print('# DCN parameter list: {}'.format(len(parameter_list)))
+    if len(parameter_list) == 0:
+        parameter_list.append({})
+
+    print('DCN model: {}'.format(args.dcn))
+    print('# DCN parameter list [{}]:'.format(len(parameter_list)))
     for i, params in enumerate(parameter_list):
-        print('  {3d} -> {}'.format(i, params))
+        print('  {:3d} -> {}'.format(i, params))
         
-    print('Training Spec : {}'.format(training_spec))
-    
+    print('Training Spec:')
+    for key, value in training_spec.items():
+        print('  {} -> {}'.format(key, value))
+
     # Load the dataset
     np.random.seed(training_spec['seed'])    
-    data = dataset.IPDataset(args.data, training_spec['n_images'], training_spec['v_images'], load='y', val_patch_size=training['patch_size'])
+    data = dataset.IPDataset(args.data, n_images=training_spec['n_images'], v_images=training_spec['v_images'], load='y',
+                             val_rgb_patch_size=training_spec['patch_size'], val_n_patches=training_spec['valid_patches'])
     
-    print('Training data shape (X)   : {}'.format(data['training']['x'].shape))
-    print('Training data size        : {:.1f} GB'.format(coreutils.mem(data['training']['x']) + coreutils.mem(data['training']['y'])), flush=True)
-    print('Validation data shape (X) : {}'.format(data['validation']['x'].shape))
-    print('Validation data size      : {:.1f} GB'.format(coreutils.mem(data['validation']['x']) + coreutils.mem(data['validation']['y'])), flush=True)
+    for key in ['Training', 'Validation']:
+        print('{:>16s} [{:5.1f} GB] : Y -> {} '.format(
+            '{} data'.format(key),
+            coreutils.mem(data[key.lower()]['y']),
+            data[key.lower()]['y'].shape
+        ), flush=True)
 
-    # Create TF session and graph
-    graph = tf.Graph()
-    sess = tf.Session(graph=graph)    
-    
     for params in parameter_list:
-        
-        # Reset graph
-        with graph.as_default():
-            tf.reset_default_graph()
-        
+
+        # Create TF session and graph
+        graph = tf.Graph()
+        sess = tf.Session(graph=graph)
+
         # Create a DCN according to the spec
-        dcn = getattr(compression, args.dcn)(sess, graph, training_spec['patch_size'], **params) 
+        dcn = getattr(compression, args.dcn)(sess, graph, None, patch_size=training_spec['patch_size'], **params)
         train_dcn({'dcn': dcn}, training_spec, data, args.out_dir)
+
+        # Cleanup
+        sess.close()
+        del graph
+
 
 if __name__ == "__main__":
     main()

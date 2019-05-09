@@ -32,6 +32,8 @@ def main():
     parser.add_argument('--params', dest='nip_params', default=None, help='Extra parameters for NIP constructor (JSON string)')
     parser.add_argument('--resume', dest='resume', action='store_true', default=False,
                         help='Resume training from last checkpoint, if possible')
+    parser.add_argument('--split', dest='split', action='store', default='120:30:1',
+                        help='data split with #training:#validation:#validation_patches - e.g., 120:30:1')
 
     args = parser.parse_args()
 
@@ -66,10 +68,10 @@ def main():
     # Load training and validation data
     training_spec = {
         'seed': 1234,
-        'n_images': 120,
-        'v_images': 30,
+        'n_images': int(args.split.split(':')[0]),
+        'v_images': int(args.split.split(':')[1]),
+        'valid_patches': int(args.split.split(':')[2]),
         'valid_patch_size': 256,
-        'valid_patches': 1
     }
 
     np.random.seed(training_spec['seed'])
@@ -85,9 +87,31 @@ def main():
             data[key.lower()]['y'].shape
         ), flush=True)
 
+    # Lazy loading to prevent delays in basic CLI interaction
+    from models import pipelines
+    import tensorflow as tf
+
     # Train the Desired NIP Models
     for pipe in args.nips:
-        train_nip_model(pipe, args.camera, args.epochs, validation_loss_threshold=1e-5, patch_size=args.patch_size, resume=args.resume, nip_params=args.nip_params, data=data, out_directory_root=args.out_dir)
+
+        if not issubclass(getattr(pipelines, pipe), pipelines.NIPModel):
+            supported_nips = [x for x in dir(pipelines) if
+                              x != 'NIPModel' and type(getattr(pipelines, x)) is type and issubclass(
+                                  getattr(pipelines, x), pipelines.NIPModel)]
+            raise ValueError('Invalid NIP model ({})! Available NIPs: ({})'.format(pipe, supported_nips))
+
+        args.nip_params = args.nip_params or {}
+
+        tf.reset_default_graph()
+        sess = tf.Session()
+        model = getattr(pipelines, pipe)(sess, tf.get_default_graph(), loss_metric='L2', **args.nip_params)
+        model.sess.run(tf.global_variables_initializer())
+
+        train_nip_model(model, args.camera, args.epochs, validation_loss_threshold=1e-5, patch_size=args.patch_size, resume=args.resume, data=data, out_directory_root=args.out_dir)
+
+        sess.close()
+
+    return
 
 
 if __name__ == "__main__":

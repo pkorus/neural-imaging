@@ -210,7 +210,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
     print('\n## Training NIP/FAN for manipulation detection: cam={} / lr={:.4f} / run={:3d} / epochs={}, root={}'.format(training['camera_name'], training['nip_weight'], training['run_number'], training['n_epochs'], directories['root']), flush=True)
 
-    nip_save_dir = os.path.join(directories['root'], training['camera_name'], type(tf_ops['nip']).__name__, 'lr-{:0.4f}'.format(training['nip_weight']), '{:03d}'.format(training['run_number']))
+    nip_save_dir = os.path.join(directories['root'], training['camera_name'], tf_ops['nip'].class_name, 'lr-{:0.4f}'.format(training['nip_weight']), '{:03d}'.format(training['run_number']))
     print('(progress) ->', nip_save_dir)
 
     model_directory = os.path.join(nip_save_dir, 'models')
@@ -241,7 +241,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     tf_ops['sess'].run(tf.global_variables_initializer())
 
     if training['use_pretrained_nip']:
-        tf_ops['nip'].load_model(os.path.join(directories['nip_snapshots'], training['camera_name'], type(tf_ops['nip']).__name__))
+        tf_ops['nip'].load_model(os.path.join(directories['nip_snapshots'], training['camera_name'], tf_ops['nip'].scoped_name))
 
     n_batches = data.count_training // batch_size
 
@@ -404,7 +404,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     # Root     : train_manipulation / camera_name / {INet} / lr-01 / 001 / models / {INet/FAN}
     print('Saving models...')
 
-    tf_ops['nip'].save_model(os.path.join(model_directory, type(tf_ops['nip']).__name__), epoch)
-    tf_ops['fan'].save_model(os.path.join(model_directory, 'FAN'), epoch)
+    tf_ops['nip'].save_model(os.path.join(model_directory, tf_ops['nip'].scoped_name), epoch)
+    tf_ops['fan'].save_model(os.path.join(model_directory, tf_ops['fan'].scoped_name), epoch)
     
-    return nip_save_dir.replace('{nip-model}', type(tf_ops['nip']).__name__)
+    return os.path.join(model_directory, tf_ops['nip'].scoped_name)

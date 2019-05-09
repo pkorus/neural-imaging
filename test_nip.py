@@ -69,8 +69,10 @@ def develop_image(camera, pipeline, ps=128, image_id=None, root_dir='./data/raw'
     log.info('Using image {}'.format(files[image_id]))
     log.info('Cropping patch from input image x={}, y={}, size={}'.format(xx, yy, ps))
     sample_x = sample_x[:, yy:yy+ps, xx:xx+ps, :].astype(np.float32) / (2**16 - 1)
+    sample_x = np.repeat(sample_x, 20, axis=0)
 
-    sample_y = model.process(sample_x)
+    sample_y = model.process(sample_x, is_training=True)
+    sample_y = sample_y[0:1]
     target_y = io.imread(os.path.join(dirname, files[image_id].replace('.npy', '.png')))
     target_y = target_y[2*yy:2*(yy+ps), 2*xx:2*(xx+ps), :].astype(np.float32) / (2**8 - 1)
 
