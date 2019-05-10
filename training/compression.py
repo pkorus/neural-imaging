@@ -26,8 +26,8 @@ def visualize_distribution(dcn, data):
     batch_z = batch_z.reshape((sample_batch_size, -1)).T
     
     codebook = dcn.sess.run(dcn.codebook).reshape((-1)).tolist()
-    qmin = codebook[0]
-    qmax = codebook[-1]
+    qmin = np.floor(codebook[0])
+    qmax = np.ceil(codebook[-1])
     
     feed_dict = {dcn.x: batch_x}
     if hasattr(dcn, 'is_training'):
@@ -36,14 +36,11 @@ def visualize_distribution(dcn, data):
     histogram = dcn.sess.run(dcn.histogram, feed_dict=feed_dict).reshape((-1)).tolist()
         
     # Actual histogram for the quantized latent representation
-    bin_centers = np.arange(np.floor(qmin) - 1, np.ceil(qmax) + 1, 0.1)
+    bin_centers = np.arange(qmin - 1, qmax + 1, 0.1)
     bin_boundaries = np.convolve(bin_centers, [0.5, 0.5], mode='valid')
     bin_centers = bin_centers[1:-1]
     hist = np.histogram(batch_z[:], bins=bin_boundaries, density=True)[0]
     
-    print(batch_z.min(), batch_z.max())
-    print(qmin, qmax)
-
     fig = plt.figure(figsize=(10, 2))
     ax = fig.gca()
     ax.set_xlim([qmin - 1, qmax + 1])
@@ -213,7 +210,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
             codebook = dcn.sess.run(dcn.codebook).reshape((-1,))
 
             # Iterate through batches of the validation data
-            if epoch % training['sampling_rate'] == 0:
+            if epoch % training['validation_schedule'] == 0:
 
                 for batch_id in range(v_batches):
                     batch_x = data.next_validation_batch(batch_id, training['batch_size'])
@@ -306,7 +303,3 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
             # Update progress bar
             pbar.set_postfix(progress_dict)
             pbar.update(1)
-
-    # Save the final model
-    save_progress(dcn, training, model_output_dirname)
-    dcn.save_model(model_output_dirname, epoch)

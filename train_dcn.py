@@ -40,6 +40,8 @@ def main():
                         help='output directory for storing trained models')
     parser.add_argument('--epochs', dest='epochs', action='store', default=1500, type=int,
                         help='maximum number of training epochs')
+    parser.add_argument('--v_schedule', dest='validation_schedule', action='store', default=100, type=int,
+                        help='Validation schedule - evaluate the model every v_schedule epochs')    
     parser.add_argument('--lr', dest='learning_rate', action='store', default=1e-4, type=float,
                         help='learning rate')
     parser.add_argument('--v_train', dest='validation_is_training', action='store_true', default=True,
@@ -74,6 +76,9 @@ def main():
     except json.decoder.JSONDecodeError as e:
         print('WARNING', 'JSON parsing error: ', e)
         sys.exit(2)
+        
+    # Round the number of epochs to align with the sampling rate
+    args.epochs = int(np.ceil(args.n_epochs / args.validation_schedule) * args.sample) + 1
 
     training_spec = {
         'seed': 1234,
@@ -88,7 +93,7 @@ def main():
         'learning_rate': args.learning_rate,
         'learning_rate_reduction_schedule': 1000,
         'learning_rate_reduction_factor': 0.5,
-        'sampling_rate': 100,
+        'validation_schedule': args.validation_schedule,
         'convergence_threshold': 1e-4,
         'current_epoch': 0,
         'validation_is_training': args.validation_is_training,
