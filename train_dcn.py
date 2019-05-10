@@ -12,6 +12,7 @@ from helpers import dataset, coreutils
 from models import compression
 
 from training.compression import train_dcn
+import pandas as pd
 
 # Disable unimportant logging and import TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -32,7 +33,7 @@ def main():
     # Parameters of the DCN
     parser.add_argument('--dcn', dest='dcn', action='store', help='specific DCN class name')
     parser.add_argument('--params', dest='dcn_params', action='append', help='Extra parameters for DCN constructor (JSON string)')
-    parser.add_argument('--param_list', dest='dcn_param_list', default=None, help='JSON file with a dictionary of DCN configurations')    
+    parser.add_argument('--param_list', dest='dcn_param_list', default=None, help='CSV file with DCN configurations')
     
     # General
     parser.add_argument('--out', dest='out_dir', action='store', default='./data/raw/compression/',
@@ -55,25 +56,23 @@ def main():
         parser.print_usage()
         sys.exit(1)
 
-    parameter_list = []
+    parameter_list = {}
+
+    parameters = pd.DataFrame(columns=['name','active','n_layers','r_layers','n_filters','n_fscale','rounding','use_batchnorm','train_codebook','latent_bpf','scale_latent'])
 
     try:
         if args.dcn_params is not None:
-            parameter_list.append(json.loads(args.dcn_params.replace('\'', '"')))
+            cli_params = json.loads(args.dcn_params.replace('\'', '"'))
+            cli_params['name'] = 'cli'
+            cli_params['active'] = True
+
+            parameters = parameters.append(cli_params, ignore_index=True)
 
         if args.dcn_param_list is not None:
-            with open(args.dcn_param_list) as f:
-                parameter_list.extend(json.load(f))
+            parameters = parameters.append(pd.read_csv(args.dcn_param_list), ignore_index=True)
 
     except json.decoder.JSONDecodeError as e:
         print('WARNING', 'JSON parsing error: ', e)
-        sys.exit(2)
-    
-    try:
-        if args.dcn_params is not None:
-            args.dcn_params = json.loads(args.dcn_params.replace('\'', '"'))
-    except json.decoder.JSONDecodeError:
-        print('WARNING', 'JSON parsing error for: ', args.dcn_params.replace('\'', '"'))
         sys.exit(2)
 
     training_spec = {
@@ -100,19 +99,25 @@ def main():
         }
     }
 
-    if len(parameter_list) == 0:
-        parameter_list.append({})
+    if np.sum(parameters['active'] == True) == 0:
+        parameters.append({'name': 'default', 'active': True})
 
     print('DCN model: {}'.format(args.dcn))
-    print('# DCN parameter list [{}]:'.format(len(parameter_list)))
-    for i, params in enumerate(parameter_list):
-        print('  {:3d} -> {}'.format(i, params))
+
+    parameters = parameters[parameters['active']]
+    print('# DCN parameter list [{} active configs]:\n'.format(len(parameters)))
+
+    print(parameters)
+
+    # for key, params in parameter_list.items():
+    #     print('  {:30s} -> {}'.format(key, params))
         
-    print('Training Spec:')
+    print('\n# Training Spec:')
     for key, value in training_spec.items():
-        print('  {} -> {}'.format(key, value))
+        print(' {:40s}: {}'.format(key, value))
 
     # Load the dataset
+    print('\n# Dataset:')
     np.random.seed(training_spec['seed'])    
     data = dataset.IPDataset(args.data, n_images=training_spec['n_images'], v_images=training_spec['v_images'], load='y',
                              val_rgb_patch_size=training_spec['patch_size'], val_n_patches=training_spec['valid_patches'])
@@ -124,14 +129,16 @@ def main():
             data[key.lower()]['y'].shape
         ), flush=True)
 
-    for params in parameter_list:
+    print('\n# Training:\n')
+    for index, params in parameters.drop(columns=['name', 'active']).iterrows():
 
+        print('## Scenario {} / {}'.format(index, len(parameters)))
         # Create TF session and graph
         graph = tf.Graph()
         sess = tf.Session(graph=graph)
 
         # Create a DCN according to the spec
-        dcn = getattr(compression, args.dcn)(sess, graph, None, patch_size=training_spec['patch_size'], **params)
+        dcn = getattr(compression, args.dcn)(sess, graph, None, patch_size=training_spec['patch_size'], **params.to_dict())
         train_dcn({'dcn': dcn}, training_spec, data, args.out_dir)
 
         # Cleanup

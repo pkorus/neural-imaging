@@ -27,7 +27,7 @@ def visualize_distribution(dcn, data):
     
     codebook = dcn.sess.run(dcn.codebook).reshape((-1)).tolist()
     qmin = codebook[0]
-    qmax = codebook[1]    
+    qmax = codebook[-1]
     
     feed_dict = {dcn.x: batch_x}
     if hasattr(dcn, 'is_training'):
@@ -35,12 +35,12 @@ def visualize_distribution(dcn, data):
     
     histogram = dcn.sess.run(dcn.histogram, feed_dict=feed_dict).reshape((-1)).tolist()
         
-    # Actual histogram for the quanizted latent representation
+    # Actual histogram for the quantized latent representation
     bin_centers = np.arange(-np.floor(qmin) - 1, np.ceil(qmax) + 1, 0.1)
     bin_boundaries = np.convolve(bin_centers, [0.5, 0.5], mode='valid')
     bin_centers = bin_centers[1:-1]
 
-    hist = np.histogram(batch_z[:], bins=bin_boundaries, normed=True)[0]
+    hist = np.histogram(batch_z[:], bins=bin_boundaries, density=True)[0]
 
     fig = plt.figure(figsize=(10, 2))
     ax = fig.gca()
