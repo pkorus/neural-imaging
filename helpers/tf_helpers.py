@@ -143,16 +143,31 @@ def quantization(x, scope, name, rounding='soft', rounding_approximation_steps=5
             
         elif rounding == 'soft-codebook':
             
+            prec_dtype = tf.float64
+            v = 100
+            eps = 1e-72
+            
             assert(codebook_tensor.shape[0] == 1)
             assert(codebook_tensor.shape[1] > 1)            
 
             values = tf.reshape(x, (-1, 1))
-            weights = tf.exp(-soft_quantization_sigma * tf.pow(values - codebook_tensor, 2)) 
-            weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)
+            # weights = tf.exp(-soft_quantization_sigma * tf.pow(values - codebook_tensor, 2)) 
+            if v <= 0:
+                weights = tf.exp(-soft_quantization_sigma * tf.pow(tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype), 2)) 
+            else:
+                # t-Student-like distance measure with heavy tails
+                print('t-Student quantization')
+                dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype)
+                dff = soft_quantization_sigma * dff
+                weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
+            
+            weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
             
             assert(weights.shape[1] == np.prod(codebook_tensor.shape))
-
-            soft = tf.reduce_mean( tf.matmul(weights, tf.transpose(codebook_tensor)), axis=1)
+            
+            # soft = tf.reduce_mean( tf.matmul(weights, tf.transpose(codebook_tensor)), axis=1)
+            soft = tf.reduce_mean( tf.matmul(weights, tf.transpose(tf.cast(codebook_tensor, dtype=prec_dtype))), axis=1)
+            soft = tf.cast(soft, dtype=tf.float32)
             soft = tf.reshape(soft, tf.shape(x))            
 
             hard = tf.gather(codebook_tensor, tf.argmax(weights, axis=1), axis=1)
