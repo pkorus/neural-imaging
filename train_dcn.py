@@ -78,7 +78,7 @@ def main():
         sys.exit(2)
         
     # Round the number of epochs to align with the sampling rate
-    args.epochs = int(np.ceil(args.n_epochs / args.validation_schedule) * args.sample) + 1
+    args.epochs = int(np.ceil(args.epochs / args.validation_schedule) * args.validation_schedule) + 1
 
     training_spec = {
         'seed': 1234,
