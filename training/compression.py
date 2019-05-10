@@ -16,6 +16,47 @@ import matplotlib.pyplot as plt
 from helpers import plotting, summaries
 
 
+def visualize_distribution(dcn, data):
+
+    sample_batch_size = np.min((100, data.count_validation))
+    batch_x = data.next_validation_batch(0, sample_batch_size)
+
+    # See latent distribution
+    batch_z = dcn.compress(batch_x)
+    batch_z = batch_z.reshape((sample_batch_size, -1)).T
+    
+    codebook = dcn.sess.run(dcn.codebook).reshape((-1)).tolist()
+    qmin = codebook[0]
+    qmax = codebook[1]    
+    
+    feed_dict = {dcn.x: batch_x}
+    if hasattr(dcn, 'is_training'):
+        feed_dict[dcn.is_training] = True
+    
+    histogram = dcn.sess.run(dcn.histogram, feed_dict=feed_dict).reshape((-1)).tolist()
+        
+    # Actual histogram for the quanizted latent representation
+    bin_centers = np.arange(-np.floor(qmin) - 1, np.ceil(qmax) + 1, 0.1)
+    bin_boundaries = np.convolve(bin_centers, [0.5, 0.5], mode='valid')
+    bin_centers = bin_centers[1:-1]
+
+    hist = np.histogram(batch_z[:], bins=bin_boundaries, normed=True)[0]
+
+    fig = plt.figure(figsize=(10, 2))
+    ax = fig.gca()
+    ax.set_xlim([qmin - 1, qmax + 1])
+    ax.set_xticks(codebook)    
+    ax.stem(bin_centers, hist / 10, linefmt='r', markerfmt='ro') # width=bin_centers[1] - bin_centers[0]
+    ax.bar(codebook, histogram, width=bin_centers[1] - bin_centers[0], color='b', alpha=0.5)
+    ax.set_title('Histogram of quantized coefficients')
+    ax.legend(['Quantized values', 'Soft quantization estimate'])
+    
+    s = io.BytesIO()
+    fig.savefig(s, format='png', bbox_inches='tight')
+    plt.close(fig)
+    return imageio.imread(s.getvalue(), pilmode='RGB')
+
+
 def visualize_codebook(dcn):
 
     qmin = -2 ** (dcn.latent_bpf - 1) + 1
@@ -38,7 +79,7 @@ def visualize_codebook(dcn):
     s = io.BytesIO()
     fig.savefig(s, format='png', bbox_inches='tight')
     plt.close(fig)
-    return imageio.imread(s.getvalue())
+    return imageio.imread(s.getvalue(), pilmode='RGB')
 
 
 def save_progress(dcn, training, out_dir):
@@ -205,6 +246,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 summary.value.add(tag='scaling', simple_value=scaling)
                 summary.value.add(tag='images/reconstructed', image=summaries.log_image(rescale(thumbs_few, 1.0, anti_aliasing=True)))
                 summary.value.add(tag='histograms/latent', histo=summaries.log_histogram(batch_z))
+                summary.value.add(tag='histograms/latent_approx', image=summaries.log_image(visualize_distribution(dcn, data)))
                 
                 if dcn.train_codebook:
                     summary.value.add(tag='codebook/min', simple_value=codebook.min())
@@ -241,10 +283,12 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 'Lv': np.mean(perf['loss']['validation'][-1:]),
                 'lr': '{:.1e}'.format(learning_rate),
                 'ssim': '{:.2f}'.format(perf['ssim']['validation'][-1]),
-                'H': '{:.1f}'.format(np.mean(perf['entropy']['training'][-1:])),
-                'S': '{:.1f}'.format(scaling),
+                'H': '{:.1f}'.format(np.mean(perf['entropy']['training'][-1:])),                
                 # 'Qvar': np.var(np.convolve(codebook, [-1, 1], mode='valid')),
             }
+            
+            if dcn.scale_latent:
+                progress_dict['S'] = '{:.1f}'.format(scaling)
 
             if dcn.use_batchnorm:
                 # Get current batch / population stats
