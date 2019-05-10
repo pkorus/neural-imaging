@@ -36,18 +36,20 @@ def visualize_distribution(dcn, data):
     histogram = dcn.sess.run(dcn.histogram, feed_dict=feed_dict).reshape((-1)).tolist()
         
     # Actual histogram for the quantized latent representation
-    bin_centers = np.arange(-np.floor(qmin) - 1, np.ceil(qmax) + 1, 0.1)
+    bin_centers = np.arange(np.floor(qmin) - 1, np.ceil(qmax) + 1, 0.1)
     bin_boundaries = np.convolve(bin_centers, [0.5, 0.5], mode='valid')
     bin_centers = bin_centers[1:-1]
-
     hist = np.histogram(batch_z[:], bins=bin_boundaries, density=True)[0]
+    
+    print(batch_z.min(), batch_z.max())
+    print(qmin, qmax)
 
     fig = plt.figure(figsize=(10, 2))
     ax = fig.gca()
     ax.set_xlim([qmin - 1, qmax + 1])
-    ax.set_xticks(codebook)    
-    ax.stem(bin_centers, hist / 10, linefmt='r', markerfmt='ro') # width=bin_centers[1] - bin_centers[0]
-    ax.bar(codebook, histogram, width=bin_centers[1] - bin_centers[0], color='b', alpha=0.5)
+    ax.set_xticks(np.arange(qmin, qmax))    
+    ax.stem(bin_centers, hist / 10, linefmt='r:', markerfmt='r.') # width=bin_centers[1] - bin_centers[0]
+    ax.bar(codebook, histogram, width=(codebook[1] - codebook[0])/2, color='b', alpha=0.5)
     ax.set_title('Histogram of quantized coefficients')
     ax.legend(['Quantized values', 'Soft quantization estimate'])
     
