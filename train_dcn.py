@@ -72,20 +72,12 @@ def main():
             parameters = parameters.append(cli_params, ignore_index=True)
 
         if args.dcn_param_list is not None:
-            parameters = parameters.append(pd.read_csv(args.dcn_param_list, low_memory=False), ignore_index=True)
+            parameters = parameters.append(pd.read_csv(args.dcn_param_list), ignore_index=True, sort=True)
 
     except json.decoder.JSONDecodeError as e:
         print('WARNING', 'JSON parsing error: ', e)
         sys.exit(2)
 
-    # Infer data types
-    # infer_type = lambda x: pd.api.types.infer_dtype(x, skipna=True)
-    # parameters = parameters.apply(infer_type, axis=0)
-
-    # DataFrame with column names & new types
-
-    # df_types = pd.DataFrame(parameters.apply(pd.api.types.infer_dtype, axis=0)).reset_index().rename(columns={'index': 'column', 0: 'type'})
-        
     # Round the number of epochs to align with the sampling rate
     args.epochs = int(np.ceil(args.epochs / args.validation_schedule) * args.validation_schedule) + 1
 
