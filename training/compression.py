@@ -21,10 +21,11 @@ def visualize_distribution(dcn, data):
     sample_batch_size = np.min((100, data.count_validation))
     batch_x = data.next_validation_batch(0, sample_batch_size)
 
-    # See latent distribution
+    # Fetch latent distribution for the current batch
     batch_z = dcn.compress(batch_x)
     batch_z = batch_z.reshape((-1, )).T
     
+    # Get current version of the quantization codebook
     codebook = dcn.sess.run(dcn.codebook).reshape((-1)).tolist()
     qmin = np.floor(codebook[0])
     qmax = np.ceil(codebook[-1])

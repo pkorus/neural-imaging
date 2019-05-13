@@ -86,25 +86,44 @@ class DCN(TFModel):
             with tf.name_scope('{}/optimization'.format(self.scoped_name)):
                 
                 with tf.name_scope('entropy'):
+
+                    # Estimate entropy of the latent representation
                     
-                    # Estimate entropy
-                    values = tf.reshape(self.latent_post, (-1, 1))
+                    # Some parameters
+                    soft_quantization_sigma = 5
+                    prec_dtype = tf.float64
+                    v = 100
+                    eps = 1e-72
+
+                    values = tf.reshape(self.latent_pre, (-1, 1))
                     
                     assert(self.codebook.shape[0] == 1)
                     assert(self.codebook.shape[1] > 1)                    
                     
                     # Compute soft-quantization
-                    weights = tf.exp(-self.soft_quantization_sigma * tf.pow(values - self.codebook, 2))
-                    self.weights = weights / tf.reduce_sum(weights, axis=1, keepdims=True)                    
+                    if v <= 0:
+                        print('Entropy estimation using Gaussian soft quantization')
+                        weights = tf.exp(-soft_quantization_sigma * tf.pow(values - self.codebook, 2)) 
+                    else:
+                        # t-Student-like distance measure with heavy tails
+                        print('Entropy estimation using t-Student soft quantization')
+                        dff = values - self.codebook
+                        dff = soft_quantization_sigma * dff
+                        weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
+
+                    weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
                     
                     assert(weights.shape[1] == np.prod(self.codebook.shape))
                     
                     # Compute soft histogram
-                    histogram = tf.clip_by_value(tf.reduce_mean(weights, axis=0), 1e-6, 1)
+                    histogram = tf.reduce_mean(weights, axis=0)
+#                     histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
+                    histogram = tf.maximum(histogram, 1e-9)
                     histogram = histogram / tf.reduce_sum(histogram)
 
                     self.entropy = - tf.reduce_sum(histogram * tf.log(histogram) / 0.6931) # 0.6931 - log(2)
                     self.histogram = histogram
+                    self.weights = weights
                 
                 # Loss and SSIM
                 self.ssim = tf.reduce_mean(tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1))
