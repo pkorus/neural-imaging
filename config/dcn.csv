@@ -1,4 +1,4 @@
-name,active,n_layers,r_layers,n_filters,n_fscale,rounding,use_batchnorm,train_codebook,latent_bpf,scale_latent
+name,active,n_layers,res_layers,n_filters,n_fscale,rounding,use_batchnorm,train_codebook,latent_bpf,scale_latent
 #1-real-features,TRUE,2,0,4,2,identity,TRUE,FALSE,5,FALSE
 #1-int-features,TRUE,2,0,4,2,soft,TRUE,FALSE,5,TRUE
 #1-opt-4bpf-features,TRUE,2,0,4,2,soft-codebook,TRUE,TRUE,4,FALSE

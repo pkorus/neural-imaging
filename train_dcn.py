@@ -58,9 +58,7 @@ def main():
         parser.print_usage()
         sys.exit(1)
 
-    parameter_list = {}
-
-    parameters = pd.DataFrame(columns=['name','active','n_layers','r_layers','n_filters','n_fscale','rounding','use_batchnorm','train_codebook','latent_bpf','scale_latent'])
+    parameters = pd.DataFrame(columns=['name', 'active'])
 
     try:
         if args.dcn_params is not None:
@@ -134,6 +132,8 @@ def main():
             data[key.lower()]['y'].shape
         ), flush=True)
 
+    model_log = {}
+
     print('\n# Training:\n')
     for index, params in parameters.drop(columns=['name', 'active']).iterrows():
 
@@ -144,11 +144,23 @@ def main():
 
         # Create a DCN according to the spec
         dcn = getattr(compression, args.dcn)(sess, graph, None, patch_size=training_spec['patch_size'], **params.to_dict())
-        train_dcn({'dcn': dcn}, training_spec, data, args.out_dir)
+
+        model_code = dcn.model_code
+
+        if model_code in model_log:
+            print('ERROR - model {} already registered by scenario {}'.format(model_code, index))
+            model_log[model_code].append(index)
+        else:
+            model_log[model_code] = [index]
+
+        # train_dcn({'dcn': dcn}, training_spec, data, args.out_dir)
 
         # Cleanup
         sess.close()
         del graph
+
+    for index, (key, value) in enumerate(model_log.items()):
+        print(index, '.', key, '->', value)
 
 
 if __name__ == "__main__":
