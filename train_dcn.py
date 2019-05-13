@@ -50,6 +50,9 @@ def main():
                         help='disable flipping (data augmentation)')
     parser.add_argument('--resume', dest='resume', action='store_true', default=False,
                         help='Resume training from last checkpoint, if possible')
+    parser.add_argument('--dry', dest='dry', action='store_true', default=False,
+                        help='Dry run (no training - only does model setup)')
+
 
     args = parser.parse_args()
 
@@ -69,11 +72,19 @@ def main():
             parameters = parameters.append(cli_params, ignore_index=True)
 
         if args.dcn_param_list is not None:
-            parameters = parameters.append(pd.read_csv(args.dcn_param_list), ignore_index=True)
+            parameters = parameters.append(pd.read_csv(args.dcn_param_list, low_memory=False), ignore_index=True)
 
     except json.decoder.JSONDecodeError as e:
         print('WARNING', 'JSON parsing error: ', e)
         sys.exit(2)
+
+    # Infer data types
+    # infer_type = lambda x: pd.api.types.infer_dtype(x, skipna=True)
+    # parameters = parameters.apply(infer_type, axis=0)
+
+    # DataFrame with column names & new types
+
+    # df_types = pd.DataFrame(parameters.apply(pd.api.types.infer_dtype, axis=0)).reset_index().rename(columns={'index': 'column', 0: 'type'})
         
     # Round the number of epochs to align with the sampling rate
     args.epochs = int(np.ceil(args.epochs / args.validation_schedule) * args.validation_schedule) + 1
@@ -103,18 +114,14 @@ def main():
     }
 
     if np.sum(parameters['active'] == True) == 0:
-        parameters.append({'name': 'default', 'active': True})
+        parameters.append({'name': 'default', 'active': True}, ignore_index=True)
 
     print('DCN model: {}'.format(args.dcn))
 
     parameters = parameters[parameters['active']]
     print('# DCN parameter list [{} active configs]:\n'.format(len(parameters)))
-
     print(parameters)
 
-    # for key, params in parameter_list.items():
-    #     print('  {:30s} -> {}'.format(key, params))
-        
     print('\n# Training Spec:')
     for key, value in training_spec.items():
         print(' {:40s}: {}'.format(key, value))
@@ -143,24 +150,29 @@ def main():
         sess = tf.Session(graph=graph)
 
         # Create a DCN according to the spec
-        dcn = getattr(compression, args.dcn)(sess, graph, None, patch_size=training_spec['patch_size'], **params.to_dict())
+        dcn_params = params.to_dict()
+        dcn_params['default_val_is_train'] = training_spec['validation_is_training']
+        dcn = getattr(compression, args.dcn)(sess, graph, None, patch_size=training_spec['patch_size'], **dcn_params)
 
         model_code = dcn.model_code
 
         if model_code in model_log:
-            print('ERROR - model {} already registered by scenario {}'.format(model_code, index))
+            print('WARNING - model {} already registered by scenario {}'.format(model_code, index))
             model_log[model_code].append(index)
         else:
             model_log[model_code] = [index]
 
-        # train_dcn({'dcn': dcn}, training_spec, data, args.out_dir)
+        if not args.dry:
+            train_dcn({'dcn': dcn}, training_spec, data, args.out_dir)
 
         # Cleanup
         sess.close()
         del graph
 
-    for index, (key, value) in enumerate(model_log.items()):
-        print(index, '.', key, '->', value)
+    if args.dry:
+        print('List of instantiated models [{}]:'.format(len(model_log)))
+        for index, key in enumerate(sorted(model_log.keys())):
+            print('{}  {:3d}. {} -> {}'.format('' if len(model_log[key]) == 1 else '!', index, key, model_log[key]))
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ def visualize_distribution(dcn, data):
 
     # See latent distribution
     batch_z = dcn.compress(batch_x)
-    batch_z = batch_z.reshape((sample_batch_size, -1)).T
+    batch_z = batch_z.reshape((-1, )).T
     
     codebook = dcn.sess.run(dcn.codebook).reshape((-1)).tolist()
     qmin = np.floor(codebook[0])
@@ -32,24 +32,31 @@ def visualize_distribution(dcn, data):
     feed_dict = {dcn.x: batch_x}
     if hasattr(dcn, 'is_training'):
         feed_dict[dcn.is_training] = True
-    
-    histogram = dcn.sess.run(dcn.histogram, feed_dict=feed_dict).reshape((-1)).tolist()
+
+    # Get approximation of the soft quantization structures used for entropy estimation
+    histogram = dcn.sess.run(dcn.histogram, feed_dict=feed_dict).reshape((-1,))
+    histogram = histogram / histogram.max()
+    histogram = histogram.reshape((-1)).tolist()
         
-    # Actual histogram for the quantized latent representation
+    # Create a dense version of the quantization bins
     bin_centers = np.arange(qmin - 1, qmax + 1, 0.1)
     bin_boundaries = np.convolve(bin_centers, [0.5, 0.5], mode='valid')
     bin_centers = bin_centers[1:-1]
-    hist = np.histogram(batch_z[:], bins=bin_boundaries, density=True)[0]
+
+    # Compute empirical histogram based on latent representation
+    hist = np.histogram(batch_z, bins=bin_boundaries, density=True)[0]
+    hist = hist / hist.max()
     
     fig = plt.figure(figsize=(10, 2))
     ax = fig.gca()
     ax.set_xlim([qmin - 1, qmax + 1])
     ax.set_xticks(np.arange(qmin, qmax))    
-    ax.stem(bin_centers, hist / 10, linefmt='r:', markerfmt='r.') # width=bin_centers[1] - bin_centers[0]
+    ax.stem(bin_centers, hist, linefmt='r:', markerfmt='r.') # width=bin_centers[1] - bin_centers[0]
     ax.bar(codebook, histogram, width=(codebook[1] - codebook[0])/2, color='b', alpha=0.5)
     ax.set_title('Histogram of quantized coefficients')
     ax.legend(['Quantized values', 'Soft quantization estimate'])
-    
+
+    # Render the plot as a PNG image and return a bitmap array
     s = io.BytesIO()
     fig.savefig(s, format='png', bbox_inches='tight')
     plt.close(fig)
