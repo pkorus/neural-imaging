@@ -19,7 +19,7 @@ class DCN(TFModel):
     6. Output layer with K classes
     """
 
-    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, **kwargs):
+    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, scale_latent=False, use_batchnorm=False, **kwargs):
         """
         Creates a forensic analysis network.
 
@@ -33,16 +33,12 @@ class DCN(TFModel):
         self.train_codebook = train_codebook
         self.entropy_weight = entropy_weight
         self.default_val_is_train = default_val_is_train
+        self.scale_latent = scale_latent
+        self.use_batchnorm = use_batchnorm
 
-        # Add parameters to kwargs so that they can be forwarded to the sub-class constructor
-        # kwargs['latent_bpf'] = latent_bpf
-        # kwargs['train_codebook'] = train_codebook
-        # kwargs['entropy_weight'] = entropy_weight
+        # Remember parameters passed to the constructor
         self.args = kwargs
-        
-        # Some parameters
-        self.soft_quantization_sigma = 2
-        
+
         with self.graph.as_default():
             
             # Setup inputs:
@@ -281,9 +277,9 @@ class AutoencoderDCN(DCN):
             'res_layers': (0, int),
             'dropout': (True, bool),
             'rounding': ('soft', str),
-            'use_batchnorm': (True, bool),
+            # 'use_batchnorm': (True, bool),
             'train_codebook': (False, bool),
-            'scale_latent': (True, bool),
+            # 'scale_latent': (True, bool),
             'activation': (tf.nn.leaky_relu, None)
         }
 
@@ -324,9 +320,9 @@ class AutoencoderDCN(DCN):
         kernel = self.hyperparameters['kernel']
         activation = self.hyperparameters['activation']
         rounding = self.hyperparameters['rounding']
-        use_batchnorm = self.hyperparameters['use_batchnorm']
+        # use_batchnorm = self.hyperparameters['use_batchnorm']
         dropout = self.hyperparameters['dropout']
-        scale_latent = self.hyperparameters['scale_latent']
+        # scale_latent = self.hyperparameters['scale_latent']
 
         # if n_layers < 1:
         #     raise ValueError('n_layers needs to be > 0!')
@@ -382,7 +378,7 @@ class AutoencoderDCN(DCN):
             latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.scoped_name))
 
         # Add batch norm to normalize the latent representation
-        if use_batchnorm:
+        if self.use_batchnorm:
             self.pre_bn = latent # TODO Temporarily added for debugging
             self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
             #                 self.is_training = tf.get_variable('is_training', shape=(), dtype=tf.bool, initializer=tf.constant_initializer(True), trainable=False)
@@ -390,9 +386,8 @@ class AutoencoderDCN(DCN):
             latent = tf.contrib.layers.batch_norm(latent, scale=False, is_training=self.is_training, scope='{}/encoder/bn_{}'.format(self.scoped_name, 0))
             print('batch norm: {}'.format(latent.shape))
 
-
         # Learn a scaling factor for the latent features to encourage greater values (facilitates quantization)
-        if scale_latent:
+        if self.scale_latent:
             #             scaling_factor = np.max((1, np.power(2, self.latent_bpf - 2)))
             scaling_factor = 1
             alphas = tf.get_variable('{}/encoder/latent_scaling'.format(self.scoped_name), shape=(), dtype=tf.float32, initializer=tf.constant_initializer(scaling_factor))
@@ -476,7 +471,7 @@ class AutoencoderDCN(DCN):
         parameter_summary.append(''.join(layer_summary))
         parameter_summary.append('r:{}'.format(self.hyperparameters['rounding']))
         parameter_summary.append('Q+{}bpf'.format(self.latent_bpf) if self.train_codebook else 'Q-{}bpf'.format(self.latent_bpf))
-        parameter_summary.append('S+' if self.hyperparameters['scale_latent'] else 'S-')
+        parameter_summary.append('S+' if self.scale_latent else 'S-')
         if self.entropy_weight is not None:
             parameter_summary.append('H+{:.2f}'.format(self.entropy_weight))
 
