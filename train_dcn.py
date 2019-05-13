@@ -164,7 +164,7 @@ def main():
     if args.dry:
         print('List of instantiated models [{}]:'.format(len(model_log)))
         for index, key in enumerate(sorted(model_log.keys())):
-            print('{}  {:3d}. {} -> {}'.format('' if len(model_log[key]) == 1 else '!', index, key, model_log[key]))
+            print('{}  {:3d}. {} -> {}'.format(' ' if len(model_log[key]) == 1 else '!', index, key, model_log[key]))
 
 
 if __name__ == "__main__":

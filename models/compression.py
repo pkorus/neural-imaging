@@ -299,7 +299,9 @@ class AutoencoderDCN(DCN):
                 # Accept the new value if it:
                 #   is not None
                 #   is not np.nan (for numerical types)
-                if value is not None and (type(value) in [int, float, bool, np.int, np.float, np.bool] and not np.isnan(value)):
+                if value is not None:
+                    if type(value) in [int, float, bool, np.int, np.float, np.bool] and np.isnan(value):
+                        continue
                     parameters[key] = value if dtype is None else dtype(value)
 
             else:
@@ -465,7 +467,7 @@ class AutoencoderDCN(DCN):
             layer_summary.append('F')
         if 'dropout' in self.hyperparameters:
             layer_summary.append('+D')
-        if 'use_batchnorm' in self.hyperparameters and self.hyperparameters['use_batchnorm']:
+        if hasattr(self, 'use_batchnorm') and self.use_batchnorm:
             layer_summary.append('+BN')
 
         parameter_summary.append(''.join(layer_summary))
