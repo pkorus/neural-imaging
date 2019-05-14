@@ -114,7 +114,8 @@ class DCN(TFModel):
                 with tf.name_scope('entropy'):
 
                     soft_quantization_sigma = 5
-                    v = 100
+                    prec_dtype = tf.float64
+                    v = 25
                     eps = 1e-72
 
                     values = tf.reshape(self.latent_pre, (-1, 1))
@@ -125,11 +126,12 @@ class DCN(TFModel):
                     # Compute soft-quantization
                     if v <= 0:
                         self.log('Entropy estimation using Gaussian soft quantization')
-                        weights = tf.exp(-soft_quantization_sigma * tf.pow(values - self.codebook, 2)) 
+                        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(self.codebook, dtype=prec_dtype)
+                        weights = tf.exp(-soft_quantization_sigma * tf.pow(dff, 2))
                     else:
                         # t-Student-like distance measure with heavy tails
                         self.log('Entropy estimation using t-Student soft quantization')
-                        dff = values - self.codebook
+                        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(self.codebook, dtype=prec_dtype)
                         dff = soft_quantization_sigma * dff
                         weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
 
@@ -139,8 +141,8 @@ class DCN(TFModel):
                     
                     # Compute soft histogram
                     histogram = tf.reduce_mean(weights, axis=0)
-#                     histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
-                    histogram = tf.maximum(histogram, 1e-9)
+                    histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
+#                     histogram = tf.maximum(histogram, 1e-9)
                     histogram = histogram / tf.reduce_sum(histogram)
 
                     self.entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
@@ -174,6 +176,17 @@ class DCN(TFModel):
             'entropy': {'training': [], 'validation': []},
             'ssim': {'training': [], 'validation': []}
         }
+
+    def get_tf_histogram(self, batch_x, is_training=None):
+        with self.graph.as_default():
+            feed_dict = {
+                self.x if not self.use_nip_input else self.nip_input: batch_x,
+            }
+
+            if hasattr(self, 'is_training'):
+                feed_dict[self.is_training] = is_training or self.default_val_is_train
+
+            return self.sess.run(self.histogram, feed_dict=feed_dict)
 
     def compress(self, batch_x, is_training=None):
         with self.graph.as_default():
@@ -296,7 +309,17 @@ class DCN(TFModel):
             raise ValueError('The model does not report the latent space dimensionality.')
         
         return '{}-{}D'.format(type(self).__name__, self.n_latent)        
-    
+
+    def get_parameters(self):
+        return {
+            'latent_bpf': self.latent_bpf,
+            'train_codebook': self.train_codebook,
+            'entropy_weight': self.entropy_weight,
+            'default_val_is_train': self.default_val_is_train,
+            'scale_latent': self.scale_latent,
+            'use_batchnorm': self.use_batchnorm
+        }
+
     
 class AutoencoderDCN(DCN):
 
@@ -310,29 +333,29 @@ class AutoencoderDCN(DCN):
             'kernel': (5, int, {3, 5, 7, 9, 11}),
             'n_layers': (3, int, (1, np.log2(self.patch_size))),  # Ensure valid latent representation
             'res_layers': (0, int, (0, 3)),
-            'dropout': (True, bool, None),
+            'dropout': (False, bool, None),
             'rounding': ('soft', str, {'identity', 'soft', 'soft-codebook', 'sin'}),
             'train_codebook': (False, bool, None),
-            'activation': (tf.nn.leaky_relu, None, None)
+            'activation': ('leaky_relu', str, set(tf_helpers.activation_mapping.keys()))
         })
 
         self._h.update(**params)
         self.uses_bottleneck = self._h.n_latent > 0
-
-        latent_activation = None
-        last_activation = None
 
         net = self.x
         self.log('input size: {}'.format(net.shape))
 
         # Encoder ------------------------------------------------------------------------------------------------------
 
-        # Add convolutional layers
+        latent_activation = None
+        last_activation = None
+        activation = tf_helpers.activation_mapping[self._h.activation]
         current_n_filters = self._h.n_filters
 
+        # Add convolutional layers
         for r in range(self._h.n_layers):
 
-            current_activation = self._h.activation \
+            current_activation = activation \
                 if (self._h.n_latent > 0 or (self._h.n_latent == 0 and r < self._h.n_layers - 1)) \
                 else latent_activation
             net = tf.contrib.layers.conv2d(net, current_n_filters, self._h.kernel,
@@ -347,7 +370,7 @@ class AutoencoderDCN(DCN):
         # Add residual blocks
         for r in range(self._h.res_layers):
             res_input = tf.nn.leaky_relu(net, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r))
-            resnet = tf.contrib.layers.conv2d(res_input, current_n_filters, 3, stride=1, activation_fn=self._h.activation,
+            resnet = tf.contrib.layers.conv2d(res_input, current_n_filters, 3, stride=1, activation_fn=activation,
                                               scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 0))
             resnet = tf.contrib.layers.conv2d(resnet, current_n_filters, 3, stride=1, activation_fn=None,
                                               scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
@@ -410,8 +433,8 @@ class AutoencoderDCN(DCN):
         if self._h.n_latent > 0:
             inet = tf.contrib.layers.fully_connected(latent, int(np.prod(self.latent_shape[1:])),
                                                      scope='{}/decoder/dense_{}'.format(self.scoped_name, 0),
-                                                     activation_fn=self._h.activation)
-            self.log('dense size: {} + {}'.format(inet.shape, self._h.activation))
+                                                     activation_fn=activation)
+            self.log('dense size: {} + {}'.format(inet.shape, activation))
         else:
             inet = latent
 
@@ -437,7 +460,7 @@ class AutoencoderDCN(DCN):
             res_input = tf.nn.leaky_relu(inet, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r))
             resnet = tf.contrib.layers.conv2d(res_input, current_n_filters, 3, stride=1,
                                               scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 0),
-                                              activation_fn=self._h.activation)
+                                              activation_fn=activation)
             resnet = tf.contrib.layers.conv2d(resnet, current_n_filters, 3, stride=1, activation_fn=None,
                                               scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
             inet = tf.add(inet, resnet, name='{}/decoder/res_{}/sum'.format(self.scoped_name, r))
@@ -445,7 +468,7 @@ class AutoencoderDCN(DCN):
 
         # Up-sampling / transpose convolutions
         for r in range(self._h.n_layers):
-            current_activation = last_activation if r == self._h.n_layers - 1 else self._h.activation
+            current_activation = last_activation if r == self._h.n_layers - 1 else activation
             inet = tf.contrib.layers.conv2d(inet, 2 * current_n_filters, self._h.kernel, stride=1,
                                             scope='{}/decoder/tconv_{}'.format(self.scoped_name, r),
                                             activation_fn=current_activation)
@@ -476,7 +499,7 @@ class AutoencoderDCN(DCN):
             layer_summary.append('{:d}R'.format(int(self._h.res_layers)))
         if self.uses_bottleneck:
             layer_summary.append('F')
-        if 'dropout' in self._h:
+        if 'dropout' in self._h and self._h.dropout:
             layer_summary.append('+D')
         if hasattr(self, 'use_batchnorm') and self.use_batchnorm:
             layer_summary.append('+BN')
@@ -489,3 +512,8 @@ class AutoencoderDCN(DCN):
             parameter_summary.append('H+{:.2f}'.format(self.entropy_weight))
 
         return '{}/{}'.format(super().model_code, '-'.join(parameter_summary))
+
+    def get_parameters(self):
+        params = super().get_parameters()
+        params.update(self._h.to_json())
+        return params

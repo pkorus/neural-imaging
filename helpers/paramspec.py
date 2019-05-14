@@ -85,6 +85,11 @@ class ParamSpec(object):
         params.update(self._values)
         return params
 
+    def to_json(self):
+        params = self.to_dict()
+        params = {k: v if utils.is_number(v) else str(v) for k, v in params.items()}
+        return params
+
     def __contains__(self, item):
         return item in self._specs
     

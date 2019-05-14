@@ -39,6 +39,9 @@ def load_images(files, data_directory, extension='png', load='xy'):
     :param load: what data to load - string: 'xy' (load both raw and rgb), 'x' (load only raw) or 'y' (load only rgb)
     """
     n_images = len(files)
+
+    if n_images == 0:
+        return {k: np.zeros(shape=(1, 1, 1, 1)) for k in load}
     
     # Check image resolution
     image = imageio.imread(os.path.join(data_directory, files[0]))

@@ -11,6 +11,7 @@ class IPDataset(object):
         
         self.files = {}
         self._loaded_data = load
+        self._data_directory = data_directory
         self.files['training'], self.files['validation'] = loading.discover_files(data_directory, randomize=randomize, n_images=n_images, v_images=v_images)
                 
         self.data = {
@@ -122,3 +123,14 @@ class IPDataset(object):
     
     def __repr__(self):
         return 'IPDataset[load={}] with {} training and {} validation images'.format(self._loaded_data, self.count_training, self.count_validation)
+    
+    def summary(self):
+        stats = {
+            'path': self._data_directory,
+        }
+        
+        for k in self._loaded_data:        
+            stats['training/{}'.format(k)] = str(self.data['training'][k].shape)
+            stats['validation/{}'.format(k)] = str(self.data['validation'][k].shape)
+                
+        return stats

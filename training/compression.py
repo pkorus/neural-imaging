@@ -91,15 +91,16 @@ def visualize_codebook(dcn):
     return imageio.imread(s.getvalue(), pilmode='RGB')
 
 
-def save_progress(dcn, training, out_dir):
+def save_progress(dcn, data, training, out_dir):
 
     filename = os.path.join(out_dir, 'progress.json')
     
     output_stats = {
         'training_spec': training,
+        'data': data.summary(),
         'dcn': {
             'model': type(dcn).__name__,
-            'args': dcn.args,
+            'args': dcn.get_parameters(),
             'codebook': dcn.sess.run(dcn.codebook).reshape((-1,)).tolist()
         },
         'performance': dcn.performance,
@@ -239,9 +240,10 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
 
                 # Save current snapshot
                 indices = np.argsort(np.var(batch_x, axis=(1, 2, 3)))[::-1]
-                indices = indices[:5]
-                thumbs = (255 * plotting.thumbnails(np.concatenate((batch_x[::2], batch_y[::2]), axis=0), n_cols=20)).astype(np.uint8)
-                thumbs_few = (255 * plotting.thumbnails(np.concatenate((batch_x[indices], batch_y[indices]), axis=0), n_cols=5)).astype(np.uint8)
+                thumbs_pairs_all = np.concatenate((batch_x[indices[::2]], batch_y[indices[::2]]), axis=0)
+                thumbs_pairs_few = np.concatenate((batch_x[indices[:5]], batch_y[indices[:5]]), axis=0)
+                thumbs = (255 * plotting.thumbnails(thumbs_pairs_all, n_cols=training['batch_size'] // 2)).astype(np.uint8)
+                thumbs_few = (255 * plotting.thumbnails(thumbs_pairs_few, n_cols=5)).astype(np.uint8)
                 imageio.imsave(os.path.join(model_output_dirname, 'thumbnails-{:05d}.png'.format(epoch)), thumbs)
 
                 # Sample latent space
@@ -270,7 +272,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 sw.flush()
                 
                 # Save stats to a JSON log
-                save_progress(dcn, training, model_output_dirname)                                
+                save_progress(dcn, data, training, model_output_dirname)
                 
                 # Save current checkpoint
                 dcn.save_model(model_output_dirname, epoch)

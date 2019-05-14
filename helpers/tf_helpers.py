@@ -5,6 +5,14 @@ from tensorflow.contrib import slim as slim
 from helpers.utils import gkern, repeat_2dfilter
 from IPython.display import display, HTML
 
+activation_mapping = {
+    'leaky_relu' : tf.nn.leaky_relu,
+    'relu': tf.nn.relu,
+    'tanh': tf.nn.tanh,
+    'sigmoid': tf.nn.sigmoid,
+    'softsign': tf.nn.softsign
+}
+
 
 def tf_median(x, kernel):
     with tf.name_scope('median_filter'):
