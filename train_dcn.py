@@ -89,7 +89,7 @@ def main():
         'v_images': int(args.split.split(':')[1]),
         'valid_patches': int(args.split.split(':')[2]),
         'n_epochs': args.epochs,
-        'batch_size': 40,
+        'batch_size': 50,
         'patch_size': args.patch_size,
         'sample_dropout': False,
         'learning_rate': args.learning_rate,

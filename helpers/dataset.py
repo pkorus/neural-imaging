@@ -119,3 +119,6 @@ class IPDataset(object):
     def count_validation(self):
         key = self._loaded_data[0]
         return self.data['validation'][key].shape[0]
+    
+    def __repr__(self):
+        return 'IPDataset[load={}] with {} training and {} validation images'.format(self._loaded_data, self.count_training, self.count_validation)

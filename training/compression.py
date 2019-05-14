@@ -83,6 +83,8 @@ def visualize_codebook(dcn):
     fig.gca().set_xlim([qmin - 1, qmax + 1])
     fig.gca().set_yticks([])
     fig.gca().set_xticks(uniform_cbook)
+
+    # Render the plot as a PNG image and return a bitmap array
     s = io.BytesIO()
     fig.savefig(s, format='png', bbox_inches='tight')
     plt.close(fig)
@@ -236,8 +238,10 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 perf['ssim']['validation'].append(float(np.mean(caches['ssim']['validation'])))
 
                 # Save current snapshot
+                indices = np.argsort(np.var(batch_x, axis=(1, 2, 3)))[::-1]
+                indices = indices[:5]
                 thumbs = (255 * plotting.thumbnails(np.concatenate((batch_x[::2], batch_y[::2]), axis=0), n_cols=20)).astype(np.uint8)
-                thumbs_few = (255 * plotting.thumbnails(np.concatenate((batch_x[::10], batch_y[::10]), axis=0), n_cols=4)).astype(np.uint8)
+                thumbs_few = (255 * plotting.thumbnails(np.concatenate((batch_x[indices], batch_y[indices]), axis=0), n_cols=5)).astype(np.uint8)
                 imageio.imsave(os.path.join(model_output_dirname, 'thumbnails-{:05d}.png'.format(epoch)), thumbs)
 
                 # Sample latent space
