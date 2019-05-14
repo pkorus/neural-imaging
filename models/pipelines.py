@@ -3,7 +3,8 @@ import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
 from models.tfmodel import TFModel
-from helpers.utils import upsampling_kernel, bilin_kernel, gamma_kernels, lrelu, upsample_and_concat
+from helpers.utils import upsampling_kernel, bilin_kernel, gamma_kernels
+from helpers.tf_helpers import lrelu, upsample_and_concat
 
 
 class NIPModel(TFModel):

@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 
 # Own libraries and modules
-from helpers import dataset, coreutils
+from helpers import dataset, coreutils, utils
 from models import compression
 
 from training.compression import train_dcn
@@ -53,7 +53,6 @@ def main():
     parser.add_argument('--dry', dest='dry', action='store_true', default=False,
                         help='Dry run (no training - only does model setup)')
 
-
     args = parser.parse_args()
 
     if not args.dcn:
@@ -65,11 +64,13 @@ def main():
 
     try:
         if args.dcn_params is not None:
-            cli_params = json.loads(args.dcn_params.replace('\'', '"'))
-            cli_params['name'] = 'cli'
-            cli_params['active'] = True
 
-            parameters = parameters.append(cli_params, ignore_index=True)
+            for p in args.dcn_params:
+                cli_params = json.loads(p.replace('\'', '"'))
+                cli_params['name'] = 'cli'
+                cli_params['active'] = True
+
+                parameters = parameters.append(cli_params, ignore_index=True)
 
         if args.dcn_param_list is not None:
             parameters = parameters.append(pd.read_csv(args.dcn_param_list), ignore_index=True, sort=True)
@@ -110,13 +111,13 @@ def main():
 
     print('DCN model: {}'.format(args.dcn))
 
-    parameters = parameters[parameters['active']]
+    parameters = parameters[parameters['active']].drop(columns=['active'])
     print('# DCN parameter list [{} active configs]:\n'.format(len(parameters)))
     print(parameters)
 
     print('\n# Training Spec:')
     for key, value in training_spec.items():
-        print(' {:40s}: {}'.format(key, value))
+        print(' {:50s}: {}'.format(key, value))
 
     # Load the dataset
     print('\n# Dataset:')
@@ -134,7 +135,7 @@ def main():
     model_log = {}
 
     print('\n# Training:\n')
-    for index, params in parameters.drop(columns=['name', 'active']).iterrows():
+    for index, params in parameters.drop(columns=['name']).iterrows():
 
         print('## Scenario {} / {}'.format(index, len(parameters)))
         # Create TF session and graph
@@ -142,7 +143,7 @@ def main():
         sess = tf.Session(graph=graph)
 
         # Create a DCN according to the spec
-        dcn_params = params.to_dict()
+        dcn_params = {k: v for k, v in params.to_dict().items() if not utils.is_nan(v)}
         dcn_params['default_val_is_train'] = training_spec['validation_is_training']
         dcn = getattr(compression, args.dcn)(sess, graph, None, patch_size=training_spec['patch_size'], **dcn_params)
 

@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+import helpers.tf_helpers
 from models.tfmodel import TFModel
 from helpers import utils
 
@@ -55,7 +56,7 @@ class FAN(TFModel):
                 
                 print('Building CNN for {} output classes'.format(n_classes))
                 # Basic parameters
-                activation = utils.lrelu
+                activation = helpers.tf_helpers.lrelu
                 filter_strength = 100
 
                 # First residual filter

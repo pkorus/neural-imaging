@@ -1,22 +1,37 @@
-import os
 import numpy as np
 import tensorflow as tf
-from collections import OrderedDict
 
 from models.tfmodel import TFModel
-from helpers import utils, tf_helpers
+from helpers import tf_helpers, paramspec
 
 
 class DCN(TFModel):
     """
-    A forensic analysis network with the following architecture:
+    An abstract class for deriving image compression models.
 
-    1. A constrained conv layer (learned residual filter)
-    2. N x standard conv layers
-    3. A 1x1 conv layer
-    4. GAP for feature extraction
-    5. 2 hidden fully connected layers
-    6. Output layer with K classes
+    # Attributes set-up by the abstract class:
+      x                    - model input
+      patch_size           - patch size
+      latent_bpf           - number of bits per feature of the latent representation
+      train_codebook       - whether the codebook
+      codebook             - the quantization code book (TF)
+      entropy_weight       - entropy regularization strength for model loss
+      default_val_is_train - used to set default value for the 'is_training' flag during model inference
+                             (useful for models with batch normalization)
+      scale_latent         - bool flag indicating scaling of the latent representation
+      use_batchnorm        - bool flag indicating the use of batch norm in the model
+
+      weights              - soft quantization weights (TF)
+      histogram            - latent space histogram based on soft quantization (TF)
+      entropy              - entropy estimation (TF)
+
+    # Attributes set-up by the derived classes:
+      y
+      latent_pre           - latent representation before quantization
+      latent_post          - latent representation after quantization
+      latent_shape         - shape of the latent tensor (before flattening)
+      n_latent             - dimensionality of the latent representation
+      _h                   - hyper parameters
     """
 
     def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, scale_latent=False, use_batchnorm=False, **kwargs):
@@ -25,8 +40,19 @@ class DCN(TFModel):
 
         :param sess: TF session or None (creates a new one)
         :param graph: TF graph or None (creates a new one)
+        :param label: a suffix for the name scope of the model
         """
         super().__init__(sess, graph, label)
+
+        # Basic value sanitization
+
+        if latent_bpf < 1 or latent_bpf > 8:
+            raise ValueError('Invalid value for latent_bpf! Valid range: 1 - 8')
+
+        if entropy_weight is not None and entropy_weight < 0:
+            raise ValueError('Invalid value for entropy_weight! Valid range: >=0')
+
+        self.verbose = True
         self.patch_size = patch_size
         self.nip_input = nip_input
         self.latent_bpf = latent_bpf
@@ -37,7 +63,7 @@ class DCN(TFModel):
         self.use_batchnorm = use_batchnorm
 
         # Remember parameters passed to the constructor
-        self.args = kwargs
+        # self.args = kwargs
 
         with self.graph.as_default():
             
@@ -53,7 +79,7 @@ class DCN(TFModel):
             
             self.x = x
             
-            # Setup quantization codebook
+            # Setup quantization code book -----------------------------------------------------------------------------
             with tf.name_scope('{}/optimization'.format(self.scoped_name)):
                 
                 with tf.name_scope('entropy'):
@@ -62,32 +88,32 @@ class DCN(TFModel):
                     qmin = -2 ** (self.latent_bpf - 1) + 1
                     qmax = 2 ** (self.latent_bpf - 1)
                                         
-                    print('Initializing {} codebook ({} bpf): from {} to {}'.format('trainable' if self.train_codebook else 'fixed', self.latent_bpf, qmin, qmax))
+                    self.log('Initializing {} codebook ({} bpf): from {} to {}'.format(
+                        'trainable' if self.train_codebook else 'fixed', self.latent_bpf, qmin, qmax))
+
                     if self.train_codebook:
-                        bin_centers = tf.get_variable('{}/quantization/codebook'.format(self.scoped_name), shape=(1, 2 ** self.latent_bpf), initializer=tf.constant_initializer(np.arange(qmin, qmax + 1)))
+                        bin_centers = tf.get_variable('{}/quantization/codebook'.format(self.scoped_name),
+                            initializer=tf.constant_initializer(np.arange(qmin, qmax + 1)),
+                            shape=(1, 2 ** self.latent_bpf))
                     else:
                         bin_centers = tf.constant(np.arange(qmin, qmax + 1), shape=(1, 2 ** self.latent_bpf), dtype=tf.float32)                        
                     self.codebook = bin_centers                
             
-            # Construct the actual model
+            # Construct the actual model -------------------------------------------------------------------------------
             self.construct_model(kwargs)
 
             # Check if the model has set all expected attributes
-            setup_status = {key: hasattr(self, key) for key in ['y', 'latent_pre', 'latent_post', 'latent_shape', 'n_latent', 'train_codebook', 'latent_bpf', 'entropy_weight']}
+            setup_status = {key: hasattr(self, key) for key in ['y', 'latent_pre', 'latent_post', 'latent_shape', 'n_latent']}
             if not all(setup_status.values()):
                 raise NotImplementedError('The model construction function has failed to set-up some attributes: {}'.format([key for key, value in setup_status.items() if not value]))
-                
-            # train_codebook=False, latent_bpf=8, scale_latent=True, entropy_weight=None
-                        
+
+            # Add entropy estimation and model optimization operations -------------------------------------------------
             with tf.name_scope('{}/optimization'.format(self.scoped_name)):
-                
+
+                # Estimate entropy of the latent representation
                 with tf.name_scope('entropy'):
 
-                    # Estimate entropy of the latent representation
-                    
-                    # Some parameters
                     soft_quantization_sigma = 5
-                    prec_dtype = tf.float64
                     v = 100
                     eps = 1e-72
 
@@ -98,11 +124,11 @@ class DCN(TFModel):
                     
                     # Compute soft-quantization
                     if v <= 0:
-                        print('Entropy estimation using Gaussian soft quantization')
+                        self.log('Entropy estimation using Gaussian soft quantization')
                         weights = tf.exp(-soft_quantization_sigma * tf.pow(values - self.codebook, 2)) 
                     else:
                         # t-Student-like distance measure with heavy tails
-                        print('Entropy estimation using t-Student soft quantization')
+                        self.log('Entropy estimation using t-Student soft quantization')
                         dff = values - self.codebook
                         dff = soft_quantization_sigma * dff
                         weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
@@ -117,7 +143,7 @@ class DCN(TFModel):
                     histogram = tf.maximum(histogram, 1e-9)
                     histogram = histogram / tf.reduce_sum(histogram)
 
-                    self.entropy = - tf.reduce_sum(histogram * tf.log(histogram) / 0.6931) # 0.6931 - log(2)
+                    self.entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
                     self.histogram = histogram
                     self.weights = weights
                 
@@ -126,7 +152,7 @@ class DCN(TFModel):
                 self.loss = tf.nn.l2_loss(self.x - self.y)
                 if self.entropy_weight is not None:
                     self.loss = self.loss + self.entropy_weight * self.entropy
-                print('Initializing loss: L2 {}'.format('+ {} * entropy'.format(self.entropy_weight) if self.entropy_weight is not None else ''))
+                self.log('Initializing loss: L2 {}'.format('+ {:.2f} * entropy'.format(self.entropy_weight) if self.entropy_weight is not None else ''))
                 
                 # Optimization
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -134,7 +160,11 @@ class DCN(TFModel):
                     self.lr = tf.placeholder(tf.float32, name='{}_learning_rate'.format(self.scoped_name))
                     self.adam = tf.train.AdamOptimizer(learning_rate=self.lr)
                     self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
-                
+
+    def log(self, message):
+        if self.verbose:
+            print(' ', message)
+
     def construct_model(self):
         raise NotImplementedError('Not implemented!')
         
@@ -185,7 +215,7 @@ class DCN(TFModel):
             
     def process(self, batch_x, dropout_keep_prob=1.0, is_training=None):
         """
-        Returns the predicted class for an image batch. The input is fed to the NIP if the model is chained properly.
+
         """
         with self.graph.as_default():
             
@@ -241,7 +271,10 @@ class DCN(TFModel):
                 'entropy': entropy
             }
 
-    def compression_stats(self, patch_size=None, n_latent_bytes=1):
+    def compression_stats(self, patch_size=None, n_latent_bytes=None):
+
+        n_latent_bytes = n_latent_bytes or self.latent_bpf / 8
+
         ps = patch_size or self.patch_size        
         if ps is None:
             raise ValueError('Patch size not specified!')
@@ -250,6 +283,7 @@ class DCN(TFModel):
         return {
             'rate': bitmap_size / (n_latent_bytes * self.n_latent),
             'bpp': 8 * self.n_latent * n_latent_bytes / (ps * ps),
+            'bpf': 8 * n_latent_bytes,
             'bytes': self.n_latent * n_latent_bytes
         }
     
@@ -266,114 +300,78 @@ class DCN(TFModel):
     
 class AutoencoderDCN(DCN):
 
-    def get_hyperparameters_specs(self):
-        # Tuple with default value, dtype
-        return {
-            'n_filters': (8, int),
-            'n_fscale': (2.0, float),
-            'n_latent': (0, int),
-            'kernel': (5, int),
-            'n_layers': (3, int),
-            'res_layers': (0, int),
-            'dropout': (True, bool),
-            'rounding': ('soft', str),
-            # 'use_batchnorm': (True, bool),
-            'train_codebook': (False, bool),
-            # 'scale_latent': (True, bool),
-            'activation': (tf.nn.leaky_relu, None)
-        }
-
-    def parse_hyperparameters(self, params):
-        specs = self.get_hyperparameters_specs()
-
-        # Apply defaults
-        parameters = {key: spec[0] for key, spec in specs.items()}
-
-        # Iterate over submitted values
-        for key, value in params.items():
-
-            if key in specs:
-                # Get specification for the current parameter
-                _, dtype = specs[key]
-
-                # Accept the new value if it:
-                #   is not None
-                #   is not np.nan (for numerical types)
-                if value is not None:
-                    if type(value) in [int, float, bool, np.int, np.float, np.bool] and np.isnan(value):
-                        continue
-                    parameters[key] = value if dtype is None else dtype(value)
-
-            else:
-                raise ValueError('Unexpected parameter: {}!'.format(key))
-
-        return parameters
-
     def construct_model(self, params):
 
-        self.hyperparameters = self.parse_hyperparameters(params)
+        # Define expected hyper parameters and their values
+        self._h = paramspec.ParamSpec({
+            'n_filters': (8, int, (2, None)),
+            'n_fscale': (2.0, float, (0.25, 4)),
+            'n_latent': (0, int, (-1, None)),
+            'kernel': (5, int, {3, 5, 7, 9, 11}),
+            'n_layers': (3, int, (1, np.log2(self.patch_size))),  # Ensure valid latent representation
+            'res_layers': (0, int, (0, 3)),
+            'dropout': (True, bool, None),
+            'rounding': ('soft', str, {'identity', 'soft', 'soft-codebook', 'sin'}),
+            'train_codebook': (False, bool, None),
+            'activation': (tf.nn.leaky_relu, None, None)
+        })
 
-        # Extract parameters for easy access
-        n_filters = self.hyperparameters['n_filters']
-        n_fscale = self.hyperparameters['n_fscale']
-        n_latent = self.hyperparameters['n_latent']
-        n_layers = self.hyperparameters['n_layers']
-        res_layers = self.hyperparameters['res_layers']
-        kernel = self.hyperparameters['kernel']
-        activation = self.hyperparameters['activation']
-        rounding = self.hyperparameters['rounding']
-        # use_batchnorm = self.hyperparameters['use_batchnorm']
-        dropout = self.hyperparameters['dropout']
-        # scale_latent = self.hyperparameters['scale_latent']
-
-        # if n_layers < 1:
-        #     raise ValueError('n_layers needs to be > 0!')
-
-        self.uses_bottleneck = n_latent > 0
+        self._h.update(**params)
+        self.uses_bottleneck = self._h.n_latent > 0
 
         latent_activation = None
         last_activation = None
 
-        print('Building Deep Compression Network')
-
         net = self.x
-        print('in size: {}'.format(net.shape))
+        self.log('input size: {}'.format(net.shape))
 
         # Encoder ------------------------------------------------------------------------------------------------------
 
         # Add convolutional layers
-        current_n_filters = n_filters
+        current_n_filters = self._h.n_filters
 
-        for r in range(n_layers):
-            current_activation = activation if (n_latent > 0 or (n_latent == 0 and r < n_layers - 1)) else latent_activation
-            net = tf.contrib.layers.conv2d(net, current_n_filters, kernel, stride=2, scope='{}/encoder/conv_{}'.format(self.scoped_name, r), activation_fn=current_activation)
-            print('conv size: {} + {}'.format(net.shape, current_activation.__name__ if current_activation is not None else None))
-            if r != n_layers - 1:
-                current_n_filters *= n_fscale
+        for r in range(self._h.n_layers):
+
+            current_activation = self._h.activation \
+                if (self._h.n_latent > 0 or (self._h.n_latent == 0 and r < self._h.n_layers - 1)) \
+                else latent_activation
+            net = tf.contrib.layers.conv2d(net, current_n_filters, self._h.kernel,
+                                           stride=2, activation_fn=current_activation,
+                                           scope='{}/encoder/conv_{}'.format(self.scoped_name, r))
+
+            self.log('conv size: {} + {}'.format(net.shape, current_activation.__name__ if current_activation is not None else None))
+
+            if r != self._h.n_layers - 1:
+                current_n_filters *= self._h.n_fscale
 
         # Add residual blocks
-        for r in range(res_layers):
-            resnet = tf.contrib.layers.conv2d(tf.nn.leaky_relu(net, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r)), current_n_filters, 3, stride=1, activation_fn=activation, scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 0))
-            resnet = tf.contrib.layers.conv2d(resnet, current_n_filters, 3, stride=1, activation_fn=None, scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
+        for r in range(self._h.res_layers):
+            res_input = tf.nn.leaky_relu(net, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r))
+            resnet = tf.contrib.layers.conv2d(res_input, current_n_filters, 3, stride=1, activation_fn=self._h.activation,
+                                              scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 0))
+            resnet = tf.contrib.layers.conv2d(resnet, current_n_filters, 3, stride=1, activation_fn=None,
+                                              scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
             net = tf.add(net, resnet, name='{}/encoder/res_{}/sum'.format(self.scoped_name, r))
-            print('residual block: {}'.format(net.shape))
+            self.log('residual block: {}'.format(net.shape))
 
-            # Latent representation ----------------------------------------------------------------------------------------
+        # Latent representation ----------------------------------------------------------------------------------------
 
         # Compute the shape of the latent representation
-        z_spatial = int(self.patch_size / (2**n_layers))
-        z_features = int(n_filters * (n_fscale**(n_layers-1)))
+        z_spatial = int(self.patch_size / (2**self._h.n_layers))
+        z_features = int(self._h.n_filters * (self._h.n_fscale**(self._h.n_layers-1)))
         self.latent_shape = [-1, z_spatial, z_spatial, z_features]
+        assert z_spatial > 0, 'Invalid size of the latent representation!'
 
         # If a smaller linear bottleneck is specified explicitly - add dense layers to make the projection
-        if n_latent is not None and n_latent != 0:
+        if self._h.n_latent is not None and self._h.n_latent != 0:
             flat = tf.contrib.layers.flatten(net, scope='{}/encoder/flatten_{}'.format(self.scoped_name, 0))
-            print('flatten size: {}'.format(flat.shape))
+            self.log('flatten size: {}'.format(flat.shape))
 
-            if n_latent > 0:
-                flat = tf.contrib.layers.fully_connected(flat, n_latent, activation_fn=latent_activation, scope='{}/encoder/dense_{}'.format(self.scoped_name, 0))
+            if self._h.n_latent > 0:
+                flat = tf.contrib.layers.fully_connected(flat, self._h.n_latent, activation_fn=latent_activation,
+                                                         scope='{}/encoder/dense_{}'.format(self.scoped_name, 0))
                 latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.scoped_name))
-                print('dense size: {}'.format(flat.shape))
+                self.log('dense size: {}'.format(flat.shape))
             else:
                 latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.scoped_name))
         else:
@@ -381,71 +379,84 @@ class AutoencoderDCN(DCN):
 
         # Add batch norm to normalize the latent representation
         if self.use_batchnorm:
-            self.pre_bn = latent # TODO Temporarily added for debugging
+            self.pre_bn = latent  # TODO Temporarily added for debugging
             self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
-            #                 self.is_training = tf.get_variable('is_training', shape=(), dtype=tf.bool, initializer=tf.constant_initializer(True), trainable=False)
-
-            latent = tf.contrib.layers.batch_norm(latent, scale=False, is_training=self.is_training, scope='{}/encoder/bn_{}'.format(self.scoped_name, 0))
-            print('batch norm: {}'.format(latent.shape))
+            latent = tf.contrib.layers.batch_norm(latent, scale=False, is_training=self.is_training,
+                                                  scope='{}/encoder/bn_{}'.format(self.scoped_name, 0))
+            self.log('batch norm: {}'.format(latent.shape))
 
         # Learn a scaling factor for the latent features to encourage greater values (facilitates quantization)
         if self.scale_latent:
-            #             scaling_factor = np.max((1, np.power(2, self.latent_bpf - 2)))
+            # scaling_factor = np.max((1, np.power(2, self.latent_bpf - 2)))
             scaling_factor = 1
-            alphas = tf.get_variable('{}/encoder/latent_scaling'.format(self.scoped_name), shape=(), dtype=tf.float32, initializer=tf.constant_initializer(scaling_factor))
+            alphas = tf.get_variable('{}/encoder/latent_scaling'.format(self.scoped_name), shape=(), dtype=tf.float32,
+                                     initializer=tf.constant_initializer(scaling_factor))
             latent = tf.multiply(alphas, latent, name='{}/encoder/latent_scaled'.format(self.scoped_name))
-            print('Scaling latent representation - init:{}'.format(scaling_factor))
+            self.log('scaling latent representation - init:{}'.format(scaling_factor))
 
         # Add identity to facilitate better display in the TF graph
         latent = tf.identity(latent, name='{}/latent'.format(self.scoped_name))
+        self.n_latent = int(np.prod(latent.shape[1:]))
 
         # Quantize the latent representation and remember tensors before and after the process
         self.latent_pre = latent
-        latent = tf_helpers.quantization(latent, '{}/quantization'.format(self.scoped_name), 'latent_quantized', rounding, codebook_tensor=self.codebook)
-        print('quantization with {} rounding'.format(rounding))
+        latent = tf_helpers.quantization(latent, '{}/quantization'.format(self.scoped_name), 'latent_quantized',
+                                         self._h.rounding, codebook_tensor=self.codebook)
+        self.log('quantization with {} rounding'.format(self._h.rounding))
         self.latent_post = latent
-        self.n_latent = int(np.prod(latent.shape[1:]))
-        print('latent size: {} + quant:{}'.format(latent.shape, rounding))
+        self.log('latent size: {} + quant:{}'.format(latent.shape, self._h.rounding))
 
-        if n_latent > 0:
-            inet = tf.contrib.layers.fully_connected(latent, int(np.prod(self.latent_shape[1:])), activation_fn=activation, scope='{}/decoder/dense_{}'.format(self.scoped_name, 0))
-            print('dense size: {} + {}'.format(inet.shape, activation))
+        # If using a bottleneck layer, inverse the projection
+        if self._h.n_latent > 0:
+            inet = tf.contrib.layers.fully_connected(latent, int(np.prod(self.latent_shape[1:])),
+                                                     scope='{}/decoder/dense_{}'.format(self.scoped_name, 0),
+                                                     activation_fn=self._h.activation)
+            self.log('dense size: {} + {}'.format(inet.shape, self._h.activation))
         else:
             inet = latent
 
         # Add dropout
-        if dropout:
+        if self._h.dropout:
+
             if not hasattr(self, 'is_training'):
                 self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
+
             self.dropout = tf.placeholder(tf.float32, name='{}/droprate'.format(self.scoped_name), shape=())
-            inet = tf.contrib.layers.dropout(inet, keep_prob=self.dropout, scope='{}/dropout'.format(self.scoped_name), is_training=self.is_training)
-            print('dropout size: {}'.format(net.shape))
+            inet = tf.contrib.layers.dropout(inet, keep_prob=self.dropout, is_training=self.is_training,
+                                             scope='{}/dropout'.format(self.scoped_name))
+            self.log('dropout size: {}'.format(net.shape))
 
         # Decoder ------------------------------------------------------------------------------------------------------
 
         # Just in case - make sure we have a multidimensional tensor before we start the convolutions
         inet = tf.reshape(inet, self.latent_shape, name='{}/decoder/reshape_{}'.format(self.scoped_name, 0))
-        print('reshape size: {}'.format(inet.shape))
+        self.log('reshape size: {}'.format(inet.shape))
 
         # Add residual blocks
-        for r in range(res_layers):
-            resnet = tf.contrib.layers.conv2d(tf.nn.leaky_relu(inet, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r)), current_n_filters, 3, stride=1, activation_fn=activation, scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 0))
-            resnet = tf.contrib.layers.conv2d(resnet, current_n_filters, 3, stride=1, activation_fn=None, scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
+        for r in range(self._h.res_layers):
+            res_input = tf.nn.leaky_relu(inet, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r))
+            resnet = tf.contrib.layers.conv2d(res_input, current_n_filters, 3, stride=1,
+                                              scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 0),
+                                              activation_fn=self._h.activation)
+            resnet = tf.contrib.layers.conv2d(resnet, current_n_filters, 3, stride=1, activation_fn=None,
+                                              scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
             inet = tf.add(inet, resnet, name='{}/decoder/res_{}/sum'.format(self.scoped_name, r))
-            print('residual block: {}'.format(net.shape))
+            self.log('residual block: {}'.format(net.shape))
 
-            # Transposed convolutions
-        for r in range(n_layers):
-            current_activation = last_activation if r == n_layers - 1 else activation
-            inet = tf.contrib.layers.conv2d(inet, 2 * current_n_filters, kernel, stride=1, scope='{}/decoder/tconv_{}'.format(self.scoped_name, r), activation_fn=current_activation)
-            print('conv size: {} + {}'.format(inet.shape, current_activation.__name__ if current_activation is not None else None))
+        # Up-sampling / transpose convolutions
+        for r in range(self._h.n_layers):
+            current_activation = last_activation if r == self._h.n_layers - 1 else self._h.activation
+            inet = tf.contrib.layers.conv2d(inet, 2 * current_n_filters, self._h.kernel, stride=1,
+                                            scope='{}/decoder/tconv_{}'.format(self.scoped_name, r),
+                                            activation_fn=current_activation)
+            self.log('conv size: {} + {}'.format(inet.shape, current_activation.__name__ if current_activation is not None else None))
             inet = tf.depth_to_space(inet, 2, name='{}/decoder/d2s_{}'.format(self.scoped_name, r))
-            #             inet = tf.contrib.layers.conv2d_transpose(inet, 3 if r == self.n_layers - 1 else n_filters, self.kernel, stride=2,  activation_fn=current_activation, scope='{}/tconv_{}'.format(self.scoped_name, r))
-            print('d2s size: {} + {}'.format(inet.shape, None))
-            current_n_filters = current_n_filters // n_fscale
+            self.log('d2s size: {} + {}'.format(inet.shape, None))
+            current_n_filters = current_n_filters // self._h.n_fscale
 
-        inet = tf.contrib.layers.conv2d(inet, 3, kernel, stride=1, activation_fn=last_activation, scope='{}/decoder/tconv_out'.format(self.scoped_name))
-        print('conv->out size: {} + {}'.format(inet.shape, last_activation))
+        inet = tf.contrib.layers.conv2d(inet, 3, self._h.kernel, stride=1, activation_fn=last_activation,
+                                        scope='{}/decoder/tconv_out'.format(self.scoped_name))
+        self.log('conv->out size: {} + {}'.format(inet.shape, last_activation))
         y = tf.identity(inet, name='y')
 
         self.y = y
@@ -459,19 +470,19 @@ class AutoencoderDCN(DCN):
             parameter_summary.append('x'.join(str(x) for x in self.latent_shape[1:]))
 
         layer_summary = []
-        if 'n_layers' in self.hyperparameters:
-            layer_summary.append('{:d}C'.format(int(self.hyperparameters['n_layers'])))
-        if 'res_layers' in self.hyperparameters and self.hyperparameters['res_layers'] > 0:
-            layer_summary.append('{:d}R'.format(int(self.hyperparameters['res_layers'])))
+        if 'n_layers' in self._h:
+            layer_summary.append('{:d}C'.format(int(self._h.n_layers)))
+        if 'res_layers' in self._h and self._h.res_layers > 0:
+            layer_summary.append('{:d}R'.format(int(self._h.res_layers)))
         if self.uses_bottleneck:
             layer_summary.append('F')
-        if 'dropout' in self.hyperparameters:
+        if 'dropout' in self._h:
             layer_summary.append('+D')
         if hasattr(self, 'use_batchnorm') and self.use_batchnorm:
             layer_summary.append('+BN')
 
         parameter_summary.append(''.join(layer_summary))
-        parameter_summary.append('r:{}'.format(self.hyperparameters['rounding']))
+        parameter_summary.append('r:{}'.format(self._h.rounding))
         parameter_summary.append('Q+{}bpf'.format(self.latent_bpf) if self.train_codebook else 'Q-{}bpf'.format(self.latent_bpf))
         parameter_summary.append('S+' if self.scale_latent else 'S-')
         if self.entropy_weight is not None:
