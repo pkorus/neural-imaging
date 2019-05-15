@@ -104,8 +104,8 @@ def load_patches(files, data_directory, patch_size=128, n_patches=100, discard_f
                 found = False
 
                 while not found: 
-                    xx = np.random.randint(0, W - patch_size)
-                    yy = np.random.randint(0, H - patch_size)
+                    xx = np.random.randint(0, W - patch_size) if W - patch_size > 0 else 0
+                    yy = np.random.randint(0, H - patch_size) if H - patch_size > 0 else 0
                     
                     if 'x' in data: data['x'][vpatch_id] = image_x[yy:yy + patch_size, xx:xx + patch_size, :] # astype(np.float32) / (2**16 - 1)
                     if 'y' in data: data['y'][vpatch_id] = image_y[(2*yy):2*(yy + patch_size), (2*xx):2*(xx + patch_size), :] #.astype(np.float32) / (2**8 - 1)

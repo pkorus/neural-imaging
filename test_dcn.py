@@ -14,12 +14,13 @@ from models import compression
 from helpers import plotting, dataset
 
 
-def restore_model(dir_name):
+def restore_model(dir_name, patch_size=None):
 
     with open(os.path.join(dir_name, 'progress.json')) as f:
         progress = json.load(f)
         parameters = progress['dcn']['args']
-    
+
+    parameters['patch_size'] = patch_size
     model = compression.AutoencoderDCN(None, None, None, **parameters)    
     model.load_model(dir_name)
     print('Loaded model: {}'.format(model.model_code))
@@ -101,7 +102,7 @@ def main():
         parser.print_usage()
         sys.exit(1)
 
-    model = restore_model(args.dir)
+    model = restore_model(args.dir, args.patch_size)
 
     data = dataset.IPDataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
 

@@ -331,7 +331,7 @@ class AutoencoderDCN(DCN):
             'n_fscale': (2.0, float, (0.25, 4)),
             'n_latent': (0, int, (-1, None)),
             'kernel': (5, int, {3, 5, 7, 9, 11}),
-            'n_layers': (3, int, (1, np.log2(self.patch_size))),  # Ensure valid latent representation
+            'n_layers': (3, int, (1, np.log2(self.patch_size) if self.patch_size is not None else 10)),  # Ensure valid latent representation
             'res_layers': (0, int, (0, 3)),
             'dropout': (False, bool, None),
             'rounding': ('soft', str, {'identity', 'soft', 'soft-codebook', 'sin'}),
