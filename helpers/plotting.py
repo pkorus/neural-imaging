@@ -52,7 +52,7 @@ def thumbnails(images, n_cols=None):
     return output
     
 
-def imarray(image, n_images, fetch_hook, titles, figwidth=10, cmap='gray', ncols=None):
+def imarray(image, n_images, fetch_hook, titles, figwidth=16, cmap='gray', ncols=None):
     """
     Function for plotting arrays of images. Not intended to be used directly. See 'imsc' for typical use cases.
     """
@@ -79,7 +79,7 @@ def imarray(image, n_images, fetch_hook, titles, figwidth=10, cmap='gray', ncols
     return fig
     
 
-def imsc(image, titles=None, figwidth=10, cmap='gray', ncols=None):
+def imsc(image, titles=None, figwidth=16, cmap='gray', ncols=None):
     """
     Universal function for plotting various structures holding series of images. Not thoroughly tested, but should work with:
     - np.ndarray of size (h,w,3) or (h,w)
@@ -174,7 +174,7 @@ def quickshow(x, label=None, *, axes=None, cmap='gray'):
         axes.set_yticks([])        
 
 
-def sub(n_plots, figwidth=10, figheight=None, ncols=None):
+def sub(n_plots, figwidth=16, figheight=None, ncols=None):
     subplot_x = ncols or int(np.ceil(np.sqrt(n_plots)))
     subplot_y = int(np.ceil(n_plots / subplot_x))
     

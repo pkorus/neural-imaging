@@ -184,7 +184,7 @@ class DCN(TFModel):
             }
 
             if hasattr(self, 'is_training'):
-                feed_dict[self.is_training] = is_training or self.default_val_is_train
+                feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
 
             return self.sess.run(self.histogram, feed_dict=feed_dict)
 
@@ -196,8 +196,8 @@ class DCN(TFModel):
             }            
             
             if hasattr(self, 'is_training'):
-                feed_dict[self.is_training] = is_training or self.default_val_is_train
-                
+                feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
+
             y = self.sess.run(self.latent_post, feed_dict=feed_dict)
             return y
 
@@ -209,7 +209,7 @@ class DCN(TFModel):
             }
             
             if hasattr(self, 'is_training'):
-                feed_dict[self.is_training] = is_training or self.default_val_is_train
+                feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
             
             y = self.sess.run(self.latent_pre, feed_dict=feed_dict)
             return y        
@@ -240,7 +240,7 @@ class DCN(TFModel):
                 feed_dict[self.dropout] = dropout_keep_prob
                 
             if hasattr(self, 'is_training'):
-                feed_dict[self.is_training] = is_training or self.default_val_is_train
+                feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
               
             y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
@@ -257,7 +257,7 @@ class DCN(TFModel):
                 feed_dict[self.dropout] = dropout_keep_prob
                 
             if hasattr(self, 'is_training'):
-                feed_dict[self.is_training] = is_training or self.default_val_is_train
+                feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
                 
             y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
@@ -279,7 +279,7 @@ class DCN(TFModel):
             
             _, loss, ssim, entropy = self.sess.run([self.opt, self.loss, self.ssim, self.entropy], feed_dict)
             return {
-                'loss': np.sqrt(2 * loss), # The L2 loss in TF is computed differently (half of non-square rooted norm)
+                'loss': np.sqrt(2 * loss),  # The L2 loss in TF is computed differently (half of non-square rooted norm)
                 'ssim': ssim,
                 'entropy': entropy
             }
