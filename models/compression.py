@@ -167,7 +167,7 @@ class DCN(TFModel):
         if self.verbose:
             print(' ', message)
 
-    def construct_model(self):
+    def construct_model(self, params):
         raise NotImplementedError('Not implemented!')
         
     def reset_performance_stats(self):
@@ -335,7 +335,6 @@ class AutoencoderDCN(DCN):
             'res_layers': (0, int, (0, 3)),
             'dropout': (False, bool, None),
             'rounding': ('soft', str, {'identity', 'soft', 'soft-codebook', 'sin'}),
-            'train_codebook': (False, bool, None),
             'activation': ('leaky_relu', str, set(tf_helpers.activation_mapping.keys()))
         })
 
