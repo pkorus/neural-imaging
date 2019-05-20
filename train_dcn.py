@@ -52,6 +52,10 @@ def main():
                         help='Resume training from last checkpoint, if possible')
     parser.add_argument('--dry', dest='dry', action='store_true', default=False,
                         help='Dry run (no training - only does model setup)')
+    parser.add_argument('--group', dest='run_group', action='store', type=int, default=None,
+                        help='Specify run group (sub-selects scenarios for running)')
+    parser.add_argument('--fill', dest='fill', action='store', default=None,
+                        help='Path of the extended scenarios table with appended result columns')
 
     args = parser.parse_args()
 
@@ -111,7 +115,10 @@ def main():
 
     print('DCN model: {}'.format(args.dcn))
 
-    parameters = parameters[parameters['active']].drop(columns=['active'])
+    if args.run_group is not None:
+        parameters = parameters[parameters['run_group'] == args.run_group]
+
+    parameters = parameters[parameters['active']].drop(columns=['active', 'run_group'])
     print('# DCN parameter list [{} active configs]:\n'.format(len(parameters)))
     print(parameters)
 
@@ -120,22 +127,28 @@ def main():
         print(' {:50s}: {}'.format(key, value))
 
     # Load the dataset
-    print('\n# Dataset:')
-    np.random.seed(training_spec['seed'])    
-    data = dataset.IPDataset(args.data, n_images=training_spec['n_images'], v_images=training_spec['v_images'], load='y',
-                             val_rgb_patch_size=training_spec['patch_size'], val_n_patches=training_spec['valid_patches'])
-    
-    for key in ['Training', 'Validation']:
-        print('{:>16s} [{:5.1f} GB] : Y -> {} '.format(
-            '{} data'.format(key),
-            coreutils.mem(data[key.lower()]['y']),
-            data[key.lower()]['y'].shape
-        ), flush=True)
+    if not args.dry:
+        print('\n# Dataset:')
+        np.random.seed(training_spec['seed'])
+        data = dataset.IPDataset(args.data, n_images=training_spec['n_images'], v_images=training_spec['v_images'], load='y',
+                                 val_rgb_patch_size=training_spec['patch_size'], val_n_patches=training_spec['valid_patches'])
+
+        for key in ['Training', 'Validation']:
+            print('{:>16s} [{:5.1f} GB] : Y -> {} '.format(
+                '{} data'.format(key),
+                coreutils.mem(data[key.lower()]['y']),
+                data[key.lower()]['y'].shape
+            ), flush=True)
 
     model_log = {}
 
+    # If requested, add columns to include results
+    parameters['ssim'] = np.nan
+    parameters['entropy'] = np.nan
+    parameters['loss'] = np.nan
+
     print('\n# Training:\n')
-    for index, params in parameters.drop(columns=['name']).iterrows():
+    for index, params in parameters.drop(columns=['scenario', 'label']).iterrows():
 
         print('## Scenario {} / {}'.format(index, len(parameters)))
         # Create TF session and graph
@@ -158,9 +171,26 @@ def main():
         if not args.dry:
             train_dcn({'dcn': dcn}, training_spec, data, args.out_dir)
 
+        # Fill the table with results, if requested
+        if args.fill is not None:
+            with open(os.path.join(args.out_dir, dcn.model_code, dcn.scoped_name, 'progress.json')) as f:
+                results = json.load(f)
+
+            parameters.loc[index, 'ssim'] = results['performance']['ssim']['validation'][-1]
+            parameters.loc[index, 'loss'] = results['performance']['loss']['validation'][-1]
+            parameters.loc[index, 'entropy'] = results['performance']['entropy']['training'][-1]
+
         # Cleanup
         sess.close()
         del graph
+
+    if args.fill == '-':
+        print(parameters.to_string())
+    elif args.fill.endswith('.csv'):
+        print('Saving the results to {}'.format(args.fill))
+        parameters.to_csv(args.fill, index=False)
+    else:
+        raise ValueError('Invalid value for the output results file: {}'.format(args.fill))
 
     if args.dry:
         print('List of instantiated models [{}]:'.format(len(model_log)))
