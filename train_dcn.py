@@ -64,15 +64,17 @@ def main():
         parser.print_usage()
         sys.exit(1)
 
-    parameters = pd.DataFrame(columns=['name', 'active'])
+    parameters = pd.DataFrame(columns=['scenario', 'label', 'active', 'run_group'])
 
     try:
         if args.dcn_params is not None:
 
             for p in args.dcn_params:
                 cli_params = json.loads(p.replace('\'', '"'))
-                cli_params['name'] = 'cli'
+                cli_params['scenario'] = np.nan
+                cli_params['label'] = 'command-line'
                 cli_params['active'] = True
+                cli_params['run_group'] = np.nan
 
                 parameters = parameters.append(cli_params, ignore_index=True)
 
