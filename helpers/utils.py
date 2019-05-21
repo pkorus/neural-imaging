@@ -322,23 +322,3 @@ def is_nan(value):
 
     return False
 
-
-def jpeg_sim(batch_x, jpeg_quality):
-
-    if batch_x.ndim == 3:
-        s = io.BytesIO()
-        imageio.imsave(s, (255 * batch_x).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality)
-        image_compressed = imageio.imread(s.getvalue())
-        return np.expand_dims(image_compressed, axis=0) / (2 ** 8 - 1), len(s.getvalue())
-
-    elif batch_x.ndim == 4:
-        batch_j = np.zeros_like(batch_x)
-        bytes_arr = []
-        for r in range(batch_x.shape[0]):
-            s = io.BytesIO()
-            imageio.imsave(s, (255 * batch_x[r]).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality)
-            image_compressed = imageio.imread(s.getvalue())
-            batch_j[r] = image_compressed.astype(np.float32) / (2 ** 8 - 1)
-            bytes_arr.append(len(s.getvalue()))
-
-        return batch_j, bytes_arr
