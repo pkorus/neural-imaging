@@ -44,7 +44,7 @@ def main():
                         help='Validation schedule - evaluate the model every v_schedule epochs')    
     parser.add_argument('--lr', dest='learning_rate', action='store', default=1e-4, type=float,
                         help='learning rate')
-    parser.add_argument('--v_train', dest='validation_is_training', action='store_true', default=True,
+    parser.add_argument('--v_train', dest='validation_is_training', action='store_true', default=False,
                         help='Use the model in training mode while testing')
     parser.add_argument('--no_flip', dest='noflip', action='store_true', default=False,
                         help='disable flipping (data augmentation)')
@@ -102,7 +102,7 @@ def main():
         'learning_rate_reduction_schedule': 1000,
         'learning_rate_reduction_factor': 0.5,
         'validation_schedule': args.validation_schedule,
-        'convergence_threshold': 1e-4,
+        'convergence_threshold': 1e-6,
         'current_epoch': 0,
         'validation_is_training': args.validation_is_training,
         'augmentation_probs': {
