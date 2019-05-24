@@ -150,9 +150,10 @@ def main():
     parameters['loss'] = np.nan
 
     print('\n# Training:\n')
-    for index, params in parameters.drop(columns=['scenario', 'label']).iterrows():
 
-        print('## Scenario {} / {}'.format(index, len(parameters)))
+    for counter, (index, params) in enumerate(parameters.drop(columns=['scenario', 'label']).iterrows()):
+
+        print('## Scenario {} - {} / {}'.format(index, counter, len(parameters)))
         # Create TF session and graph
         graph = tf.Graph()
         sess = tf.Session(graph=graph)
@@ -186,13 +187,14 @@ def main():
         sess.close()
         del graph
 
-    if args.fill == '-':
-        print(parameters.to_string())
-    elif args.fill.endswith('.csv'):
-        print('Saving the results to {}'.format(args.fill))
-        parameters.to_csv(args.fill, index=False)
-    else:
-        raise ValueError('Invalid value for the output results file: {}'.format(args.fill))
+    if args.fill is not None:
+        if args.fill == '-':
+            print(parameters.to_string())
+        elif args.fill.endswith('.csv'):
+            print('Saving the results to {}'.format(args.fill))
+            parameters.to_csv(args.fill, index=False)
+        else:
+            raise ValueError('Invalid value for the output results file: {}'.format(args.fill))
 
     if args.dry:
         print('List of instantiated models [{}]:'.format(len(model_log)))
