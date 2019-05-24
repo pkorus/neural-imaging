@@ -1,6 +1,6 @@
 import sys
 sys.path.append('.')
-from helpers import jpeg_helpers
+from compression import jpeg_helpers
 
 # Parse the file
 jpeg = jpeg_helpers.JPEGStats(sys.argv[-1])

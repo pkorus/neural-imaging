@@ -56,7 +56,7 @@ def match_ssim(image, ssim=0.95):
             low_ssim = mid_ssim
 
 
-def compress_batch(batch_x, jpeg_quality):
+def compress_batch(batch_x, jpeg_quality, effective=False):
 
     if batch_x.max() > 1:
         batch_x = batch_x.astype(np.float32) / (2**8 - 1)
@@ -65,7 +65,9 @@ def compress_batch(batch_x, jpeg_quality):
         s = io.BytesIO()
         imageio.imsave(s, (255 * batch_x).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality)
         image_compressed = imageio.imread(s.getvalue())
-        return image_compressed / (2 ** 8 - 1), len(s.getvalue())
+        image_bytes = len(s.getvalue()) if not effective else JPEGStats(s.getvalue()).get_effective_bytes()
+
+        return image_compressed / (2 ** 8 - 1), image_bytes
 
     elif batch_x.ndim == 4:
         batch_j = np.zeros_like(batch_x)
@@ -75,7 +77,8 @@ def compress_batch(batch_x, jpeg_quality):
             imageio.imsave(s, (255 * batch_x[r]).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality)
             image_compressed = imageio.imread(s.getvalue())
             batch_j[r] = image_compressed.astype(np.float32) / (2 ** 8 - 1)
-            bytes_arr.append(len(s.getvalue()))
+            image_bytes = len(s.getvalue()) if not effective else JPEGStats(s.getvalue()).get_effective_bytes()
+            bytes_arr.append(image_bytes)
 
         return batch_j, bytes_arr
 
