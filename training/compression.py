@@ -143,7 +143,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
         'ssim': {'training': deque(maxlen=n_batches), 'validation': deque(maxlen=v_batches)}
     }
 
-    n_tail = 3
+    n_tail = 5
     learning_rate = training['learning_rate']
     model_output_dirname = os.path.join(directory, dcn.model_code, dcn.scoped_name)
 
@@ -279,16 +279,16 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
 
                 # Check for convergence or model deterioration
                 if len(perf['ssim']['validation']) > 5:
-                    current = np.mean(perf['ssim']['validation'][-n_tail:-1])
-                    previous = np.mean(perf['ssim']['validation'][-(n_tail + 1):-2])
+                    current = np.mean(perf['ssim']['validation'][-n_tail:])
+                    previous = np.mean(perf['ssim']['validation'][-(n_tail + 1):-1])
                     perf_change = abs((current - previous) / previous)
 
                     if perf_change < training['convergence_threshold']:
-                        print('Early stopping - the model converged, validation SSIM change {}'.format(perf_change))
+                        print('Early stopping - the model converged, validation SSIM change {:.4f}'.format(perf_change))
                         break
 
                     if current < previous:
-                        print('Early stopping - SSIM deterioration {} -> {}'.format(previous, current))
+                        print('Early stopping - SSIM deterioration {:.4f} -> {:.4f}'.format(previous, current))
                         break
 
             progress_dict = {
