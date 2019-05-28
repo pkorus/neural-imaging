@@ -1,5 +1,5 @@
 import unittest
-from helpers import jpeg_helpers
+from compression import jpeg_helpers
 
 
 class JpegTest(unittest.TestCase):
