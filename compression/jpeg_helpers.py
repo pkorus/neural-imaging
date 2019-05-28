@@ -20,12 +20,12 @@ markers = {
 }
 
 
-def match_ssim(image, ssim=0.95):
+def match_ssim(image, ssim=0.95, subsampling='4:4:4'):
 
     assert image.ndim == 3, 'Only RGB images supported'
 
     def fun(q):
-        image_j = compress_batch(image, q)[0].squeeze()
+        image_j = compress_batch(image, q, subsampling=subsampling)[0].squeeze()
         c_ssim = compare_ssim(image, image_j, multichannel=True)
         return c_ssim - ssim
 
@@ -56,14 +56,14 @@ def match_ssim(image, ssim=0.95):
             low_ssim = mid_ssim
 
 
-def compress_batch(batch_x, jpeg_quality, effective=False):
+def compress_batch(batch_x, jpeg_quality, effective=False, subsampling='4:4:4'):
 
     if batch_x.max() > 1:
         batch_x = batch_x.astype(np.float32) / (2**8 - 1)
 
     if batch_x.ndim == 3:
         s = io.BytesIO()
-        imageio.imsave(s, (255 * batch_x).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality)
+        imageio.imsave(s, (255 * batch_x).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality, subsampling=subsampling)
         image_compressed = imageio.imread(s.getvalue())
         image_bytes = len(s.getvalue()) if not effective else JPEGStats(s.getvalue()).get_effective_bytes()
 
@@ -74,7 +74,7 @@ def compress_batch(batch_x, jpeg_quality, effective=False):
         bytes_arr = []
         for r in range(batch_x.shape[0]):
             s = io.BytesIO()
-            imageio.imsave(s, (255 * batch_x[r]).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality)
+            imageio.imsave(s, (255 * batch_x[r]).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality, subsampling=subsampling)
             image_compressed = imageio.imread(s.getvalue())
             batch_j[r] = image_compressed.astype(np.float32) / (2 ** 8 - 1)
             image_bytes = len(s.getvalue()) if not effective else JPEGStats(s.getvalue()).get_effective_bytes()
