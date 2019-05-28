@@ -37,10 +37,10 @@ The toolbox was written in Python 3. Follow the standard procedure to install de
 The `data/raw` directory is used for storing all data (input images, training pairs, trained model snapshots, etc.). The expected content looks as follow:
 
 ```
-images/{Camera name}                         - RAW images (*.nef *.dng)
-nip_training_data/{Camera name}              - Bayer stacks (uint16 *.npy) and developed (*.png)
-nip_model_snapshots/{Camera name}/{Model}    - NIP models (TF checkpoints)
-nip_developed/{Camera name}/{Pipeline/Model} - NIP-developed images (*.png)
+images/{Camera name}                            - RAW images (*.nef *.dng)
+nip_training_data/{Camera name}                 - Bayer stacks (uint16 *.npy) and developed (*.png)
+nip_model_snapshots/{Camera name}/{nip}         - NIP models (TF checkpoints)
+nip_developed/{Camera name}/{pipeline or nip}   - NIP-developed images (*.png)
 ```
 
 Training data can be prepared from input images with the `train_prepare_training_set.py` script (see details below).
@@ -109,7 +109,7 @@ The script generates:
 - `training.json` - JSON file with training progress and performance stats,
 - `manip_validation_*.jpg` - visual presentation of training progress (change of loss, PSNR, etc. over time)
 - `nip_validation_*.jpg` - current snapshot of patches developed by the NIP
-- `models/{FAN,*Net}` - current snapshot of the models (both the NIP and the FAN)
+- `models/{fan,*net}` - current snapshot of the models (both the NIP and the FAN)
 
 **Plotting Results**
 
@@ -205,16 +205,17 @@ If you find any bugs or would like to contribute new models, training protocols,
 If you find this code useful in your work, please cite our papers:
 
 ```
-@article{korus2018content,
+
+@inproceedings{korus2019content,
   title={Content Authentication for Neural Imaging Pipelines: End-to-end Optimization of Photo Provenance in Complex Distribution Channels},
   author={Korus, Pawel and Memon, Nasir},
-  journal={arXiv preprint arXiv:1812.01516},
-  year={2018}
+  booktitle={CVPR},
+  year={2019}
 }
 ```
 
 ```
-@article{korus2018content,
+@article{korus2019neural,
   title={Neural Imaging Pipelines - the Scourge or Hope of Forensics?},
   author={Korus, Pawel and Memon, Nasir},
   journal={arXiv preprint arXiv:1902.10707},

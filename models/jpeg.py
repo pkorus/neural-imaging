@@ -1,6 +1,6 @@
 import tensorflow as tf
-import numpy as np
 from helpers.utils import jpeg_qtable
+from helpers import tf_helpers
 
 
 class DJPG:
@@ -112,20 +112,7 @@ class DJPG:
                     Q = tf.concat((Ql, Qc), axis=0)
                     Q = tf.tile(Q, [(tf.shape(x)[0]), 1, 1])
                     X = X / Q
-
-                    if rounding_approximation is None:
-                        X = tf.round(X)
-                    elif rounding_approximation == 'sin':
-                        X = X - tf.sin(2 * np.pi * X) / (2 * np.pi)
-                    elif rounding_approximation == 'soft':
-                        XA = X - tf.sin(2 * np.pi * X) / (2 * np.pi)
-                        X = tf.stop_gradient(tf.round(X) - XA) + XA
-                    elif rounding_approximation == 'harmonic':
-                        XA = X - tf.sin(2 * np.pi * X) / np.pi
-                        for k in range(2, rounding_approximation_steps):
-                            XA += tf.pow(-1.0, k) * tf.sin(2 * np.pi * k * X) / (k * np.pi)
-                        X = XA
-
+                    X = tf_helpers.quantization(X, 'quantization', 'dct_coeff_quantized', rounding_approximation, rounding_approximation_steps)
                     X = X * Q
     
                 with tf.name_scope('idct'):

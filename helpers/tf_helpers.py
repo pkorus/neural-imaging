@@ -1,7 +1,17 @@
 import tensorflow as tf
 import numpy as np
+from tensorflow.contrib import slim as slim
+
 from helpers.utils import gkern, repeat_2dfilter
 from IPython.display import display, HTML
+
+activation_mapping = {
+    'leaky_relu' : tf.nn.leaky_relu,
+    'relu': tf.nn.relu,
+    'tanh': tf.nn.tanh,
+    'sigmoid': tf.nn.sigmoid,
+    'softsign': tf.nn.softsign
+}
 
 
 def tf_median(x, kernel):
@@ -117,3 +127,96 @@ def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungrou
         <iframe seamless style="width:{}px;height:{}px;border:0" srcdoc="{}"></iframe>
     """.format(width, height, code.replace('"', '&quot;'))
     display(HTML(iframe))
+
+
+def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tensor=None, soft_quantization_sigma=1):
+    
+    with tf.name_scope(scope):
+        
+        if rounding is None:
+            x = tf.round(x)
+        
+        elif rounding == 'sin':
+            x = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name=name)
+        
+        elif rounding == 'soft':
+            x_ = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name='{}_soft'.format(name))
+            x = tf.add(tf.stop_gradient(tf.round(x) - x_), x_, name=name)
+        
+        elif rounding == 'harmonic':
+            xa = x - tf.sin(2 * np.pi * x) / np.pi
+            for k in range(2, approx_steps):
+                xa += tf.pow(-1.0, k) * tf.sin(2 * np.pi * k * x) / (k * np.pi)
+            x = xa
+            
+        elif rounding == 'identity':
+            x = x
+            
+        elif rounding == 'soft-codebook':
+            
+            prec_dtype = tf.float64
+            v = 100
+            eps = 1e-72
+            
+            assert(codebook_tensor.shape[0] == 1)
+            assert(codebook_tensor.shape[1] > 1)            
+
+            values = tf.reshape(x, (-1, 1))
+
+            if v <= 0:
+                # Gaussian soft quantization
+                weights = tf.exp(-soft_quantization_sigma * tf.pow(tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype), 2)) 
+            else:
+                # t-Student soft quantization
+                dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype)
+                dff = soft_quantization_sigma * dff
+                weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
+            
+            weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
+            
+            assert(weights.shape[1] == np.prod(codebook_tensor.shape))
+
+            soft = tf.reduce_mean(tf.matmul(weights, tf.transpose(tf.cast(codebook_tensor, dtype=prec_dtype))), axis=1)
+            soft = tf.cast(soft, dtype=tf.float32)
+            soft = tf.reshape(soft, tf.shape(x))            
+
+            hard = tf.gather(codebook_tensor, tf.argmax(weights, axis=1), axis=1)
+            hard = tf.reshape(hard, tf.shape(x))            
+
+            x = tf.stop_gradient(hard - soft) +  soft
+        
+        else:
+            raise ValueError('Unknown quantization! {}'.format(rounding))
+    
+    return x
+
+
+def lrelu(x):
+    return tf.maximum(x * 0.2, x)
+
+
+def upsample_and_concat(x1, x2, output_channels, in_channels, name='upsampling_kernel', scope=None):
+    with tf.name_scope(scope):
+        pool_size = 2
+        deconv_filter = tf.Variable(tf.truncated_normal([pool_size, pool_size, output_channels, in_channels], stddev=0.02), name=name)
+        deconv = tf.nn.conv2d_transpose(x1, deconv_filter, tf.shape(x2), strides=[1, pool_size, pool_size, 1])
+        deconv_output = tf.concat([deconv, x2], 3)
+        deconv_output.set_shape([None, None, None, output_channels * 2])
+
+    return deconv_output
+
+
+def identity_initializer():
+    def _initializer(shape, dtype=tf.float32, partition_info=None):
+        array = np.zeros(shape, dtype=float)
+        cx, cy = shape[0]//2, shape[1]//2
+        for i in range(np.minimum(shape[2],shape[3])):
+            array[cx, cy, i, i] = 1
+        return tf.constant(array, dtype=dtype)
+    return _initializer
+
+
+def nm(x):
+    w0 = tf.Variable(1.0, name='w0')
+    w1 = tf.Variable(0.0, name='w1')
+    return w0*x + w1*slim.batch_norm(x) # the parameter "is_training" in slim.batch_norm does not seem to help so I do not use it

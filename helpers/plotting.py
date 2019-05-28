@@ -4,37 +4,55 @@ import matplotlib.pylab as plt
 import numpy as np
 import imageio
 import helpers
+
 from skimage.draw import line
 from scipy.ndimage.filters import gaussian_filter
+from skimage.transform import resize
 
 
 # Helper functions for plotting images in Python (wrapper over matplotlib)    
 
-def thumbnails(images, axis=0):
+def thumbnails(images, n_cols=None):
     
-    if type(images) is np.ndarray:    
-        n_images = images.shape[axis]
-        if axis == 0:
-            img_size = images.shape[1:]
-        else:
-            img_size = images.shape[:axis]
-        images_x = int(np.ceil(np.sqrt(n_images)))
-        images_y = int(np.ceil(n_images / images_x))
-        size = (images_y, images_x)        
-        output = np.zeros((size[0] * img_size[0], size[1] * img_size[1]))
+    if type(images) is np.ndarray:
         
-        for r in range(n_images):
-            bx = int(r % images_x)
-            by = int(np.floor(r / images_x))
-            if axis == 0:
-                output[by*img_size[0]:(by+1)*img_size[0], bx*img_size[1]:(bx+1)*img_size[1]] = images[r,:,:].squeeze()
-            elif axis == 2:
-                output[by*img_size[0]:(by+1)*img_size[0], bx*img_size[1]:(bx+1)*img_size[1]] = images[:,:,r].squeeze()
-    
+        n_images = images.shape[0]        
+        n_channels = images.shape[-1]
+        img_size = images.shape[1:]
+        
+        if len(img_size) == 2:
+            img_size.append(1)
+                        
+    elif type(images) is list or type(images) is tuple:
+        
+        n_images = len(images)
+        n_channels = images[0].shape[-1]
+        img_size = list(images[0].shape)
+        
+        if len(img_size) == 2:
+            img_size.append(1)
+        
+    images_x = n_cols or int(np.ceil(np.sqrt(n_images)))
+    images_y = int(np.ceil(n_images / images_x))
+    size = (images_y, images_x)
+        
+    # Allocate space for the thumbnails
+    output = np.zeros((size[0] * img_size[0], size[1] * img_size[1], img_size[2]))
+        
+    for r in range(n_images):
+        bx = int(r % images_x)
+        by = int(np.floor(r / images_x))
+        current = images[r].squeeze()
+        if current.shape[0] != img_size[0] or current.shape[1] != img_size[1]:
+            current = resize(current, img_size[:-1], anti_aliasing=True)
+        if len(current.shape) == 2:
+            current = np.expand_dims(current, axis=2)
+        output[by*img_size[0]:(by+1)*img_size[0], bx*img_size[1]:(bx+1)*img_size[1], :] = current
+        
     return output
     
 
-def imarray(image, n_images, fetch_hook, titles, figwidth=10, cmap='gray', ncols=None):
+def imarray(image, n_images, fetch_hook, titles, figwidth=16, cmap='gray', ncols=None):
     """
     Function for plotting arrays of images. Not intended to be used directly. See 'imsc' for typical use cases.
     """
@@ -61,7 +79,7 @@ def imarray(image, n_images, fetch_hook, titles, figwidth=10, cmap='gray', ncols
     return fig
     
 
-def imsc(image, titles=None, figwidth=10, cmap='gray', ncols=None):
+def imsc(image, titles=None, figwidth=16, cmap='gray', ncols=None):
     """
     Universal function for plotting various structures holding series of images. Not thoroughly tested, but should work with:
     - np.ndarray of size (h,w,3) or (h,w)
@@ -78,7 +96,7 @@ def imsc(image, titles=None, figwidth=10, cmap='gray', ncols=None):
         
     if type(image) is list or type(image) is tuple:
         
-        n_images = len(images)
+        n_images = len(image)
         
         def fetch_example(image, n):
             return image[n]        
@@ -154,3 +172,28 @@ def quickshow(x, label=None, *, axes=None, cmap='gray'):
         axes.set_title(label)
         axes.set_xticks([])
         axes.set_yticks([])        
+
+
+def sub(n_plots, figwidth=16, figheight=None, ncols=None):
+    subplot_x = ncols or int(np.ceil(np.sqrt(n_plots)))
+    subplot_y = int(np.ceil(n_plots / subplot_x))
+    
+    fig = plot.figure(tight_layout=True, figsize=(figwidth, figheight or figwidth * (subplot_y / subplot_x)))
+    axes = fig.subplots(nrows=subplot_y, ncols=subplot_x)
+    axes_flat = []
+
+    for ax in axes:
+        
+        if hasattr(ax, '__iter__'):
+            for a in ax:
+                if len(axes_flat) < n_plots:
+                    axes_flat.append(a)
+                else:
+                    a.remove()
+        else:
+            if len(axes_flat) < n_plots:
+                axes_flat.append(ax)
+            else:
+                ax.remove()                
+    
+    return fig, axes_flat

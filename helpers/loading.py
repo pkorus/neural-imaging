@@ -16,10 +16,16 @@ def discover_files(data_directory, n_images=120, v_images=30, extension='png', r
     """
 
     files = coreutils.listdir(data_directory, '.*\.{}$'.format(extension))
-    print('In total {} files available'.format(len(files)))
+    print('In total {} files available'.format(len(files)), flush=True)
 
     if randomize:
         np.random.shuffle(files)
+
+    if n_images == 0 and v_images == -1:
+        v_images = len(files)
+
+    if n_images == -1 and v_images == 0:
+        n_images = len(files)
 
     if len(files) >= n_images + v_images:
         val_files = files[n_images:(n_images + v_images)]
@@ -28,6 +34,7 @@ def discover_files(data_directory, n_images=120, v_images=30, extension='png', r
         raise ValueError('Not enough images!')
         
     return files, val_files
+
 
 def load_images(files, data_directory, extension='png', load='xy'):
     """
@@ -39,6 +46,9 @@ def load_images(files, data_directory, extension='png', load='xy'):
     :param load: what data to load - string: 'xy' (load both raw and rgb), 'x' (load only raw) or 'y' (load only rgb)
     """
     n_images = len(files)
+
+    if n_images == 0:
+        return {k: np.zeros(shape=(1, 1, 1, 1)) for k in load}
     
     # Check image resolution
     image = imageio.imread(os.path.join(data_directory, files[0]))
@@ -54,8 +64,11 @@ def load_images(files, data_directory, extension='png', load='xy'):
 
         for i, file in enumerate(files):
             npy_file = file.replace('.{}'.format(extension), '.npy')
-            if 'x' in data: data['x'][i, :, :, :] = np.load(os.path.join(data_directory, npy_file))
-            if 'y' in data: data['y'][i, :, :, :] = imageio.imread(os.path.join(data_directory, file))
+            try:
+                if 'x' in data: data['x'][i, :, :, :] = np.load(os.path.join(data_directory, npy_file))
+                if 'y' in data: data['y'][i, :, :, :] = imageio.imread(os.path.join(data_directory, file), pilmode='RGB')
+            except Exception as e:
+                print('Error: {} - {}'.format(file, e))
             pbar.update(1)
 
         return data
@@ -74,8 +87,8 @@ def load_patches(files, data_directory, patch_size=128, n_patches=100, discard_f
     """
     v_images = len(files)
     data = {}
-    if 'x' in load: data['x'] = np.zeros((v_images * n_patches, patch_size, patch_size, 4), dtype=np.float32)
-    if 'y' in load: data['y'] = np.zeros((v_images * n_patches, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)
+    if 'x' in load: data['x'] = np.zeros((v_images * n_patches, patch_size, patch_size, 4), dtype=np.uint16)
+    if 'y' in load: data['y'] = np.zeros((v_images * n_patches, 2 * patch_size, 2 * patch_size, 3), dtype=np.uint8)
 
     with tqdm.tqdm(total=v_images * n_patches, ncols=100, desc='Loading patches') as pbar:
 
@@ -84,7 +97,7 @@ def load_patches(files, data_directory, patch_size=128, n_patches=100, discard_f
         for i, file in enumerate(files):
             npy_file = file.replace('.{}'.format(extension), '.npy')
             if 'x' in data: image_x = np.load(os.path.join(data_directory, npy_file))
-            if 'y' in data: image_y = imageio.imread(os.path.join(data_directory, file))
+            if 'y' in data: image_y = imageio.imread(os.path.join(data_directory, file), pilmode='RGB')
 
             if 'x' in data:
                 H, W = image_x.shape[0:2]
@@ -98,10 +111,11 @@ def load_patches(files, data_directory, patch_size=128, n_patches=100, discard_f
                 found = False
 
                 while not found: 
-                    xx = np.random.randint(0, W - patch_size)
-                    yy = np.random.randint(0, H - patch_size)
-                    if 'x' in data: data['x'][vpatch_id] = image_x[yy:yy + patch_size, xx:xx + patch_size, :].astype(np.float32) / (2**16 - 1)
-                    if 'y' in data: data['y'][vpatch_id] = image_y[(2*yy):2*(yy + patch_size), (2*xx):2*(xx + patch_size), :].astype(np.float32) / (2**8 - 1)
+                    xx = np.random.randint(0, W - patch_size) if W - patch_size > 0 else 0
+                    yy = np.random.randint(0, H - patch_size) if H - patch_size > 0 else 0
+                    
+                    if 'x' in data: data['x'][vpatch_id] = image_x[yy:yy + patch_size, xx:xx + patch_size, :]
+                    if 'y' in data: data['y'][vpatch_id] = image_y[(2*yy):2*(yy + patch_size), (2*xx):2*(xx + patch_size), :]
 
                     # Check if the found patch is acceptable:
                     # - eliminate empty patches

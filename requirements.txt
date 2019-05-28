@@ -1,7 +1,8 @@
 colour-demosaicing
 rawkit
 exifread
-tensorflow
+tensorboard
+tensorflow-gpu
 numpy
 scipy
 tqdm
@@ -9,3 +10,5 @@ imageio
 scikit-image
 matplotlib
 matplotlib2tikz
+sewar
+dahuffman

@@ -93,11 +93,11 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
 
     model_a = nip_model(sess1, g1)
     model_a.init()
-    model_a.load_model(camera, model_a_dirname)
+    model_a.load_model(os.path.join(model_a_dirname))
 
     model_b = nip_model(sess2, g2)
     model_b.init()
-    model_b.load_model(camera, os.path.join(model_b_dirname, '{nip-model}'))
+    model_b.load_model(os.path.join(model_b_dirname))
 
     log.info('Model A: {}'.format(model_a.summary()))
     log.info('Model B: {}'.format(model_b.summary()))
@@ -187,6 +187,9 @@ def main():
         print('A camera needs to be specified!')
         parser.print_usage()
         sys.exit(1)
+
+    if args.camera not in args.model_a_dir:
+        args.model_a_dir = os.path.join(args.model_a_dir, args.camera)
 
     try:
         compare_nips(args.camera, args.nip, args.model_a_dir, args.model_b_dir, args.patch, args.image, args.dir, args.out)

@@ -42,8 +42,8 @@ def develop_image(camera, pipeline, ps=128, image_id=None, root_dir='./data/raw'
     from skimage.measure import compare_psnr
 
     root_dirname = os.path.join(root_dir, 'nip_model_snapshots')
-    dirname = os.path.join(root_dir, 'nip_training_data', camera)
-    files = coreutils.listdir(dirname, '.*\.npy')
+    data_dirname = os.path.join(root_dir, 'nip_training_data', camera)
+    files = coreutils.listdir(data_dirname, '.*\.npy')
 
     if len(files) == 0:
         print('ERROR Not training files found for the given camera model!')
@@ -58,27 +58,31 @@ def develop_image(camera, pipeline, ps=128, image_id=None, root_dir='./data/raw'
 
     model = nip_model(sess, tf.get_default_graph())
     log.info('Using NIP: {}'.format(model.summary()))
-    model.init()
-    model.load_model(camera, root_dirname)
+    log.info('Loading weights from: {}'.format(os.path.join(root_dirname, camera)))
+    model.load_model(os.path.join(root_dirname, camera))
 
     # Load sample data
-    sample_x = np.load(os.path.join(dirname, files[image_id]))
+    sample_x = np.load(os.path.join(data_dirname, files[image_id]))
     sample_x = np.expand_dims(sample_x, axis=0)
     xx = (sample_x.shape[2] - ps) // 2
     yy = (sample_x.shape[1] - ps) // 2
     log.info('Using image {}'.format(files[image_id]))
     log.info('Cropping patch from input image x={}, y={}, size={}'.format(xx, yy, ps))
     sample_x = sample_x[:, yy:yy+ps, xx:xx+ps, :].astype(np.float32) / (2**16 - 1)
+    sample_x = np.repeat(sample_x, 20, axis=0)
 
     sample_y = model.process(sample_x)
-    target_y = io.imread(os.path.join(dirname, files[image_id].replace('.npy', '.png')))
+    sample_y = sample_y[0:1]
+    target_y = io.imread(os.path.join(data_dirname, files[image_id].replace('.npy', '.png')))
     target_y = target_y[2*yy:2*(yy+ps), 2*xx:2*(xx+ps), :].astype(np.float32) / (2**8 - 1)
+    psnr_value = compare_psnr(target_y, sample_y.squeeze(), data_range=1.0)
+    log.info('PSNR={:.1f} dB'.format(psnr_value))
 
     # Plot the images
     plt.figure(figsize=(6, 6))
     plt.subplot(1, 2, 1)
     plt.imshow(sample_y.squeeze())
-    plt.title('{}, PSNR={:.1f} dB'.format(type(model).__name__, compare_psnr(target_y, sample_y.squeeze(), data_range=1.0)))
+    plt.title('{}, PSNR={:.1f} dB'.format(type(model).__name__, psnr_value))
     plt.subplot(1, 2, 2)
     plt.imshow(target_y)
     plt.title('Target')

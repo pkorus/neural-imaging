@@ -1,7 +1,11 @@
+import io
+import imageio
 import numpy as np
-import tensorflow as tf
-import tensorflow.contrib.slim as slim
 import scipy.stats as st
+
+_numeric_types = {int, float, bool, np.bool, np.float, np.float16, np.float32, np.float64,
+                           np.int, np.int8, np.int32, np.int16, np.int64,
+                           np.uint, np.uint8, np.uint32, np.uint16, np.uint64}
 
 
 def ma_gaussian(x, y, step_size=0.05, width=10):
@@ -213,37 +217,6 @@ def bilin_kernel(kernel=3):
     return dmf
 
 
-def lrelu(x):
-    return tf.maximum(x * 0.2, x)
-
-
-def upsample_and_concat(x1, x2, output_channels, in_channels, name='upsampling_kernel', scope=None):
-    with tf.name_scope(scope):
-        pool_size = 2
-        deconv_filter = tf.Variable(tf.truncated_normal([pool_size, pool_size, output_channels, in_channels], stddev=0.02), name=name)
-        deconv = tf.nn.conv2d_transpose(x1, deconv_filter, tf.shape(x2), strides=[1, pool_size, pool_size, 1])
-        deconv_output = tf.concat([deconv, x2], 3)
-        deconv_output.set_shape([None, None, None, output_channels * 2])
-
-    return deconv_output
-
-
-def identity_initializer():
-    def _initializer(shape, dtype=tf.float32, partition_info=None):
-        array = np.zeros(shape, dtype=float)
-        cx, cy = shape[0]//2, shape[1]//2
-        for i in range(np.minimum(shape[2],shape[3])):
-            array[cx, cy, i, i] = 1
-        return tf.constant(array, dtype=dtype)
-    return _initializer
-
-
-def nm(x):
-    w0 = tf.Variable(1.0, name='w0')
-    w1 = tf.Variable(0.0, name='w1')
-    return w0*x + w1*slim.batch_norm(x) # the parameter "is_training" in slim.batch_norm does not seem to help so I do not use it
-
-
 def gkern(kernlen=21, nsig=3):
     """Returns a 2D Gaussian kernel array."""
 
@@ -316,4 +289,36 @@ def center_mask_2dfilter(f_size, channels):
         indicator[f_size // 2, f_size // 2, r, r] = 1
 
     return indicator
+
+
+def slidingwindow(arr, window):
+    if arr.ndim != 3:
+        raise ValueError('The input array needs to be 3-D - (h,w,c)!')
+    n_windows = (arr.shape[0] // window) * (arr.shape[1] // window)
+    batch = np.zeros((n_windows, window, window, arr.shape[-1]), dtype=arr.dtype)
+    window_id = 0
+    for x in range(arr.shape[1] // window):
+        for y in range(arr.shape[0] // window):
+            batch[window_id] = arr[y*window:(y+1)*window, x*window:(x+1)*window, :]
+            window_id += 1
+    return batch
+
+
+def is_number(value):
+    return type(value) in _numeric_types
+
+
+def is_numeric_type(t):
+    return t in _numeric_types
+
+
+def is_nan(value):
+
+    if value is None:
+        return True
+
+    if is_number(value):
+        return np.isnan(value)
+
+    return False
 
