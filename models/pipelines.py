@@ -14,7 +14,7 @@ class NIPModel(TFModel):
     classes for examples.
     """
 
-    def __init__(self, sess=None, graph=None, loss_metric='L2', patch_size=None, label=None, reuse_placeholders=None, **kwargs):        
+    def __init__(self, sess=None, graph=None, loss_metric='L2', patch_size=None, label=None, reuse_placeholders=None, **kwargs):
         """
         Base constructor with common setup.
 
@@ -64,8 +64,7 @@ class NIPModel(TFModel):
 
                 # In case the model used batch norm
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-                with tf.control_dependencies(update_ops):                
-                    
+                with tf.control_dependencies(update_ops):
                     # Learning rate
                     self.lr = tf.placeholder(tf.float32, name='nip_learning_rate')
 
@@ -100,22 +99,17 @@ class NIPModel(TFModel):
             _, loss = self.sess.run([self.opt, self.loss], feed_dict=feed_dict)
             return loss
         
-    def process(self, batch_x, is_training=True):
+    def process(self, batch_x, is_training=False):
         """
         Develop RAW input and return RGB image.
         """
         if batch_x.ndim == 3:
             batch_x = np.expand_dims(batch_x, 0)
 
-        # TODO Temporary print command
-        # print('Processing a {} sample'.format(batch_x.shape))
-
         with self.graph.as_default():
             feed_dict = {self.x: batch_x}
             if hasattr(self, 'is_training'):
                 feed_dict[self.is_training] = is_training
-                # TODO Temporary print command
-                print('Processing with is_training={}'.format(is_training))
 
             y = self.sess.run(self.y, feed_dict=feed_dict)
             return y
@@ -123,19 +117,6 @@ class NIPModel(TFModel):
     def reset_performance_stats(self):
         self.train_perf = {'loss': []}
         self.valid_perf = {'loss': [], 'psnr': [], 'ssim': []}        
-
-    # @property
-    # def name(self):
-    #     if self.scoped_name is None:
-    #         return '{}'.format(type(self).__name__)
-    #     else:
-    #         return '{}{}'.format(type(self).__name__, self.scoped_name)
-    
-    # def count_parameters(self):
-    #     return np.sum([np.prod(tv.shape.as_list()) for tv in self.parameters])
-            
-    # def summary(self):
-    #     return '{} model [{:,} params]'.format(type(self).__name__, self.count_parameters())
 
 
 class UNet(NIPModel):
@@ -256,7 +237,6 @@ class DNet(NIPModel):
         with self.graph.as_default():
                         
             with tf.name_scope('{}'.format(self.scoped_name)):
-                self.is_training = tf.get_variable('is_training'.format(self.scoped_name), shape=(), dtype=tf.bool, initializer=tf.constant_initializer(True))
                 k_initializer = tf.variance_scaling_initializer
 
                 # Initialize the upsampling kernel
@@ -268,14 +248,11 @@ class DNet(NIPModel):
                 # Convolutions on the sub-sampled input tensor
                 deep_x = self.x
                 for r in range(n_layers):
-                    deep_y = tf.layers.conv2d(deep_x, 12 if r == n_layers - 1 else n_features, kernel, use_bias=False, activation=None, name='{}/conv{}'.format(self.scoped_name, r), padding='VALID', kernel_initializer=k_initializer) #
+                    deep_y = tf.layers.conv2d(deep_x, 12 if r == n_layers - 1 else n_features, kernel, activation=tf.nn.relu, name='{}/conv{}'.format(self.scoped_name, r), padding='VALID', kernel_initializer=k_initializer) #
                     print('CNN layer out: {}'.format(deep_y.shape))
-                    deep_y = tf.layers.batch_normalization(deep_y, name='{}/bn{}'.format(self.scoped_name, r), training=self.is_training)
-                    # deep_y = tf.layers.batch_normalization(deep_y, name='{}/bn{}'.format(self.scoped_name, r))
-                    deep_y = tf.nn.relu(deep_y, name='{}/conv{}/Relu'.format(self.scoped_name, r))
                     deep_x = tf.pad(deep_y, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
 
-                # Upsample the input
+                # Up-sample the input
                 h12 = tf.layers.conv2d(self.x, 12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, name='{}/conv_h12'.format(self.scoped_name), trainable=False)
                 bayer = tf.depth_to_space(h12, 2, name="{}/upscaled_bayer".format(self.scoped_name))
 

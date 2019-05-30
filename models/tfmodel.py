@@ -7,18 +7,18 @@ from collections import OrderedDict
 
 class TFModel(object):
     """
-    Python class to represent TF models.
+    Class to represent TF models with model saving / loading capabilities.
 
     # Accessing model parameters
     - parameters - list of all trainable parameters in the model (useful for loading/saving/counting parameters)
     - variables  - list of all variables in the model (useful for initialization)
 
     # Usage of model strings in the framework:
-    - summary                 - a human-readable summary of the model (name + rudimentary layer info? + number of parameters)
+    - summary                 - a human-readable summary of the model (name + rudimentary layer specs + parameter count)
     - model_code              - represents a concise, coded summary of the models hyper parameters
-    - class_name              - class name -
-    - scoped_name             - unet_a - used as a last directory name for model disambiguation & as a prefix for TF variables
-                                e.g., unet / unet_a / fan / dcn_channel
+    - class_name              - convenience method to access class name
+    - scoped_name             - class name (lower case) [+ postfix label] (e.g., unet / unet_a / fan)
+                                used as a prefix for TF variables & as a directory name for storing models
     """
 
     def __init__(self, sess, graph, label, **kwargs):        
@@ -37,7 +37,6 @@ class TFModel(object):
     def init(self):
         with self.graph.as_default():
             self.sess.run(tf.variables_initializer(self.variables))
-            # self.sess.run(tf.variables_initializer(self.adam.variables()))
             self.is_initialized = True
             self._summary_writer = None
             self._saver = None
@@ -96,7 +95,7 @@ class TFModel(object):
         # Try to load the model from the given directory
         latest_checkpoint = tf.train.latest_checkpoint(dirname)
 
-        # If no model available, append current model name
+        # If no model available, append current model's scoped name
         if latest_checkpoint is None:
             dirname = os.path.join(dirname, self.scoped_name)
             latest_checkpoint = tf.train.latest_checkpoint(dirname)
@@ -108,7 +107,6 @@ class TFModel(object):
             # Use the slim package to load the checkpoint - this gives a chance to ignore missing variables
             init_assign_op, init_feed_dict = slim.assign_from_checkpoint(latest_checkpoint, self.parameters, ignore_missing_vars=True)
             self.sess.run(init_assign_op, feed_dict=init_feed_dict)
-            # self.saver.restore(self.sess, latest_checkpoint)
 
         self.is_initialized = True
         self.reset_performance_stats()

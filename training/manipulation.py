@@ -407,4 +407,4 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     tf_ops['nip'].save_model(os.path.join(model_directory, tf_ops['nip'].scoped_name), epoch)
     tf_ops['fan'].save_model(os.path.join(model_directory, tf_ops['fan'].scoped_name), epoch)
     
-    return os.path.join(model_directory, tf_ops['nip'].scoped_name)
+    return model_directory
