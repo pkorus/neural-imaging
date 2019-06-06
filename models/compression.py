@@ -34,7 +34,7 @@ class DCN(TFModel):
       _h                   - hyper parameters
     """
 
-    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, scale_latent=False, use_batchnorm=False, **kwargs):
+    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, scale_latent=False, use_batchnorm=False, use_gdn=False, **kwargs):
         """
         Creates a forensic analysis network.
 
@@ -61,6 +61,7 @@ class DCN(TFModel):
         self.default_val_is_train = default_val_is_train
         self.scale_latent = scale_latent
         self.use_batchnorm = use_batchnorm
+        self.use_gdn = use_gdn
 
         # Remember parameters passed to the constructor
         # self.args = kwargs
@@ -317,7 +318,8 @@ class DCN(TFModel):
             'entropy_weight': self.entropy_weight,
             'default_val_is_train': self.default_val_is_train,
             'scale_latent': self.scale_latent,
-            'use_batchnorm': self.use_batchnorm
+            'use_batchnorm': self.use_batchnorm,
+            'use_gdn': self.use_gdn
         }
 
     
@@ -398,6 +400,11 @@ class AutoencoderDCN(DCN):
                 latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.scoped_name))
         else:
             latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.scoped_name))
+
+        # Use GDN to Gaussianize data
+        if self.use_gdn:
+            latent = tf.contrib.layers.GDN(latent)
+            self.log('GDN: {}'.format(latent.shape))
 
         # Add batch norm to normalize the latent representation
         if self.use_batchnorm:
@@ -502,6 +509,8 @@ class AutoencoderDCN(DCN):
             layer_summary.append('+D')
         if hasattr(self, 'use_batchnorm') and self.use_batchnorm:
             layer_summary.append('+BN')
+        if hasattr(self, 'use_gdn') and self.use_gdn:
+            layer_summary.append('+GDN')
 
         parameter_summary.append(''.join(layer_summary))
         parameter_summary.append('r:{}'.format(self._h.rounding))
