@@ -26,7 +26,7 @@ def match_ssim(image, ssim=0.95, subsampling='4:4:4'):
 
     def fun(q):
         image_j = compress_batch(image, q, subsampling=subsampling)[0].squeeze()
-        c_ssim = compare_ssim(image, image_j, multichannel=True)
+        c_ssim = compare_ssim(image, image_j, multichannel=True, data_range=1)
         return c_ssim - ssim
 
     low = 1

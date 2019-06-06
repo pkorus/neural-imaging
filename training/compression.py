@@ -13,7 +13,7 @@ from skimage.measure import compare_ssim as ssim
 import matplotlib.pyplot as plt
 
 # Own libraries and modules
-from helpers import plotting, summaries
+from helpers import plotting, summaries, utils
 
 
 def visualize_distribution(dcn, data):
@@ -180,6 +180,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 # Data augmentation - random horizontal flip
                 if np.random.uniform() < training['augmentation_probs']['flip_h']: batch_x = batch_x[:, :, ::-1, :]
                 if np.random.uniform() < training['augmentation_probs']['flip_v']: batch_x = batch_x[:, ::-1, :, :]
+                if np.random.uniform() < training['augmentation_probs']['gamma']: batch_x = utils.batch_gamma(batch_x)
 
                 # Sample dropout
                 keep_prob = 1.0 if not training['sample_dropout'] else np.random.uniform(0.5, 1.0)            

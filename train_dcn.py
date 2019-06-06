@@ -46,8 +46,8 @@ def main():
                         help='learning rate')
     parser.add_argument('--v_train', dest='validation_is_training', action='store_true', default=False,
                         help='Use the model in training mode while testing')
-    parser.add_argument('--no_flip', dest='noflip', action='store_true', default=False,
-                        help='disable flipping (data augmentation)')
+    parser.add_argument('--no_aug', dest='no_aug', action='store_true', default=False,
+                        help='disable data augmentation (flipping + gamma correction)')
     parser.add_argument('--resume', dest='resume', action='store_true', default=False,
                         help='Resume training from last checkpoint, if possible')
     parser.add_argument('--dry', dest='dry', action='store_true', default=False,
@@ -107,8 +107,9 @@ def main():
         'validation_is_training': args.validation_is_training,
         'augmentation_probs': {
             'resize': 0.0,
-            'flip_h': 0.0 if args.noflip else 0.5,
-            'flip_v': 0.0 if args.noflip else 0.5
+            'flip_h': 0.0 if args.no_aug else 0.5,
+            'flip_v': 0.0 if args.no_aug else 0.5,
+            'gamma': 0.0 if args.no_aug else 0.5,
         }
     }
 

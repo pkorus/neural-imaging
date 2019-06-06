@@ -2,6 +2,8 @@ import io
 import imageio
 import numpy as np
 import scipy.stats as st
+from scipy import cluster
+
 
 _numeric_types = {int, float, bool, np.bool, np.float, np.float16, np.float32, np.float64,
                            np.int, np.int8, np.int32, np.int16, np.int64,
@@ -322,3 +324,23 @@ def is_nan(value):
 
     return False
 
+
+def qhist(values, code_book, density=False):
+    code_book_edges = bin_egdes(code_book)
+    return np.histogram(values.reshape((-1, )), bins=code_book_edges, density=density)[0]
+
+
+def bin_egdes(code_book):
+    max_float = np.abs(code_book).max() * 2
+    code_book_edges = np.convolve(code_book, [0.5, 0.5], mode='valid')
+    code_book_edges = np.concatenate((-np.array([max_float]), code_book_edges, np.array([max_float])), axis=0)
+    return code_book_edges
+
+
+def batch_gamma(batch_p, gamma=None):
+    if gamma is None:
+        gamma = np.array(np.random.uniform(low=0.25, high=3, size=(len(batch_p), 1, 1, 1)))
+    elif type(gamma) is float:
+        gamma = gamma * np.ones((len(batch_p), 1, 1, 1))
+
+    return np.power(batch_p, 1/gamma).clip(0, 1)
