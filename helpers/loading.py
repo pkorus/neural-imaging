@@ -5,7 +5,7 @@ import imageio
 from helpers import coreutils
 
 
-def discover_files(data_directory, n_images=120, v_images=30, extension='png', randomize=False):
+def discover_files(data_directory, n_images=120, v_images=30, extension='png', randomize=0):
     """
     Find available images and split them into training / validation sets.
     :param data_directory: directory
@@ -19,6 +19,7 @@ def discover_files(data_directory, n_images=120, v_images=30, extension='png', r
     print('In total {} files available'.format(len(files)), flush=True)
 
     if randomize:
+        np.random.seed(randomize)
         np.random.shuffle(files)
 
     if n_images == 0 and v_images == -1:
