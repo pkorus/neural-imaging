@@ -302,7 +302,7 @@ class DCN(TFModel):
         }
     
     def summary(self):
-        return 'dcn with {} conv layers and {}-D latent representation [{:,} parameters]'.format(self.n_layers, self.n_latent, self.count_parameters())
+        return 'dcn with {}-D latent representation [{:,} parameters]'.format(self.n_latent, self.count_parameters())
     
     @property
     def model_code(self):
