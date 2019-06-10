@@ -6,6 +6,8 @@ import io
 import imageio
 import numpy as np
 import tensorflow as tf
+import matplotlib.pyplot as plt
+
 
 def log_image(thumbs):
     
@@ -15,6 +17,14 @@ def log_image(thumbs):
     s = io.BytesIO()
     imageio.imsave(s, thumbs, format='png')
     return tf.Summary.Image(encoded_image_string=s.getvalue(), height=thumbs.shape[0], width=thumbs.shape[1])
+
+
+def log_plot(fig):
+    s = io.BytesIO()
+    fig.savefig(s, format='png', bbox_inches='tight')
+    plt.close(fig)
+    return imageio.imread(s.getvalue(), pilmode='RGB')
+
 
 def log_histogram(values, bins=50):
     # Create histogram using numpy        
