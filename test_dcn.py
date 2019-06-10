@@ -12,6 +12,7 @@ from compression.afi import dcn_simulate_compression
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,24 +20,37 @@ from skimage.measure import compare_ssim, compare_psnr
 
 from models import compression
 from helpers import plotting, dataset, coreutils, loading
-from compression import jpeg_helpers, afi
+from compression import jpeg_helpers, afi, ratedistortion
 
 supported_plots = ['batch', 'jpeg-match', 'trade-off']
 
 
-def restore_model(dir_name, patch_size=None):
+def restore_model(dir_name, patch_size=None, fetch_stats=False):
 
-    with open(os.path.join(dir_name, 'progress.json')) as f:
-        progress = json.load(f)
-        parameters = progress['dcn']['args']
+    for filename in Path(dir_name).glob('**/progress.json'):
+        training_progress_path = str(filename)
 
+    with open(training_progress_path) as f:
+        training_progress = json.load(f)
+
+    parameters = training_progress['dcn']['args']
     parameters['patch_size'] = patch_size
     parameters['default_val_is_train'] = False
-    model = compression.AutoencoderDCN(None, None, None, **parameters)    
+    model = getattr(compression, training_progress['dcn']['model'])(None, None, None, **parameters)
     model.load_model(dir_name)
     print('Loaded model: {}'.format(model.model_code))
 
-    return model
+    if fetch_stats:
+
+        stats = {
+            'loss': training_progress['performance']['loss']['validation'][-1],
+            'entropy': training_progress['performance']['entropy']['training'][-1],
+            'ssim': training_progress['performance']['ssim']['validation'][-1],
+        }
+
+        return model, stats
+    else:
+        return model
 
 
 def match_jpeg(model, batch_x):
@@ -173,52 +187,11 @@ def main():
         batch_x = loading.load_images(files, args.data, load='y')
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
-        # Get trade-off for JPEG
-        quality_levels = np.arange(95, 5, -5)
-        df_jpeg_path = os.path.join(args.data, 'jpeg.csv')
+        # df = ratedistortion.get_jpeg_df(args.data, write_files=True)
+        # df = ratedistortion.get_jpeg2k_df(args.data, write_files=True)
 
-        if os.path.isfile(df_jpeg_path):
-            print('Restoring JPEG stats from {}'.format(df_jpeg_path))
-            df = pd.read_csv(df_jpeg_path, index_col=False)
-        else:
-            df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'bytes', 'bpp'])
-
-            with tqdm.tqdm(total=len(files) * len(quality_levels), ncols=120, desc='JPEG') as pbar:
-
-                for image_id, filename in enumerate(files):
-
-                    # Read the original image
-                    image = batch_x[image_id]
-
-                    for qi, q in enumerate(quality_levels):
-
-                        # Compress images and get effective bytes (only image data - no headers)
-                        image_compressed, image_bytes = jpeg_helpers.compress_batch(image, q, effective=True)
-
-                        image_dir = os.path.join(args.data, os.path.splitext(filename)[0])
-                        if not os.path.isdir(image_dir):
-                            os.makedirs(image_dir)
-
-                        image_path = os.path.join(image_dir, 'jpeg_q{:03d}.png'.format(q))
-
-                        imageio.imwrite(image_path, (255*image_compressed).astype(np.uint8))
-
-                        df = df.append({'image_id': image_id,
-                                        'filename': filename,
-                                        'codec': 'jpeg',
-                                        'quality': q,
-                                        'ssim': compare_ssim(image, image_compressed, multichannel=True),
-                                        'psnr': compare_psnr(image, image_compressed, data_range=1),
-                                        'bytes': image_bytes,
-                                        'bpp': 8 * image_bytes / image.shape[0] / image.shape[1]
-                                        }, ignore_index=True)
-
-                        pbar.set_postfix(image_id=image_id, quality=q)
-                        pbar.update(1)
-
-            df.to_csv(os.path.join(args.data, 'jpeg.csv'), index=False)
-
-        print(df)
+        # Create a new table for the DCN
+        df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'entropy', 'bytes', 'bpp'])
 
         # Discover available models
         model_dirs = list(Path(args.dir).glob('**/progress.json'))
@@ -226,11 +199,10 @@ def main():
 
         for model_dir in model_dirs:
             print('Processing: {}'.format(model_dir))
-            dcn = restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1])
+            dcn, stats = restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1], fetch_stats=True)
 
             # Dump compressed images
             for image_id, filename in enumerate(files):
-                print('.', end='')
 
                 batch_y, image_bytes = afi.dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
 
@@ -247,8 +219,9 @@ def main():
                                 'filename': filename,
                                 'codec': dcn.model_code,
                                 'quality': dcn.n_latent,
-                                'ssim': compare_ssim(batch_x[image_id], batch_y[0], multichannel=True),
+                                'ssim': compare_ssim(batch_x[image_id], batch_y[0], multichannel=True, data_range=1),
                                 'psnr': compare_psnr(batch_x[image_id], batch_y[0], data_range=1),
+                                'entropy': stats['entropy'],
                                 'bytes': image_bytes,
                                 'bpp': 8 * image_bytes / batch_x[image_id].shape[0] / batch_x[image_id].shape[1]
                                 }, ignore_index=True)
