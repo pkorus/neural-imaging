@@ -194,7 +194,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                     codebook = dcn.sess.run(dcn.codebook).reshape((-1,))
                     # Get some extra stats
                     if dcn.scale_latent:
-                        scaling = dcn.sess.run(dcn.graph.get_tensor_by_name('autoencoderdcn/encoder/latent_scaling:0'))
+                        scaling = dcn.sess.run(dcn.graph.get_tensor_by_name('{}/encoder/latent_scaling:0'.format(dcn.scoped_name)))
                     else:
                         scaling = np.nan
                     print('Scaling: {}'.format(scaling))
@@ -215,7 +215,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
 
             # Get some extra stats
             if dcn.scale_latent:
-                scaling = dcn.sess.run(dcn.graph.get_tensor_by_name('autoencoderdcn/encoder/latent_scaling:0'))
+                scaling = dcn.sess.run(dcn.graph.get_tensor_by_name('{}/encoder/latent_scaling:0'.format(dcn.scoped_name)))
             else:
                 scaling = np.nan
 
