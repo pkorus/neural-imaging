@@ -310,8 +310,8 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
                 prebn = dcn.sess.run(dcn.pre_bn, feed_dict={dcn.x: batch_x})
                 bM = np.mean(prebn, axis=(0, 1, 2))
                 bV = np.var(prebn, axis=(0, 1, 2))
-                pM = dcn.sess.run(dcn.graph.get_tensor_by_name('autoencoderdcn/encoder/bn_0/moving_mean:0'))
-                pV = dcn.sess.run(dcn.graph.get_tensor_by_name('autoencoderdcn/encoder/bn_0/moving_variance:0'))
+                pM = dcn.sess.run(dcn.graph.get_tensor_by_name('{}/encoder/bn_0/moving_mean:0'.format(dcn.scoped_name)))
+                pV = dcn.sess.run(dcn.graph.get_tensor_by_name('{}/encoder/bn_0/moving_variance:0'.format(dcn.scoped_name)))
                 # Append summary
                 progress_dict['MVp'] = '{:.2f}/{:.2f}'.format(np.mean(pM), np.mean(pV))
                 progress_dict['MVb'] = '{:.2f}/{:.2f}'.format(np.mean(bM), np.mean(bV))

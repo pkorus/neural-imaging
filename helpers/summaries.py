@@ -23,7 +23,7 @@ def log_plot(fig):
     s = io.BytesIO()
     fig.savefig(s, format='png', bbox_inches='tight')
     plt.close(fig)
-    return imageio.imread(s.getvalue(), pilmode='RGB')
+    return log_image(imageio.imread(s.getvalue(), pilmode='RGB'))
 
 
 def log_histogram(values, bins=50):
