@@ -72,7 +72,7 @@ def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc
         batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
         # Get trade-off for JPEG
-        quality_levels = np.arange(1, 30, 1)
+        quality_levels = np.arange(1, 40, 2)
         df_jpeg_path = os.path.join(directory, 'jpeg2000.csv')
 
         if os.path.isfile(df_jpeg_path) and not force_calc:
@@ -94,7 +94,7 @@ def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc
                             # jp2 = glymur.Jp2k('zeros.jp2', data=image_np, psnr=[40])
                             image_pillow = PIL.Image.fromarray((255*image.clip(0, 1)).astype(np.uint8))
                             image_pillow.save(output, format='jpeg2000', quality_layers=[q])
-                            image_compressed = imageio.imread(output.getvalue())
+                            image_compressed = imageio.imread(output.getvalue()).astype(np.float) / (2**8 - 1)
                             image_bytes = len(output.getvalue())
 
                         if write_files:
@@ -103,7 +103,7 @@ def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc
                                 os.makedirs(image_dir)
 
                             image_path = os.path.join(image_dir, 'jp2_q{:03d}.png'.format(q))
-                            imageio.imwrite(image_path, image_compressed)
+                            imageio.imwrite(image_path, (255*image_compressed).astype(np.uint8))
 
                         df = df.append({'image_id': image_id,
                                         'filename': filename,

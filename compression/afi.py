@@ -1,3 +1,4 @@
+import io
 import numpy as np
 from scipy import cluster
 
@@ -6,33 +7,11 @@ from pyfse import pyfse
 
 def dcn_simulate_compression(dcn, batch_x):
 
-    code_book = dcn.sess.run(dcn.codebook).reshape((-1,))
-
-    batch_z = dcn.compress(batch_x)
-    batch_y = dcn.decompress(batch_z)
-
-    # Quantization and coding
-    indices, distortion = cluster.vq.vq(batch_z.reshape((-1)), code_book)
-
     # Compress each image
-    data = bytes(indices.astype(np.uint8))
-    coded_fse = pyfse.easy_compress(data)
-    decoded_fse = pyfse.easy_decompress(coded_fse, int(np.prod(indices.shape)))
-    image_bytes = len(coded_fse)
+    compressed_image = afi_compress(dcn, batch_x)
+    batch_y = afi_decompress(dcn, compressed_image)
 
-    # Check sanity
-    assert data == decoded_fse, 'Entropy decoding error'
-
-    shape = list(dcn.latent_shape)
-    shape[0] = 1
-    decoded_indices = np.array([x for x in decoded_fse]).reshape(shape)
-    image_q = code_book[decoded_indices]
-    image_y = dcn.decompress(image_q)
-
-    if not np.all(np.abs((255*batch_y[0]).astype(np.uint8) - (255*image_y).astype(np.uint8)) <= 1):
-        print('WARNING De-compressed image seems to be different from the simulated one!')
-
-    return batch_y, image_bytes
+    return batch_y, len(compressed_image)
 
 
 def dcn_compare(dcn, batch_x):
@@ -60,3 +39,101 @@ def dcn_compare(dcn, batch_x):
     image_y = dcn.decompress(image_q)
 
     return batch_y, image_y
+
+
+def afi_compress(model, batch_x, verbose=False):
+    """
+    Serialize the image as a bytes sequence. (Headers' overhead of around 240 bytes)
+    """
+
+    image_stream = io.BytesIO()
+
+    # Get latent space representation
+    batch_z = model.compress(batch_x)
+    latent_shape = np.array(batch_z.shape[1:], dtype=np.uint8)
+
+    # Write latent space shape to the bytestream
+    image_stream.write(latent_shape.tobytes())
+
+    # Encode feature layers separately
+    coded_layers = []
+    code_book = model.get_codebook()
+
+    for n in range(latent_shape[-1]):
+        indices, _ = cluster.vq.vq(batch_z[:, :, :, n].reshape((-1)), code_book)
+        coded_layer = pyfse.easy_compress(bytes(indices.astype(np.uint8)))
+        coded_layers.append(coded_layer)
+
+    # Write the layer size array
+    layer_lengths = np.array([len(x) for x in coded_layers], dtype=np.uint16)
+    try:
+        coded_lengths = pyfse.easy_compress(layer_lengths.tobytes())
+        fse_coded = True
+        if verbose: print('[AFI Encoder]', 'FSE coded lengths')
+    except:
+        # If the FSE coded stream is empty - it is not compressible - save natively
+        if verbose: print('[AFI Encoder]', 'RAW coded lengths')
+        fse_coded = False
+        coded_lengths = layer_lengths.tobytes()
+
+    if verbose:
+        print('[AFI Encoder]', 'Coded lengths #', len(coded_lengths), '=', coded_lengths)
+        print('[AFI Encoder]', 'Layer lengths = ', layer_lengths)
+
+    if len(coded_lengths) == 0:
+        raise RuntimeError('Empty coded layer lengths!')
+
+    image_stream.write(np.uint16(len(coded_lengths)).tobytes())
+    image_stream.write(coded_lengths)
+
+    # Write individual layers
+    for layer in coded_layers:
+        image_stream.write(layer)
+
+    return image_stream.getvalue()
+
+
+def afi_decompress(model, stream, verbose=False):
+    if type(stream) is bytes:
+        stream = io.BytesIO(stream)
+    elif type(stream) is io.BytesIO:
+        pass
+    elif not hasattr(stream, 'read'):
+        raise ValueError('Unsupported stream type!')
+
+    # Read the shape of the latent representation
+    latent_x, latent_y, n_latent = np.frombuffer(stream.read(3), np.uint8)
+
+    # Read the array with layer sizes
+    layer_bytes = np.frombuffer(stream.read(2), np.uint16)
+    coded_layer_lengths = stream.read(int(layer_bytes))
+
+    if verbose:
+        print('[AFI Decoder]', 'Latent space', latent_x, latent_y, n_latent)
+        print('[AFI Decoder]', 'Layer bytes', layer_bytes)
+
+    if layer_bytes != 2 * n_latent:
+        if verbose:
+            print('[AFI Decoder]', 'Decoding FSE L')
+            print('[AFI Decoder]', 'Decoding from', coded_layer_lengths)
+        layer_lengths_bytes = pyfse.easy_decompress(coded_layer_lengths)
+        layer_lengths = np.frombuffer(layer_lengths_bytes, dtype=np.uint16)
+    else:
+        if verbose:
+            print('[AFI Decoder]', 'Decoding RAW L')
+        layer_lengths = np.frombuffer(coded_layer_lengths, dtype=np.uint16)
+
+    if verbose:
+        print('[AFI Decoder]', 'Layer lengths', layer_lengths)
+
+    # Create the latent space array
+    batch_z = np.zeros((1, latent_x, latent_y, n_latent))
+
+    # Decompress the features separately
+    for n in range(n_latent):
+        coded_layer = stream.read(int(layer_lengths[n]))
+        layer_data = pyfse.easy_decompress(coded_layer, 4 * latent_x * latent_y)
+        batch_z[0, :, :, n] = np.frombuffer(layer_data, np.uint8).reshape((latent_x, latent_y))
+
+    # Use the DCN decoder to decompress the RGB image
+    return model.decompress(batch_z)

@@ -344,3 +344,16 @@ def batch_gamma(batch_p, gamma=None):
         gamma = gamma * np.ones((len(batch_p), 1, 1, 1))
 
     return np.power(batch_p, 1/gamma).clip(0, 1)
+
+
+def crop_middle(image, patch=128):
+    image = image.squeeze()
+
+    xx = (image.shape[0] - patch) // 2
+    yy = (image.shape[1] - patch) // 2
+    if image.ndim == 2:
+        return image[xx:(xx+patch), yy:(yy+patch)]
+    elif image.ndim == 3:
+        return image[xx:(xx + patch), yy:(yy + patch), :]
+    else:
+        raise ValueError('Invalid image size!')
