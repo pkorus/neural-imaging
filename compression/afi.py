@@ -61,8 +61,13 @@ def afi_compress(model, batch_x, verbose=False):
 
     for n in range(latent_shape[-1]):
         indices, _ = cluster.vq.vq(batch_z[:, :, :, n].reshape((-1)), code_book)
+        # Compress layer with FSE
         coded_layer = pyfse.easy_compress(bytes(indices.astype(np.uint8)))
-        coded_layers.append(coded_layer)
+        if len(coded_layer) == 1:
+            # All bytes are identical, fallback to RLE
+            coded_layers.append(np.uint16(len(indices)).tobytes() + np.uint8(indices[0]).tobytes())
+        else:
+            coded_layers.append(coded_layer)
 
     # Write the layer size array
     layer_lengths = np.array([len(x) for x in coded_layers], dtype=np.uint16)
@@ -132,7 +137,16 @@ def afi_decompress(model, stream, verbose=False):
     # Decompress the features separately
     for n in range(n_latent):
         coded_layer = stream.read(int(layer_lengths[n]))
-        layer_data = pyfse.easy_decompress(coded_layer, 4 * latent_x * latent_y)
+        try:
+            if len(coded_layer) == 3:
+                # RLE encoding
+                count = np.frombuffer(coded_layer[:2], dtype=np.uint16)[0]
+                layer_data = coded_layer[-1:] * int(count)
+            else:
+                layer_data = pyfse.easy_decompress(coded_layer, 4 * latent_x * latent_y)
+        except:
+            print('[AFI Decoder]', 'ERROR while decoding layer', n)
+            print('[AFI Decoder]', 'Stream of size', len(coded_layer), 'bytes =', coded_layer)
         batch_z[0, :, :, n] = np.frombuffer(layer_data, np.uint8).reshape((latent_x, latent_y))
 
     # Use the DCN decoder to decompress the RGB image
