@@ -177,12 +177,17 @@ def main():
 
         # Fill the table with results, if requested
         if args.fill is not None:
-            with open(os.path.join(args.out_dir, dcn.model_code, dcn.scoped_name, 'progress.json')) as f:
-                results = json.load(f)
 
-            parameters.loc[index, 'ssim'] = results['performance']['ssim']['validation'][-1]
-            parameters.loc[index, 'loss'] = results['performance']['loss']['validation'][-1]
-            parameters.loc[index, 'entropy'] = results['performance']['entropy']['training'][-1]
+            results_json = os.path.join(args.out_dir, dcn.model_code, dcn.scoped_name, 'progress.json')
+
+            if os.path.isfile(results_json):
+
+                with open(results_json) as f:
+                    results = json.load(f)
+
+                parameters.loc[index, 'ssim'] = results['performance']['ssim']['validation'][-1]
+                parameters.loc[index, 'loss'] = results['performance']['loss']['validation'][-1]
+                parameters.loc[index, 'entropy'] = results['performance']['entropy']['training'][-1]
 
         # Cleanup
         sess.close()

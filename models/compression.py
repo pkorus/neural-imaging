@@ -89,8 +89,7 @@ class DCN(TFModel):
                     qmin = -2 ** (self.latent_bpf - 1) + 1
                     qmax = 2 ** (self.latent_bpf - 1)
                                         
-                    self.log('Initializing {} codebook ({} bpf): from {} to {}'.format(
-                        'trainable' if self.train_codebook else 'fixed', self.latent_bpf, qmin, qmax))
+                    self.log('Initializing {} codebook ({} bpf): from {} to {}'.format('trainable' if self.train_codebook else 'fixed', self.latent_bpf, qmin, qmax))
 
                     if self.train_codebook:
                         bin_centers = tf.get_variable('{}/quantization/codebook'.format(self.scoped_name),

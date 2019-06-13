@@ -253,7 +253,11 @@ def main():
             # Dump compressed images
             for image_id, filename in enumerate(files):
 
-                batch_y, image_bytes = afi.dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
+                try:
+                    batch_y, image_bytes = afi.dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
+                except Exception as e:
+                    print('Error while processing {} with {} : {}'.format(filename, dcn.model_code, e))
+                    raise e
 
                 # Save the image
                 image_dir = os.path.join(args.data, os.path.splitext(filename)[0])
