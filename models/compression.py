@@ -34,7 +34,7 @@ class DCN(TFModel):
       _h                   - hyper parameters
     """
 
-    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, scale_latent=False, use_batchnorm=False, use_gdn=False, **kwargs):
+    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, scale_latent=False, use_batchnorm=False, use_gdn=False, verbose=False, **kwargs):
         """
         Creates a forensic analysis network.
 
@@ -52,7 +52,7 @@ class DCN(TFModel):
         if entropy_weight is not None and entropy_weight < 0:
             raise ValueError('Invalid value for entropy_weight! Valid range: >=0')
 
-        self.verbose = True
+        self.verbose = verbose
         self.patch_size = patch_size
         self.nip_input = nip_input
         self.latent_bpf = latent_bpf
@@ -97,13 +97,15 @@ class DCN(TFModel):
                             shape=(1, 2 ** self.latent_bpf))
                     else:
                         bin_centers = tf.constant(np.arange(qmin, qmax + 1), shape=(1, 2 ** self.latent_bpf), dtype=tf.float32)                        
-                    self.codebook = bin_centers                
+
+                    self._codebook = bin_centers
             
             # Construct the actual model -------------------------------------------------------------------------------
             self.construct_model(kwargs)
 
             # Check if the model has set all expected attributes
             setup_status = {key: hasattr(self, key) for key in ['y', 'latent_pre', 'latent_post', 'latent_shape', 'n_latent']}
+
             if not all(setup_status.values()):
                 raise NotImplementedError('The model construction function has failed to set-up some attributes: {}'.format([key for key, value in setup_status.items() if not value]))
 
@@ -112,43 +114,8 @@ class DCN(TFModel):
 
                 # Estimate entropy of the latent representation
                 with tf.name_scope('entropy'):
+                    self.entropy, self.histogram, self.weights = self._setup_entropy(self.latent_pre, self._codebook)
 
-                    soft_quantization_sigma = 5
-                    prec_dtype = tf.float64
-                    v = 25
-                    eps = 1e-72
-
-                    values = tf.reshape(self.latent_pre, (-1, 1))
-                    
-                    assert(self.codebook.shape[0] == 1)
-                    assert(self.codebook.shape[1] > 1)                    
-                    
-                    # Compute soft-quantization
-                    if v <= 0:
-                        self.log('Entropy estimation using Gaussian soft quantization')
-                        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(self.codebook, dtype=prec_dtype)
-                        weights = tf.exp(-soft_quantization_sigma * tf.pow(dff, 2))
-                    else:
-                        # t-Student-like distance measure with heavy tails
-                        self.log('Entropy estimation using t-Student soft quantization')
-                        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(self.codebook, dtype=prec_dtype)
-                        dff = soft_quantization_sigma * dff
-                        weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
-
-                    weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
-                    
-                    assert(weights.shape[1] == np.prod(self.codebook.shape))
-                    
-                    # Compute soft histogram
-                    histogram = tf.reduce_mean(weights, axis=0)
-                    histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
-#                     histogram = tf.maximum(histogram, 1e-9)
-                    histogram = histogram / tf.reduce_sum(histogram)
-
-                    self.entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
-                    self.histogram = histogram
-                    self.weights = weights
-                
                 # Loss and SSIM
                 self.ssim = tf.reduce_mean(tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1))
                 self.loss = tf.nn.l2_loss(self.x - self.y)
@@ -163,13 +130,86 @@ class DCN(TFModel):
                     self.adam = tf.train.AdamOptimizer(learning_rate=self.lr)
                     self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
 
+    def _setup_entropy(self, latent_pre, codebook):
+
+        v = 25  # t-Student degrees of freedom
+        eps = 1e-72
+        prec_dtype = tf.float64
+        soft_quantization_sigma = 5
+
+        assert (codebook.shape[0] == 1)
+        assert (codebook.shape[1] > 1)
+
+        values = tf.reshape(latent_pre, (-1, 1))
+
+        # Compute soft-quantization
+        if v <= 0:
+            self.log('Entropy estimation using Gaussian soft quantization')
+            dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
+            weights = tf.exp(-soft_quantization_sigma * tf.pow(dff, 2))
+        else:
+            # t-Student-like distance measure with heavy tails
+            self.log('Entropy estimation using t-Student soft quantization')
+            dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
+            dff = soft_quantization_sigma * dff
+            weights = tf.pow((1 + tf.pow(dff, 2) / v), -(v + 1) / 2)
+
+        weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
+        assert (weights.shape[1] == np.prod(codebook.shape))
+
+        # Compute soft histogram
+        histogram = tf.reduce_mean(weights, axis=0)
+        histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
+        histogram = histogram / tf.reduce_sum(histogram)
+        entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
+
+        return entropy, histogram, weights
+
     def log(self, message):
         if self.verbose:
             print(' ', message)
 
     def construct_model(self, params):
         raise NotImplementedError('Not implemented!')
-        
+
+    def setup_latent_space(self, net):
+        latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.scoped_name))
+
+        # Use GDN to Gaussianize data
+        if self.use_gdn:
+            latent = tf.contrib.layers.GDN(latent)
+            self.log('GDN: {}'.format(latent.shape))
+
+        # Add batch norm to normalize the latent representation
+        if self.use_batchnorm:
+            self.pre_bn = latent  # TODO Temporarily added for debugging
+            self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
+            latent = tf.contrib.layers.batch_norm(latent, scale=False, is_training=self.is_training,
+                                                  scope='{}/encoder/bn_{}'.format(self.scoped_name, 0))
+            self.log('batch norm: {}'.format(latent.shape))
+
+        # Learn a scaling factor for the latent features to encourage greater values (facilitates quantization)
+        if self.scale_latent:
+            # scaling_factor = np.max((1, np.power(2, self.latent_bpf - 2)))
+            scaling_factor = 1
+            alphas = tf.get_variable('{}/encoder/latent_scaling'.format(self.scoped_name), shape=(), dtype=tf.float32, initializer=tf.constant_initializer(scaling_factor))
+            latent = tf.multiply(alphas, latent, name='{}/encoder/latent_scaled'.format(self.scoped_name))
+            self.log('scaling latent representation - init:{}'.format(scaling_factor))
+
+        # Add identity to facilitate better display in the TF graph
+        latent = tf.identity(latent, name='{}/latent'.format(self.scoped_name))
+        self.n_latent = int(np.prod(latent.shape[1:]))
+
+        # Quantize the latent representation and remember tensors before and after the process
+        self.latent_pre = latent
+        latent = tf_helpers.quantization(latent, '{}/quantization'.format(self.scoped_name), 'latent_quantized',
+                                         self._h.rounding, codebook_tensor=self._codebook)
+        self.log('quantization with {} rounding'.format(self._h.rounding))
+        self.latent_post = latent
+        self.log('latent size: {} + quant:{}'.format(latent.shape, self._h.rounding))
+
+        return latent
+
     def reset_performance_stats(self):
         self.performance = {
             'loss': {'training': [], 'validation': []},
@@ -228,7 +268,7 @@ class DCN(TFModel):
             
     def process(self, batch_x, dropout_keep_prob=1.0, is_training=None):
         """
-
+        Process the image through the whole model (encoder-quantization-decoder).
         """
         with self.graph.as_default():
             
@@ -331,9 +371,9 @@ class DCN(TFModel):
                 qmax = 2 ** (bpf - 1)
                 return np.arange(qmin, qmax + 1).reshape((-1,))
             else:
-                return self.sess.run(self.codebook).reshape((-1,))
+                return self.sess.run(self._codebook).reshape((-1,))
         else:
-            return self.sess.run(self.codebook).reshape((-1,))
+            return self.sess.run(self._codebook).reshape((-1,))
 
     
 class AutoencoderDCN(DCN):
@@ -443,7 +483,7 @@ class AutoencoderDCN(DCN):
         # Quantize the latent representation and remember tensors before and after the process
         self.latent_pre = latent
         latent = tf_helpers.quantization(latent, '{}/quantization'.format(self.scoped_name), 'latent_quantized',
-                                         self._h.rounding, codebook_tensor=self.codebook)
+                                         self._h.rounding, codebook_tensor=self._codebook)
         self.log('quantization with {} rounding'.format(self._h.rounding))
         self.latent_post = latent
         self.log('latent size: {} + quant:{}'.format(latent.shape, self._h.rounding))
@@ -549,7 +589,7 @@ class TwitterDCN(DCN):
 
     def construct_model(self, params):
 
-        # Define expected hyper parameters and their values
+        # Define expected hyper parameters and their values ------------------------------------------------------------
         self._h = paramspec.ParamSpec({
             'n_features': (96, int, (4, 128)),
             'rounding': ('soft', str, {'identity', 'soft', 'soft-codebook', 'sin'}),
@@ -558,115 +598,91 @@ class TwitterDCN(DCN):
 
         self._h.update(**params)
 
-        activation = tf_helpers.activation_mapping[self._h.activation]
-        latent_activation = tf.nn.tanh
-        last_activation = tf.nn.sigmoid
-
-        # self.n_layers = 9
         self.latent_shape = (1, self.patch_size // 8, self.patch_size // 8, self._h.n_features)
         self.n_latent = int(np.prod(self.latent_shape))
 
+        activation = tf_helpers.activation_mapping[self._h.activation]
+
         self.log('Building Twitter DCN with d-latent={}'.format(self.n_latent))
 
-        with tf.name_scope('{}/encoder/normalization'.format(self.scoped_name)):
+        # Set-up op naming templates -----------------------------------------------------------------------------------
+        le_norm = '{}/encoder/normalization'.format(self.scoped_name)
+        le_conv = '{}/encoder/conv_{{}}'.format(self.scoped_name)
+        le_relu = '{}/encoder/conv_{{}}/lrelu'.format(self.scoped_name)
+        le_sum = '{}/encoder/sum_{{}}'.format(self.scoped_name)
+        ld_norm = '{}/decoder/normalization'.format(self.scoped_name)
+        ld_conv = '{}/decoder/conv_{{}}'.format(self.scoped_name)
+        ld_tconv = '{}/decoder/tconv_{{}}'.format(self.scoped_name)
+        ld_d2s = '{}/decoder/d2s_{{}}'.format(self.scoped_name)
+        ld_sum = '{}/decoder/sum_{{}}'.format(self.scoped_name)
+
+        # Encoder ------------------------------------------------------------------------------------------------------
+
+        with tf.name_scope(le_norm):
             net = 2 * (self.x - 0.5)
             self.log('norm: {}'.format(net.shape))
 
-        # Encoder ---------------------------------------------------------------------------------------------------------
-
-        net = tf.contrib.layers.conv2d(net, 64, 5, stride=2, activation_fn=activation, scope='{}/encoder/conv_{}'.format(self.scoped_name, 0))
+        net = tf.contrib.layers.conv2d(net, 64, 5, stride=2, activation_fn=activation, scope=le_conv.format(0))
         self.log('conv:2 {} + {}'.format(net.shape, self._h.activation))
-        net = tf.contrib.layers.conv2d(net, 128, 5, stride=2, activation_fn=None, scope='{}/encoder/conv_{}'.format(self.scoped_name, 1))
+        net = tf.contrib.layers.conv2d(net, 128, 5, stride=2, activation_fn=None, scope=le_conv.format(1))
         self.log('conv:2 {} + {}'.format(net.shape, self._h.activation))
 
-        resnet = tf.contrib.layers.conv2d(tf.nn.leaky_relu(net, name='{}/encoder/conv_{}/lrelu'.format(self.scoped_name, 1)), 128, 3, stride=1, activation_fn=activation, scope='{}/encoder/conv_{}'.format(self.scoped_name, 2))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope='{}/encoder/conv_{}'.format(self.scoped_name, 3))
-        net = tf.add(net, resnet, name='{}/encoder/sum_a{}'.format(self.scoped_name, 0))
+        net_relu = tf.nn.leaky_relu(net, name=le_relu.format(1))
+        resnet = tf.contrib.layers.conv2d(net_relu, 128, 3, stride=1, activation_fn=activation, scope=le_conv.format(2))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=le_conv.format(3))
+        net = tf.add(net, resnet, name=le_sum.format(0))
         self.log('res block {}'.format(net.shape))
 
-        resnet = tf.contrib.layers.conv2d(net, 128, 3, stride=1, activation_fn=activation, scope='{}/encoder/conv_{}'.format(self.scoped_name, 4))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope='{}/encoder/conv_{}'.format(self.scoped_name, 5))
-        net = tf.add(net, resnet, name='{}/encoder/sum_b{}'.format(self.scoped_name, 1))
+        resnet = tf.contrib.layers.conv2d(net, 128, 3, stride=1, activation_fn=activation, scope=le_conv.format(4))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=le_conv.format(5))
+        net = tf.add(net, resnet, name=le_sum.format(1))
         self.log('res block {}'.format(net.shape))
 
-        resnet = tf.contrib.layers.conv2d(net, 128, 3, stride=1, activation_fn=activation, scope='{}/encoder/conv_{}'.format(self.scoped_name, 6))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope='{}/encoder/conv_{}'.format(self.scoped_name, 7))
-        net = tf.add(net, resnet, name='{}/encoder/sum_c{}'.format(self.scoped_name, 2))
+        resnet = tf.contrib.layers.conv2d(net, 128, 3, stride=1, activation_fn=activation, scope=le_conv.format(6))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=le_conv.format(7))
+        net = tf.add(net, resnet, name=le_sum.format(2))
         self.log('res block {}'.format(net.shape))
 
-        net = tf.contrib.layers.conv2d(net, self._h.n_features, 5, stride=2, activation_fn=None, scope='{}/encoder/conv_{}'.format(self.scoped_name, 8))
+        net = tf.contrib.layers.conv2d(net, self._h.n_features, 5, stride=2, activation_fn=None, scope=le_conv.format(8))
         self.log('conv:2 {} + {} activation'.format(net.shape, None))
 
         # Latent space -------------------------------------------------------------------------------------------------
 
-        latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.scoped_name))
+        latent = self.setup_latent_space(net)
 
-        # Use GDN to Gaussianize data
-        if self.use_gdn:
-            latent = tf.contrib.layers.GDN(latent)
-            self.log('GDN: {}'.format(latent.shape))
+        # Decoder ------------------------------------------------------------------------------------------------------
 
-        # Add batch norm to normalize the latent representation
-        if self.use_batchnorm:
-            self.pre_bn = latent  # TODO Temporarily added for debugging
-            self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
-            latent = tf.contrib.layers.batch_norm(latent, scale=False, is_training=self.is_training,
-                                                  scope='{}/encoder/bn_{}'.format(self.scoped_name, 0))
-            self.log('batch norm: {}'.format(latent.shape))
-
-        # Learn a scaling factor for the latent features to encourage greater values (facilitates quantization)
-        if self.scale_latent:
-            # scaling_factor = np.max((1, np.power(2, self.latent_bpf - 2)))
-            scaling_factor = 1
-            alphas = tf.get_variable('{}/encoder/latent_scaling'.format(self.scoped_name), shape=(), dtype=tf.float32, initializer=tf.constant_initializer(scaling_factor))
-            latent = tf.multiply(alphas, latent, name='{}/encoder/latent_scaled'.format(self.scoped_name))
-            self.log('scaling latent representation - init:{}'.format(scaling_factor))
-
-        # Add identity to facilitate better display in the TF graph
-        latent = tf.identity(latent, name='{}/latent'.format(self.scoped_name))
-        self.n_latent = int(np.prod(latent.shape[1:]))
-
-        # Quantize the latent representation and remember tensors before and after the process
-        self.latent_pre = latent
-        latent = tf_helpers.quantization(latent, '{}/quantization'.format(self.scoped_name), 'latent_quantized',
-                                         self._h.rounding, codebook_tensor=self.codebook)
-        self.log('quantization with {} rounding'.format(self._h.rounding))
-        self.latent_post = latent
-        self.log('latent size: {} + quant:{}'.format(latent.shape, self._h.rounding))
-
-        # Decoder ---------------------------------------------------------------------------------------------------
-
-        inet = tf.contrib.layers.conv2d(latent, 512, 3, stride=1, activation_fn=None, scope='{}/decoder/conv_{}'.format(self.scoped_name, 0))
+        inet = tf.contrib.layers.conv2d(latent, 512, 3, stride=1, activation_fn=None, scope=ld_conv.format(0))
         self.log('conv:1 {} + {} activation'.format(inet.shape, None))
-        inet = tf.depth_to_space(inet, 2, name='{}/decoder/d2s_{}'.format(self.scoped_name, 0))
+        inet = tf.depth_to_space(inet, 2, name=ld_d2s.format(0))
         self.log('dts {}'.format(inet.shape))
 
-        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope='{}/decoder/conv_{}'.format(self.scoped_name, 1))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope='{}/decoder/conv_{}'.format(self.scoped_name, 2))
-        inet = tf.add(inet, resnet, name='{}/decoder/sum_a{}'.format(self.scoped_name, 0))
+        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope=ld_conv.format(1))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=ld_conv.format(2))
+        inet = tf.add(inet, resnet, name=ld_sum.format(0))
         self.log('res block {}'.format(inet.shape))
 
-        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope='{}/decoder/conv_{}'.format(self.scoped_name, 3))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope='{}/decoder/conv_{}'.format(self.scoped_name, 4))
-        inet = tf.add(inet, resnet, name='{}/decoder/sum_b{}'.format(self.scoped_name, 1))
+        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope=ld_conv.format(3))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=ld_conv.format(4))
+        inet = tf.add(inet, resnet, name=ld_sum.format(1))
         self.log('res block {}'.format(inet.shape))
 
-        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope='{}/decoder/conv_{}'.format(self.scoped_name, 5))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope='{}/decoder/conv_{}'.format(self.scoped_name, 6))
-        inet = tf.add(inet, resnet, name='{}/decoder/sum_c{}'.format(self.scoped_name, 2))
+        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope=ld_conv.format(5))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=ld_conv.format(6))
+        inet = tf.add(inet, resnet, name=ld_sum.format(2))
         self.log('res block {}'.format(inet.shape))
 
-        inet = tf.contrib.layers.conv2d(inet, 256, 3, stride=1, activation_fn=activation, scope='{}/decoder/tconv_{}'.format(self.scoped_name, 7))
+        inet = tf.contrib.layers.conv2d(inet, 256, 3, stride=1, activation_fn=activation, scope=ld_tconv.format(7))
         self.log('conv:1 {} + {} activation'.format(inet.shape, self._h.activation))
-        inet = tf.depth_to_space(inet, 2, name='{}/decoder/d2s_{}'.format(self.scoped_name, 7))
+        inet = tf.depth_to_space(inet, 2, name=ld_d2s.format(7))
         self.log('dts {}'.format(inet.shape))
 
-        inet = tf.contrib.layers.conv2d(inet, 12, 3, stride=1, activation_fn=None, scope='{}/decoder/tconv_{}'.format(self.scoped_name, 8))
+        inet = tf.contrib.layers.conv2d(inet, 12, 3, stride=1, activation_fn=None, scope=ld_tconv.format(8))
         self.log('conv:1 {} + {} activation'.format(inet.shape, None))
-        inet = tf.depth_to_space(inet, 2, name='{}/decoder/d2s_{}'.format(self.scoped_name, 8))
+        inet = tf.depth_to_space(inet, 2, name=ld_d2s.format(8))
         self.log('dts {}'.format(inet.shape))
 
-        with tf.name_scope('{}/decoder/denormalization'.format(self.scoped_name)):
+        with tf.name_scope(ld_norm):
             y = (inet + 1) / 2
             self.log('denorm: {}'.format(y.shape))
 

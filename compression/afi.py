@@ -6,6 +6,9 @@ from pyfse import pyfse
 
 
 def dcn_simulate_compression(dcn, batch_x):
+    """
+    Simulate AFI compression and return decompressed image and byte count.
+    """
 
     # Compress each image
     compressed_image = afi_compress(dcn, batch_x)
@@ -15,6 +18,9 @@ def dcn_simulate_compression(dcn, batch_x):
 
 
 def dcn_compare(dcn, batch_x):
+    """
+    Compare the quantized and decompressed image with its fully TF-processed counterpart.
+    """
 
     code_book = dcn.sess.run(dcn.codebook).reshape((-1,))
 
@@ -43,8 +49,26 @@ def dcn_compare(dcn, batch_x):
 
 def afi_compress(model, batch_x, verbose=False):
     """
-    Serialize the image as a bytes sequence. (Headers' overhead of around 240 bytes)
+    Serialize the image as a bytes sequence. The feature maps are encoded as separate layers.
+
+    ## Analysis Friendly Image (AFI) File structure:
+
+    - Latent shape H x W x N = 3 x 1 byte (uint8)
+    - Length of coded layer sizes = 2 bytes (uint16)
+    - Coded layer sizes:
+        - FSE encoded uint16 array of size N = 2 * N bytes (if possible to compress)
+        - ...or RAW bytes
+    - Coded layers:
+        - FSE encoded uint8 array of latent vector size
+        - ...or RLE encoded uint16 (number) + uint8 (byte) if all bytes are the same
+
     """
+
+    if batch_x.ndim == 3:
+        batch_x = np.expand_dims(batch_x, axis=0)
+
+    assert batch_x.ndim == 4
+    assert batch_x.shape[0] == 1
 
     image_stream = io.BytesIO()
 
@@ -62,23 +86,24 @@ def afi_compress(model, batch_x, verbose=False):
     for n in range(latent_shape[-1]):
         indices, _ = cluster.vq.vq(batch_z[:, :, :, n].reshape((-1)), code_book)
         # Compress layer with FSE
-        coded_layer = pyfse.easy_compress(bytes(indices.astype(np.uint8)))
-        if len(coded_layer) == 1:
+
+        try:
+            coded_layer = pyfse.easy_compress(bytes(indices.astype(np.uint8)))
+        except pyfse.FSESymbolRepetitionError:
             # All bytes are identical, fallback to RLE
             coded_layers.append(np.uint16(len(indices)).tobytes() + np.uint8(indices[0]).tobytes())
-        else:
+        finally:
             coded_layers.append(coded_layer)
 
     # Write the layer size array
     layer_lengths = np.array([len(x) for x in coded_layers], dtype=np.uint16)
+
     try:
         coded_lengths = pyfse.easy_compress(layer_lengths.tobytes())
-        fse_coded = True
         if verbose: print('[AFI Encoder]', 'FSE coded lengths')
-    except:
+    except pyfse.FSENotCompressibleError:
         # If the FSE coded stream is empty - it is not compressible - save natively
         if verbose: print('[AFI Encoder]', 'RAW coded lengths')
-        fse_coded = False
         coded_lengths = layer_lengths.tobytes()
 
     if verbose:
@@ -99,6 +124,10 @@ def afi_compress(model, batch_x, verbose=False):
 
 
 def afi_decompress(model, stream, verbose=False):
+    """
+    Deserialize an image from the given bytes sequence. See docs of afi_compress for stream details.
+    """
+
     if type(stream) is bytes:
         stream = io.BytesIO(stream)
     elif type(stream) is io.BytesIO:
@@ -144,7 +173,7 @@ def afi_decompress(model, stream, verbose=False):
                 layer_data = coded_layer[-1:] * int(count)
             else:
                 layer_data = pyfse.easy_decompress(coded_layer, 4 * latent_x * latent_y)
-        except:
+        except pyfse.FSEException:
             print('[AFI Decoder]', 'ERROR while decoding layer', n)
             print('[AFI Decoder]', 'Stream of size', len(coded_layer), 'bytes =', coded_layer)
         batch_z[0, :, :, n] = np.frombuffer(layer_data, np.uint8).reshape((latent_x, latent_y))
