@@ -396,148 +396,120 @@ class AutoencoderDCN(DCN):
         self._h.update(**params)
         self.uses_bottleneck = self._h.n_latent > 0
 
-        net = self.x
-        self.log('input size: {}'.format(net.shape))
+        # Compute the shape of the latent representation
+        z_spatial = int(self.patch_size / (2**self._h.n_layers))
+        z_features = int(self._h.n_filters * (self._h.n_fscale**(self._h.n_layers-1)))
+        self.latent_shape = [-1, z_spatial, z_spatial, z_features]
+
+        # Set-up op naming templates -----------------------------------------------------------------------------------
+        e_prefix = '{}/encoder/'.format(self.scoped_name)
+        d_prefix = '{}/decoder/'.format(self.scoped_name)
+
+        le_norm = e_prefix + 'normalization'
+        le_conv = e_prefix + 'conv_{}'
+        le_relu = e_prefix + 'res_{}/lrelu'
+        le_rconv = e_prefix + 'res_{}/conv_{}'
+        le_sum = e_prefix + 'res_{}/sum'
+        le_dense = e_prefix + 'dense_{}'
+
+        ld_norm = d_prefix + 'normalization'
+        ld_conv = d_prefix + 'conv_{}'
+        ld_tconv = d_prefix + 'tconv_{}'
+        ld_rconv = d_prefix + 'res_{}/conv_{}'
+        ld_d2s = d_prefix + 'd2s_{}'
+        ld_sum = d_prefix + 'res_{}/sum'
 
         # Encoder ------------------------------------------------------------------------------------------------------
 
         latent_activation = None
         last_activation = None
         activation = tf_helpers.activation_mapping[self._h.activation]
-        current_n_filters = self._h.n_filters
+        n_filters = self._h.n_filters
+
+        net = self.x
+        self.log('input size: {}'.format(net.shape))
 
         # Add convolutional layers
         for r in range(self._h.n_layers):
 
-            current_activation = activation \
+            cur_activation = activation \
                 if (self._h.n_latent > 0 or (self._h.n_latent == 0 and r < self._h.n_layers - 1)) \
                 else latent_activation
-            net = tf.contrib.layers.conv2d(net, current_n_filters, self._h.kernel,
-                                           stride=2, activation_fn=current_activation,
-                                           scope='{}/encoder/conv_{}'.format(self.scoped_name, r))
+            net = tf.contrib.layers.conv2d(net, n_filters, self._h.kernel, 2, activation_fn=cur_activation, scope=le_conv.format(r))
 
-            self.log('conv size: {} + {}'.format(net.shape, current_activation.__name__ if current_activation is not None else None))
+            self.log('conv size: {} + {}'.format(net.shape, cur_activation.__name__ if cur_activation is not None else None))
 
             if r != self._h.n_layers - 1:
-                current_n_filters *= self._h.n_fscale
+                n_filters *= self._h.n_fscale
 
         # Add residual blocks
         for r in range(self._h.res_layers):
-            res_input = tf.nn.leaky_relu(net, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r))
-            resnet = tf.contrib.layers.conv2d(res_input, current_n_filters, 3, stride=1, activation_fn=activation,
-                                              scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 0))
-            resnet = tf.contrib.layers.conv2d(resnet, current_n_filters, 3, stride=1, activation_fn=None,
-                                              scope='{}/encoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
-            net = tf.add(net, resnet, name='{}/encoder/res_{}/sum'.format(self.scoped_name, r))
+            res_input = tf.nn.leaky_relu(net, name=le_relu.format(r))
+            resnet = tf.contrib.layers.conv2d(res_input, n_filters, 3, 1, activation_fn=activation, scope=le_rconv.format(r, 0))
+            resnet = tf.contrib.layers.conv2d(resnet, n_filters, 3, 1, activation_fn=None, scope=le_rconv.format(r, 1))
+            net = tf.add(net, resnet, name=le_sum.format(r))
             self.log('residual block: {}'.format(net.shape))
 
         # Latent representation ----------------------------------------------------------------------------------------
 
-        # Compute the shape of the latent representation
-        z_spatial = int(self.patch_size / (2**self._h.n_layers))
-        z_features = int(self._h.n_filters * (self._h.n_fscale**(self._h.n_layers-1)))
-        self.latent_shape = [-1, z_spatial, z_spatial, z_features]
         assert z_spatial > 0, 'Invalid size of the latent representation!'
 
         # If a smaller linear bottleneck is specified explicitly - add dense layers to make the projection
         if self._h.n_latent is not None and self._h.n_latent != 0:
-            flat = tf.contrib.layers.flatten(net, scope='{}/encoder/flatten_{}'.format(self.scoped_name, 0))
+            flat = tf.contrib.layers.flatten(net, scope=e_prefix+'flatten')
             self.log('flatten size: {}'.format(flat.shape))
 
             if self._h.n_latent > 0:
-                flat = tf.contrib.layers.fully_connected(flat, self._h.n_latent, activation_fn=latent_activation,
-                                                         scope='{}/encoder/dense_{}'.format(self.scoped_name, 0))
-                latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.scoped_name))
+                flat = tf.contrib.layers.fully_connected(flat, self._h.n_latent, activation_fn=latent_activation, scope=le_dense.format(0))
+                latent = tf.identity(flat, name=e_prefix+'latent_raw')
                 self.log('dense size: {}'.format(flat.shape))
             else:
-                latent = tf.identity(flat, name='{}/encoder/latent_raw'.format(self.scoped_name))
+                latent = tf.identity(flat, name=e_prefix+'latent_raw')
         else:
-            latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.scoped_name))
+            latent = tf.identity(net, name=e_prefix+'latent_raw')
 
-        # Use GDN to Gaussianize data
-        if self.use_gdn:
-            latent = tf.contrib.layers.GDN(latent)
-            self.log('GDN: {}'.format(latent.shape))
-
-        # Add batch norm to normalize the latent representation
-        if self.use_batchnorm:
-            self.pre_bn = latent  # TODO Temporarily added for debugging
-            self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
-            latent = tf.contrib.layers.batch_norm(latent, scale=False, is_training=self.is_training,
-                                                  scope='{}/encoder/bn_{}'.format(self.scoped_name, 0))
-            self.log('batch norm: {}'.format(latent.shape))
-
-        # Learn a scaling factor for the latent features to encourage greater values (facilitates quantization)
-        if self.scale_latent:
-            # scaling_factor = np.max((1, np.power(2, self.latent_bpf - 2)))
-            scaling_factor = 1
-            alphas = tf.get_variable('{}/encoder/latent_scaling'.format(self.scoped_name), shape=(), dtype=tf.float32,
-                                     initializer=tf.constant_initializer(scaling_factor))
-            latent = tf.multiply(alphas, latent, name='{}/encoder/latent_scaled'.format(self.scoped_name))
-            self.log('scaling latent representation - init:{}'.format(scaling_factor))
-
-        # Add identity to facilitate better display in the TF graph
-        latent = tf.identity(latent, name='{}/latent'.format(self.scoped_name))
-        self.n_latent = int(np.prod(latent.shape[1:]))
-
-        # Quantize the latent representation and remember tensors before and after the process
-        self.latent_pre = latent
-        latent = tf_helpers.quantization(latent, '{}/quantization'.format(self.scoped_name), 'latent_quantized',
-                                         self._h.rounding, codebook_tensor=self._codebook)
-        self.log('quantization with {} rounding'.format(self._h.rounding))
-        self.latent_post = latent
-        self.log('latent size: {} + quant:{}'.format(latent.shape, self._h.rounding))
+        latent = self.setup_latent_space(latent)
 
         # If using a bottleneck layer, inverse the projection
         if self._h.n_latent > 0:
-            inet = tf.contrib.layers.fully_connected(latent, int(np.prod(self.latent_shape[1:])),
-                                                     scope='{}/decoder/dense_{}'.format(self.scoped_name, 0),
-                                                     activation_fn=activation)
+            inet = tf.contrib.layers.fully_connected(latent, int(np.prod(self.latent_shape[1:])), scope=d_prefix+'dense', activation_fn=activation)
             self.log('dense size: {} + {}'.format(inet.shape, activation))
         else:
             inet = latent
 
         # Add dropout
         if self._h.dropout:
-
             if not hasattr(self, 'is_training'):
                 self.is_training = tf.placeholder(tf.bool, shape=(), name='{}/is_training'.format(self.scoped_name))
 
             self.dropout = tf.placeholder(tf.float32, name='{}/droprate'.format(self.scoped_name), shape=())
-            inet = tf.contrib.layers.dropout(inet, keep_prob=self.dropout, is_training=self.is_training,
-                                             scope='{}/dropout'.format(self.scoped_name))
+            inet = tf.contrib.layers.dropout(inet, keep_prob=self.dropout, is_training=self.is_training, scope='{}/dropout'.format(self.scoped_name))
             self.log('dropout size: {}'.format(net.shape))
 
         # Decoder ------------------------------------------------------------------------------------------------------
 
         # Just in case - make sure we have a multidimensional tensor before we start the convolutions
-        inet = tf.reshape(inet, self.latent_shape, name='{}/decoder/reshape_{}'.format(self.scoped_name, 0))
+        inet = tf.reshape(inet, self.latent_shape, name=d_prefix+'reshape')
         self.log('reshape size: {}'.format(inet.shape))
 
         # Add residual blocks
         for r in range(self._h.res_layers):
             res_input = tf.nn.leaky_relu(inet, name='{}/encoder/res_{}/lrelu'.format(self.scoped_name, r))
-            resnet = tf.contrib.layers.conv2d(res_input, current_n_filters, 3, stride=1,
-                                              scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 0),
-                                              activation_fn=activation)
-            resnet = tf.contrib.layers.conv2d(resnet, current_n_filters, 3, stride=1, activation_fn=None,
-                                              scope='{}/decoder/res_{}/conv_{}'.format(self.scoped_name, r, 1))
-            inet = tf.add(inet, resnet, name='{}/decoder/res_{}/sum'.format(self.scoped_name, r))
+            resnet = tf.contrib.layers.conv2d(res_input, n_filters, 3, 1, scope=ld_rconv.format(r, 0), activation_fn=activation)
+            resnet = tf.contrib.layers.conv2d(resnet, n_filters, 3, 1, activation_fn=None, scope=ld_rconv.format(r, 1))
+            inet = tf.add(inet, resnet, name=ld_sum.format(r))
             self.log('residual block: {}'.format(net.shape))
 
         # Up-sampling / transpose convolutions
         for r in range(self._h.n_layers):
-            current_activation = last_activation if r == self._h.n_layers - 1 else activation
-            inet = tf.contrib.layers.conv2d(inet, 2 * current_n_filters, self._h.kernel, stride=1,
-                                            scope='{}/decoder/tconv_{}'.format(self.scoped_name, r),
-                                            activation_fn=current_activation)
-            self.log('conv size: {} + {}'.format(inet.shape, current_activation.__name__ if current_activation is not None else None))
-            inet = tf.depth_to_space(inet, 2, name='{}/decoder/d2s_{}'.format(self.scoped_name, r))
+            cur_activation = last_activation if r == self._h.n_layers - 1 else activation
+            inet = tf.contrib.layers.conv2d(inet, 2 * n_filters, self._h.kernel, 1, scope=ld_tconv.format(r), activation_fn=cur_activation)
+            self.log('conv size: {} + {}'.format(inet.shape, cur_activation.__name__ if cur_activation is not None else None))
+            inet = tf.depth_to_space(inet, 2, name=ld_d2s.format(r))
             self.log('d2s size: {} + {}'.format(inet.shape, None))
-            current_n_filters = current_n_filters // self._h.n_fscale
+            n_filters = n_filters // self._h.n_fscale
 
-        inet = tf.contrib.layers.conv2d(inet, 3, self._h.kernel, stride=1, activation_fn=last_activation,
-                                        scope='{}/decoder/tconv_out'.format(self.scoped_name))
+        inet = tf.contrib.layers.conv2d(inet, 3, self._h.kernel, 1, activation_fn=last_activation, scope=ld_tconv.format('out'))
         self.log('conv->out size: {} + {}'.format(inet.shape, last_activation))
         y = tf.identity(inet, name='y')
 
@@ -622,28 +594,28 @@ class TwitterDCN(DCN):
             net = 2 * (self.x - 0.5)
             self.log('norm: {}'.format(net.shape))
 
-        net = tf.contrib.layers.conv2d(net, 64, 5, stride=2, activation_fn=activation, scope=le_conv.format(0))
+        net = tf.contrib.layers.conv2d(net, 64, 5, 2, activation_fn=activation, scope=le_conv.format(0))
         self.log('conv:2 {} + {}'.format(net.shape, self._h.activation))
-        net = tf.contrib.layers.conv2d(net, 128, 5, stride=2, activation_fn=None, scope=le_conv.format(1))
+        net = tf.contrib.layers.conv2d(net, 128, 5, 2, activation_fn=None, scope=le_conv.format(1))
         self.log('conv:2 {} + {}'.format(net.shape, self._h.activation))
 
         net_relu = tf.nn.leaky_relu(net, name=le_relu.format(1))
-        resnet = tf.contrib.layers.conv2d(net_relu, 128, 3, stride=1, activation_fn=activation, scope=le_conv.format(2))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=le_conv.format(3))
+        resnet = tf.contrib.layers.conv2d(net_relu, 128, 3, 1, activation_fn=activation, scope=le_conv.format(2))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, 1, activation_fn=None, scope=le_conv.format(3))
         net = tf.add(net, resnet, name=le_sum.format(0))
         self.log('res block {}'.format(net.shape))
 
-        resnet = tf.contrib.layers.conv2d(net, 128, 3, stride=1, activation_fn=activation, scope=le_conv.format(4))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=le_conv.format(5))
+        resnet = tf.contrib.layers.conv2d(net, 128, 3, 1, activation_fn=activation, scope=le_conv.format(4))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, 1, activation_fn=None, scope=le_conv.format(5))
         net = tf.add(net, resnet, name=le_sum.format(1))
         self.log('res block {}'.format(net.shape))
 
-        resnet = tf.contrib.layers.conv2d(net, 128, 3, stride=1, activation_fn=activation, scope=le_conv.format(6))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=le_conv.format(7))
+        resnet = tf.contrib.layers.conv2d(net, 128, 3, 1, activation_fn=activation, scope=le_conv.format(6))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, 1, activation_fn=None, scope=le_conv.format(7))
         net = tf.add(net, resnet, name=le_sum.format(2))
         self.log('res block {}'.format(net.shape))
 
-        net = tf.contrib.layers.conv2d(net, self._h.n_features, 5, stride=2, activation_fn=None, scope=le_conv.format(8))
+        net = tf.contrib.layers.conv2d(net, self._h.n_features, 5, 2, activation_fn=None, scope=le_conv.format(8))
         self.log('conv:2 {} + {} activation'.format(net.shape, None))
 
         # Latent space -------------------------------------------------------------------------------------------------
@@ -652,32 +624,32 @@ class TwitterDCN(DCN):
 
         # Decoder ------------------------------------------------------------------------------------------------------
 
-        inet = tf.contrib.layers.conv2d(latent, 512, 3, stride=1, activation_fn=None, scope=ld_conv.format(0))
+        inet = tf.contrib.layers.conv2d(latent, 512, 3, 1, activation_fn=None, scope=ld_conv.format(0))
         self.log('conv:1 {} + {} activation'.format(inet.shape, None))
         inet = tf.depth_to_space(inet, 2, name=ld_d2s.format(0))
         self.log('dts {}'.format(inet.shape))
 
-        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope=ld_conv.format(1))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=ld_conv.format(2))
+        resnet = tf.contrib.layers.conv2d(inet, 128, 3, 1, activation_fn=activation, scope=ld_conv.format(1))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, 1, activation_fn=None, scope=ld_conv.format(2))
         inet = tf.add(inet, resnet, name=ld_sum.format(0))
         self.log('res block {}'.format(inet.shape))
 
-        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope=ld_conv.format(3))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=ld_conv.format(4))
+        resnet = tf.contrib.layers.conv2d(inet, 128, 3, 1, activation_fn=activation, scope=ld_conv.format(3))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, 1, activation_fn=None, scope=ld_conv.format(4))
         inet = tf.add(inet, resnet, name=ld_sum.format(1))
         self.log('res block {}'.format(inet.shape))
 
-        resnet = tf.contrib.layers.conv2d(inet, 128, 3, stride=1, activation_fn=activation, scope=ld_conv.format(5))
-        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, stride=1, activation_fn=None, scope=ld_conv.format(6))
+        resnet = tf.contrib.layers.conv2d(inet, 128, 3, 1, activation_fn=activation, scope=ld_conv.format(5))
+        resnet = tf.contrib.layers.conv2d(resnet, 128, 3, 1, activation_fn=None, scope=ld_conv.format(6))
         inet = tf.add(inet, resnet, name=ld_sum.format(2))
         self.log('res block {}'.format(inet.shape))
 
-        inet = tf.contrib.layers.conv2d(inet, 256, 3, stride=1, activation_fn=activation, scope=ld_tconv.format(7))
+        inet = tf.contrib.layers.conv2d(inet, 256, 3, 1, activation_fn=activation, scope=ld_tconv.format(7))
         self.log('conv:1 {} + {} activation'.format(inet.shape, self._h.activation))
         inet = tf.depth_to_space(inet, 2, name=ld_d2s.format(7))
         self.log('dts {}'.format(inet.shape))
 
-        inet = tf.contrib.layers.conv2d(inet, 12, 3, stride=1, activation_fn=None, scope=ld_tconv.format(8))
+        inet = tf.contrib.layers.conv2d(inet, 12, 3, 1, activation_fn=None, scope=ld_tconv.format(8))
         self.log('conv:1 {} + {} activation'.format(inet.shape, None))
         inet = tf.depth_to_space(inet, 2, name=ld_d2s.format(8))
         self.log('dts {}'.format(inet.shape))
@@ -687,6 +659,139 @@ class TwitterDCN(DCN):
             self.log('denorm: {}'.format(y.shape))
 
         y = tf.identity(y, name="y")
+
+        self.y = y
+        self.latent = latent
+
+    @property
+    def model_code(self):
+        parameter_summary = []
+
+        if hasattr(self, 'latent_shape'):
+            parameter_summary.append('x'.join(str(x) for x in self.latent_shape[1:]))
+
+        parameter_summary.append('r:{}'.format(self._h.rounding))
+        parameter_summary.append(
+            'Q+{}bpf'.format(self.latent_bpf) if self.train_codebook else 'Q-{}bpf'.format(self.latent_bpf))
+        parameter_summary.append('S+' if self.scale_latent else 'S-')
+        if self.entropy_weight is not None:
+            parameter_summary.append('H+{:.2f}'.format(self.entropy_weight))
+
+        return '{}/{}'.format(super().model_code, '-'.join(parameter_summary))
+
+    def get_parameters(self):
+        params = super().get_parameters()
+        params.update(self._h.to_json())
+        return params
+
+
+class WaveOne(DCN):
+    """
+    My adaptation of the WaveOne architecture.
+    """
+
+    def construct_model(self, params):
+
+        # Define expected hyper parameters and their values ------------------------------------------------------------
+        self._h = paramspec.ParamSpec({
+            # 'n_features': (96, int, (4, 128)),
+            'rounding': ('soft', str, {'identity', 'soft', 'soft-codebook', 'sin'}),
+        })
+
+        self._h.update(**params)
+
+        # Compute shapes -----------------------------------------------------------------------------------------------
+
+        # f function param
+        f_ch = 32
+
+        # g function param
+        c = 16
+        w = 16
+        h = 16
+        g1_conv = self.patch_size - 1 - h
+        g2_conv = (int(self.patch_size / 2) - 1) - 1 - h
+        g3_conv = int((int(self.patch_size / 2) - 1) / 2) - 1 - 1 - h
+        g4_deconv = h - (int((int((int(self.patch_size / 2) - 1) / 2) - 1) / 2) - 1 - 1 - 2)
+        g5_deconv = h - (int((int((int((int(self.patch_size / 2) - 1) / 2) - 1) / 2) - 1) / 2) - 1 - 1 - 2)
+        g6_deconv = h - (int((int((int((int((int(self.patch_size / 2) - 1) / 2) - 1) / 2) - 1) / 2) - 1) / 2) - 1 - 1)
+
+        self.latent_shape = (1, h, w, c)
+        self.n_latent = int(np.prod(self.latent_shape))
+
+        self.log('Building WaveOne DCN with d-latent={}'.format(f_ch))
+
+        # Encoder ------------------------------------------------------------------------------------------------------
+
+        x1 = self.x
+        with tf.variable_scope('{}/encoder'.format(self.scoped_name)):
+            f1 = tf_helpers.lrelu(tf.contrib.layers.conv2d(x1, f_ch, 3, padding='valid'))
+            g1 = tf.contrib.layers.conv2d(f1, c, g1_conv, padding='valid')
+
+            x2 = tf.contrib.layers.conv2d(x1, 3, 4, 2, padding='valid')
+            f2 = tf_helpers.lrelu(tf.contrib.layers.conv2d(x2, f_ch, 3, padding='valid'))
+            g2 = tf.contrib.layers.conv2d(f2, c, g2_conv, padding='valid')
+
+            x3 = tf.contrib.layers.conv2d(x2, 3, 4, 2, padding='valid')
+            f3 = tf_helpers.lrelu(tf.contrib.layers.conv2d(x3, f_ch, 3, padding='valid'))
+            g3 = tf.contrib.layers.conv2d(f3, c, g3_conv, padding='valid')
+
+            x4 = tf.contrib.layers.conv2d(x3, 3, 4, 2, padding='valid')
+            f4 = tf_helpers.lrelu(tf.contrib.layers.conv2d(x4, f_ch, 3, padding='valid'))
+            g4 = tf.contrib.layers.conv2d_transpose(f4, c, g4_deconv, padding='valid')
+
+            x5 = tf.contrib.layers.conv2d(x4, 3, 4, 2, padding='valid')
+            f5 = tf_helpers.lrelu(tf.contrib.layers.conv2d(x5, f_ch, 3, padding='valid'))
+            g5 = tf.contrib.layers.conv2d_transpose(f5, c, g5_deconv, padding='valid')
+
+            x6 = tf.contrib.layers.conv2d(x5, 3, 4, 2, padding='valid')
+            f6 = tf_helpers.lrelu(tf.contrib.layers.conv2d(x6, f_ch, 1, padding='valid'))
+            g6 = tf.contrib.layers.conv2d_transpose(f6, c, g6_deconv, padding='valid')
+
+            fe = g1 + g2 + g3 + g4 + g5 + g6
+            code = tf.contrib.layers.conv2d(fe, c, 3)
+
+        # Latent space -------------------------------------------------------------------------------------------------
+
+        latent = self.setup_latent_space(code)
+
+        # Decoder ------------------------------------------------------------------------------------------------------
+
+        with tf.variable_scope('{}/decoder'.format(self.scoped_name)):
+            g_d = tf.contrib.layers.conv2d_transpose(latent, c, 3)
+
+            g6_d = tf.contrib.layers.conv2d(g_d, f_ch, g6_deconv, padding='valid')
+            f6_d = tf_helpers.lrelu(tf.contrib.layers.conv2d_transpose(g6_d, 3, 1, padding='valid'))
+            x6_d = tf.contrib.layers.conv2d_transpose(f6_d, 3, 4, 2, padding='valid')
+
+            g5_d = tf.contrib.layers.conv2d(g_d, f_ch, g5_deconv, padding='valid')
+            f5_d = tf_helpers.lrelu(tf.contrib.layers.conv2d_transpose(g5_d, 3, 3, padding='valid'))
+
+            x6_f5_d = x6_d + f5_d
+            x5_d = tf.contrib.layers.conv2d_transpose(x6_f5_d, 3, 4, 2, padding='valid')
+
+            g4_d = tf.contrib.layers.conv2d(g_d, f_ch, g4_deconv, padding='valid')
+            f4_d = tf_helpers.lrelu(tf.contrib.layers.conv2d_transpose(g4_d, 3, 3, padding='valid'))
+
+            x5_f4_d = x5_d + f4_d
+            x4_d = tf.contrib.layers.conv2d_transpose(x5_f4_d, 3, 4, 2, padding='valid')
+
+            g3_d = tf.contrib.layers.conv2d_transpose(g_d, f_ch, g3_conv, padding='valid')
+            f3_d = tf_helpers.lrelu(tf.contrib.layers.conv2d_transpose(g3_d, 3, 3, padding='valid'))
+
+            x4_f3_d = x4_d + f3_d
+            x3_d = tf.contrib.layers.conv2d_transpose(x4_f3_d, 3, 5, 2, padding='valid')
+
+            g2_d = tf.contrib.layers.conv2d_transpose(g_d, f_ch, g2_conv, padding='valid')
+            f2_d = tf_helpers.lrelu(tf.contrib.layers.conv2d_transpose(g2_d, 3, 3, padding='valid'))
+
+            x3_f2_d = x3_d + f2_d
+            x2_d = tf.contrib.layers.conv2d_transpose(x3_f2_d, 3, 4, 2, padding='valid')
+
+            g1_d = tf.contrib.layers.conv2d_transpose(g_d, f_ch, g1_conv, padding='valid')
+            f1_d = tf_helpers.lrelu(tf.contrib.layers.conv2d_transpose(g1_d, 3, 3, padding='valid'))
+
+        y = x2_d + f1_d
 
         self.y = y
         self.latent = latent
