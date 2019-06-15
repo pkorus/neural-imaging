@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from skimage.measure import compare_ssim, compare_psnr
 
 from models import compression
-from helpers import plotting, dataset, coreutils, loading
+from helpers import plotting, dataset, coreutils, loading, utils
 from compression import jpeg_helpers, afi, ratedistortion
 
 supported_plots = ['batch', 'jpeg-match', 'trade-off']
@@ -27,8 +27,13 @@ supported_plots = ['batch', 'jpeg-match', 'trade-off']
 
 def restore_model(dir_name, patch_size=None, fetch_stats=False):
 
+    training_progress_path = None
+
     for filename in Path(dir_name).glob('**/progress.json'):
         training_progress_path = str(filename)
+
+    if training_progress_path is None:
+        raise FileNotFoundError('Could not find a model snapshot in {}'.format(dir_name))
 
     with open(training_progress_path) as f:
         training_progress = json.load(f)
@@ -55,24 +60,66 @@ def restore_model(dir_name, patch_size=None, fetch_stats=False):
 
 def match_jpeg(model, batch_x):
 
-    # Compress and decompress model
+    # Compress using DCN and get number of bytes
+    batch_y, bytes_dcn = afi.dcn_simulate_compression(model, batch_x)
 
-    batch_y, afi_bytes = afi.dcn_simulate_compression(model, batch_x)
+    ssim_dcn = compare_ssim(batch_x.squeeze(), batch_y.squeeze(), multichannel=True, data_range=1)
+    bpp_dcn = 8 * bytes_dcn / np.prod(batch_x.shape[1:-1])
 
-    ssim_dcn = compare_ssim(batch_x.squeeze(), batch_y.squeeze(), multichannel=True)
-    bpp_dcn = afi_bytes / np.prod(batch_x.shape[1:-1])
+    try:
+        jpeg_quality = jpeg_helpers.match_ssim(batch_x.squeeze(), ssim_dcn)
+    except:
+        if ssim_dcn > 0.8:
+            jpeg_quality = 95
+        else:
+            jpeg_quality = 10
+        print('WARNING Could not find a matching JPEG quality factor - guessing {}'.format(jpeg_quality))
 
-    jpeg_quality = jpeg_helpers.match_ssim(batch_x.squeeze(), ssim_dcn)
-    batch_j, bytes_jpeg = jpeg_helpers.compress_batch(batch_x, jpeg_quality)
-    ssim_jpeg = compare_ssim(batch_x.squeeze(), batch_y.squeeze(), multichannel=True)
-    bpp_jpg = bytes_jpeg / np.prod(batch_x.shape[1:-1])
+    # Compress using JPEG
+    batch_j, bytes_jpeg = jpeg_helpers.compress_batch(batch_x[0], jpeg_quality, effective=True)
+    ssim_jpeg = compare_ssim(batch_x.squeeze(), batch_y.squeeze(), multichannel=True, data_range=1)
+    bpp_jpg = 8 * bytes_jpeg / np.prod(batch_x.shape[1:-1])
 
-    fig, axes = plotting.sub(3, ncols=3)
+    # Get stats
+    code_book = model.get_codebook()
+    batch_z = model.compress(batch_x)
+    counts = utils.qhist(batch_z, code_book)
+    counts = counts.clip(min=1)
+    probs = counts / counts.sum()
+    entropy = - np.sum(probs * np.log2(probs))
+
+    # Print report
+    print('DCN             : {}'.format(model.model_code))
+    print('Pixels          : {}x{} = {:,} px'.format(batch_x.shape[1], batch_x.shape[2], np.prod(batch_x.shape[1:-1])))
+    print('Bitmap          : {:,} bytes'.format(np.prod(batch_x.shape)))
+    print('Code-book size  : {} elements from {} to {}'.format(len(code_book), min(code_book), max(code_book)))
+    print('Entropy         : {:.2f} bits per symbol'.format(entropy))
+    print('Latent size     : {:,}'.format(np.prod(batch_z.shape)))
+    print('PPF Naive       : {:,.0f} --> {:,.0f} bytes [{} bits per element]'.format(
+        np.prod(batch_z.shape) * np.log2(len(code_book)) / 8,
+        np.prod(batch_z.shape) * np.ceil(np.log2(len(code_book))) / 8,
+        np.ceil(np.log2(len(code_book)))
+    ))
+    print('PPF Theoretical : {:,.0f} bytes ({:.2f} bpp)'.format(
+        np.prod(batch_z.shape) * entropy / 8,
+        np.prod(batch_z.shape) * entropy / np.prod(batch_x.shape[1:-1])))
+    print('FSE Coded       : {:,} bytes ({:.2f} bpp) --> ssim: {:.3f}'.format(bytes_dcn, bpp_dcn, ssim_dcn))
+    print('JPEG (Q={:2d})     : {:,} bytes ({:0.2f} bpp) --> ssim: {:.3f} // effective size disregarding JPEG headers'.format(jpeg_quality, bytes_jpeg, bpp_jpg, ssim_jpeg))
+
+    # Plot results
+    fig, axes = plotting.sub(6, ncols=3)
     fig.set_size_inches(12, 10)
 
-    plotting.quickshow(batch_x, 'Original', axes=axes[0])
+    # Plot full-resolution
+    plotting.quickshow(batch_x, 'Original {}', axes=axes[0])
     plotting.quickshow(batch_y, 'DCN ssim:{:.2f} bpp:{:.2f}'.format(ssim_dcn, bpp_dcn), axes=axes[1])
     plotting.quickshow(batch_j, 'JPEG {} ssim:{:.2f} bpp:{:.2f}'.format(jpeg_quality, ssim_jpeg, bpp_jpg), axes=axes[2])
+
+    # Plot zoom
+    crop_size = max([64, batch_x.shape[1] // 4])
+    plotting.quickshow(utils.crop_middle(batch_x, crop_size), 'Original crop {}', axes=axes[3])
+    plotting.quickshow(utils.crop_middle(batch_y, crop_size), 'DCN crop {}', axes=axes[4])
+    plotting.quickshow(utils.crop_middle(batch_j, crop_size), 'JPEG crop {}', axes=axes[5])
 
     fig.tight_layout()
     plt.show()
@@ -134,7 +181,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
     parser.add_argument('plot', help='Plot type ({})'.format(', '.join(supported_plots)))
     # Parameters related to the training data
-    parser.add_argument('--data', dest='data', action='store', default='./data/compression/',
+    parser.add_argument('--data', dest='data', action='store', default='./data/clic/',
                         help='directory with training & validation images (png)')
     parser.add_argument('--images', dest='images', action='store', default=10, type=int,
                         help='number of images to test')
@@ -188,7 +235,9 @@ def main():
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
         # df = ratedistortion.get_jpeg_df(args.data, write_files=True)
-        # df = ratedistortion.get_jpeg2k_df(args.data, write_files=True)
+        # df = ratedistortion.get_jpeg2k_df(args.data, write_files=True, force_calc=True)
+
+        # return
 
         # Create a new table for the DCN
         df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'entropy', 'bytes', 'bpp'])
@@ -204,7 +253,11 @@ def main():
             # Dump compressed images
             for image_id, filename in enumerate(files):
 
-                batch_y, image_bytes = afi.dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
+                try:
+                    batch_y, image_bytes = afi.dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
+                except Exception as e:
+                    print('Error while processing {} with {} : {}'.format(filename, dcn.model_code, e))
+                    raise e
 
                 # Save the image
                 image_dir = os.path.join(args.data, os.path.splitext(filename)[0])

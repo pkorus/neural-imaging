@@ -92,7 +92,7 @@ def save_progress(dcn, data, training, out_dir):
         'dcn': {
             'model': type(dcn).__name__,
             'args': dcn.get_parameters(),
-            'codebook': dcn.sess.run(dcn.codebook).reshape((-1,)).tolist()
+            'codebook': dcn.get_codebook().tolist()
         },
         'performance': dcn.performance,
     }
@@ -189,7 +189,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/', overw
                 # TODO temporary nan hook
                 if np.isnan(values['loss']):
                     print('NaN loss detected - dumping current variables')
-                    codebook = dcn.sess.run(dcn.codebook).reshape((-1,))
+                    codebook = dcn.get_codebook()
                     # Get some extra stats
                     if dcn.scale_latent:
                         scaling = dcn.sess.run(
