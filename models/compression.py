@@ -687,15 +687,16 @@ class TwitterDCN(DCN):
 
 class WaveOne(DCN):
     """
-    My adaptation of the WaveOne architecture.
+    Adaptation of the WaveOne architecture. Based on https://github.com/brly/waveone
     """
 
     def construct_model(self, params):
 
         # Define expected hyper parameters and their values ------------------------------------------------------------
         self._h = paramspec.ParamSpec({
-            # 'n_features': (96, int, (4, 128)),
-            'rounding': ('soft', str, {'identity', 'soft', 'soft-codebook', 'sin'}),
+            'n_features': (16, int, (4, 128)),
+            'f_channels': (32, int, (4, 128)),
+            'rounding': ('soft', str, {'identity', 'soft', 'soft-codebook', 'sin'})
         })
 
         self._h.update(**params)
@@ -703,10 +704,10 @@ class WaveOne(DCN):
         # Compute shapes -----------------------------------------------------------------------------------------------
 
         # f function param
-        f_ch = 32
+        f_ch = self._h.f_channels
 
         # g function param
-        c = 16
+        c = self._h.n_features
         w = 16
         h = 16
         g1_conv = self.patch_size - 1 - h
