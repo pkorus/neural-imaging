@@ -102,7 +102,7 @@ def main():
         'learning_rate_reduction_schedule': 1000,
         'learning_rate_reduction_factor': 0.5,
         'validation_schedule': args.validation_schedule,
-        'convergence_threshold': 1e-6,
+        'convergence_threshold': 1e-5,
         'current_epoch': 0,
         'validation_is_training': args.validation_is_training,
         'augmentation_probs': {
@@ -154,7 +154,7 @@ def main():
 
     for counter, (index, params) in enumerate(parameters.drop(columns=['scenario', 'label']).iterrows()):
 
-        print('## Scenario {} - {} / {}'.format(index, counter, len(parameters)))
+        print('## Scenario {} - {} / {}'.format(index, counter + 1, len(parameters)))
         # Create TF session and graph
         graph = tf.Graph()
         sess = tf.Session(graph=graph)

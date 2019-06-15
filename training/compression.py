@@ -101,7 +101,7 @@ def save_progress(dcn, data, training, out_dir):
         json.dump(output_stats, f, indent=4)
 
 
-def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
+def train_dcn(tf_ops, training, data, directory='./data/raw/compression/', overwrite=False):
     """
     tf_ops = {
         'dcn'
@@ -137,6 +137,9 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/'):
     n_tail = 5
     learning_rate = training['learning_rate']
     model_output_dirname = os.path.join(directory, dcn.model_code, dcn.scoped_name)
+    
+    if os.path.isdir(model_output_dirname) and not overwrite:
+        return
 
     print('Output directory: {}'.format(model_output_dirname))
 
