@@ -1,6 +1,7 @@
 import io
 import numpy as np
 from scipy import cluster
+from collections import Counter
 
 from pyfse import pyfse
 
@@ -82,6 +83,7 @@ def afi_compress(model, batch_x, verbose=False):
     # Encode feature layers separately
     coded_layers = []
     code_book = model.get_codebook()
+    print('[AFI Encoder]', 'Code book:', code_book)
 
     for n in range(latent_shape[-1]):
         indices, _ = cluster.vq.vq(batch_z[:, :, :, n].reshape((-1)), code_book)
@@ -91,9 +93,17 @@ def afi_compress(model, batch_x, verbose=False):
             coded_layer = pyfse.easy_compress(bytes(indices.astype(np.uint8)))
         except pyfse.FSESymbolRepetitionError:
             # All bytes are identical, fallback to RLE
-            coded_layers.append(np.uint16(len(indices)).tobytes() + np.uint8(indices[0]).tobytes())
+            coded_layer = np.uint16(len(indices)).tobytes() + np.uint8(indices[0]).tobytes()
         finally:
             coded_layers.append(coded_layer)
+
+    # Show example layer
+    if verbose:
+        n = 0
+        layer_stats = Counter(batch_z[:, :, :, n].reshape((-1))).items()
+        print('[AFI Encoder]', 'Layer {} values:'.format(n), batch_z[:, :, :, n].reshape((-1)))
+        print('[AFI Encoder]', 'Layer {} code-book indices:'.format(n), indices.reshape((-1))[:20])
+        print('[AFI Encoder]', 'Layer {} hist:'.format(n), layer_stats)
 
     # Write the layer size array
     layer_lengths = np.array([len(x) for x in coded_layers], dtype=np.uint16)
@@ -138,6 +148,7 @@ def afi_decompress(model, stream, verbose=False):
     # Read the shape of the latent representation
     latent_x, latent_y, n_latent = np.frombuffer(stream.read(3), np.uint8)
 
+    code_book = model.get_codebook()
     # Read the array with layer sizes
     layer_bytes = np.frombuffer(stream.read(2), np.uint16)
     coded_layer_lengths = stream.read(int(layer_bytes))
@@ -176,7 +187,15 @@ def afi_decompress(model, stream, verbose=False):
         except pyfse.FSEException:
             print('[AFI Decoder]', 'ERROR while decoding layer', n)
             print('[AFI Decoder]', 'Stream of size', len(coded_layer), 'bytes =', coded_layer)
-        batch_z[0, :, :, n] = np.frombuffer(layer_data, np.uint8).reshape((latent_x, latent_y))
+        batch_z[0, :, :, n] = code_book[np.frombuffer(layer_data, np.uint8)].reshape((latent_x, latent_y))
+
+    # Show example layer
+    if verbose:
+        n = 0
+        layer_stats = Counter(batch_z[:, :, :, n].reshape((-1))).items()
+        print('[AFI Decoder]', 'Layer {} values:'.format(n), batch_z[:, :, :, n].reshape((-1)))
+        # print('[AFI Encoder]', 'Layer {} code-book indices:'.format(n), indices.reshape((-1))[:20])
+        print('[AFI Decoder]', 'Layer {} hist:'.format(n), layer_stats)
 
     # Use the DCN decoder to decompress the RGB image
     return model.decompress(batch_z)

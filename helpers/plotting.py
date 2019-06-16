@@ -57,7 +57,7 @@ def imarray(image, n_images, fetch_hook, titles, figwidth=16, cmap='gray', ncols
     Function for plotting arrays of images. Not intended to be used directly. See 'imsc' for typical use cases.
     """
     
-    if n_images > 100:
+    if n_images > 128:
         raise RuntimeError('The number of subplots exceeds reasonable limits ({})!'.format(n_images))                            
             
     subplot_x = ncols or int(np.ceil(np.sqrt(n_images)))
