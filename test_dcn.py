@@ -282,6 +282,8 @@ def main():
 
         print(df.to_string())
         df.to_csv(os.path.join(args.data, 'dcn.csv'), index=False)
+    else:
+        print('Error: Unknown plot!')
 
 
 if __name__ == "__main__":

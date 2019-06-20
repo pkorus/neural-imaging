@@ -6,6 +6,10 @@ from collections import Counter
 from pyfse import pyfse
 
 
+class AFIError(Exception):
+    pass
+
+
 def dcn_simulate_compression(dcn, batch_x):
     """
     Simulate AFI compression and return decompressed image and byte count.
@@ -83,18 +87,37 @@ def afi_compress(model, batch_x, verbose=False):
     # Encode feature layers separately
     coded_layers = []
     code_book = model.get_codebook()
-    print('[AFI Encoder]', 'Code book:', code_book)
+    if verbose:
+        print('[AFI Encoder]', 'Code book:', code_book)
+
+    if len(code_book) > 256:
+        raise AFIError('Code-books with more than 256 centers are not supported')
+
+    if batch_z.max() > max(code_book) or batch_z.min() < min(code_book):
+        print('[AFI Encoder]', 'Warning - potentially insufficient code-book range!', 'Data range:', batch_z.min(), '-', batch_z.max())
 
     for n in range(latent_shape[-1]):
+        # TODO Should a code book always be used? What about integers?
         indices, _ = cluster.vq.vq(batch_z[:, :, :, n].reshape((-1)), code_book)
-        # Compress layer with FSE
 
         try:
+            # Compress layer with FSE
             coded_layer = pyfse.easy_compress(bytes(indices.astype(np.uint8)))
         except pyfse.FSESymbolRepetitionError:
             # All bytes are identical, fallback to RLE
             coded_layer = np.uint16(len(indices)).tobytes() + np.uint8(indices[0]).tobytes()
+        except pyfse.FSENotCompressibleError:
+            # Stream does not compress
+            coded_layer = np.uint8(indices).tobytes()
         finally:
+            if len(coded_layer) == 1:
+                if verbose:
+                    layer_stats = Counter(batch_z[:, :, :, n].reshape((-1))).items()
+                    print('[AFI Encoder]', 'Layer {} values:'.format(n), batch_z[:, :, :, n].reshape((-1)))
+                    print('[AFI Encoder]', 'Layer {} code-book indices:'.format(n), indices.reshape((-1))[:20])
+                    print('[AFI Encoder]', 'Layer {} hist:'.format(n), layer_stats)
+
+                raise AFIError('Layer {} data compresses to a single byte? Something is wrong!'.format(n))
             coded_layers.append(coded_layer)
 
     # Show example layer
@@ -182,11 +205,15 @@ def afi_decompress(model, stream, verbose=False):
                 # RLE encoding
                 count = np.frombuffer(coded_layer[:2], dtype=np.uint16)[0]
                 layer_data = coded_layer[-1:] * int(count)
+            elif len(coded_layer) == int(latent_x) * int(latent_y):
+                # If the data could not have been compressed, just read the raw stream
+                layer_data = coded_layer
             else:
                 layer_data = pyfse.easy_decompress(coded_layer, 4 * latent_x * latent_y)
-        except pyfse.FSEException:
+        except pyfse.FSEException as e:
             print('[AFI Decoder]', 'ERROR while decoding layer', n)
             print('[AFI Decoder]', 'Stream of size', len(coded_layer), 'bytes =', coded_layer)
+            raise e
         batch_z[0, :, :, n] = code_book[np.frombuffer(layer_data, np.uint8)].reshape((latent_x, latent_y))
 
     # Show example layer
