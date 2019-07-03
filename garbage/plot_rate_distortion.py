@@ -30,7 +30,7 @@ df_j2 = pd.read_csv(os.path.join(dirname, 'jpeg2000.csv'), index_col=False)
 df['rank'] = (1 - df['ssim'])**2 + (0 - df['bpp']/5)**2
 df_j['rank'] = (1 - df_j['ssim'])**2 + (0 - df_j['bpp']/5)**2
 
-image_id = 0
+image_id = 21
 
 df = df[df['image_id'] == image_id]
 df_j = df_j[df_j['image_id'] == image_id]
@@ -42,17 +42,22 @@ df_d = df_d.sort_values('rank')
 
 df_d['layers'] = df_d['codec'].apply(lambda x : '-'.join(x.split('/')[-1].split('r:')[0].split('-')[1:]))
 df_d['quantization'] = df_d['codec'].apply(lambda x : re.findall('.*r:(.*)-S.', x)[0])
+df_d['entropy_reg'] = df_d['codec'].apply(lambda x : float(re.findall('.*H\+([0-9\.]+)', x)[0]))
 df_d['codebook'] = df_d['codec'].apply(lambda x : re.findall('.*r:(.*)-Q.', x)[0])
+df_d['latent'] = df_d['codec'].apply(lambda x : re.findall('.*/(\d+x\d+x\d+).*', x)[0])
+df_d['n_features'] = df_d['latent'].apply(lambda x : int(x.split('x')[-1]))
+
+
 df_d['rank'] = (1 - df_d['ssim'])**2 + (0 - df_d['bpp'])**2
 df_d['label'] = df_d[['layers', 'quantization', 'ssim', 'bpp']].apply(lambda x : '{0}/{1} - {3:.2f}bpp ssim:{2:.2f} '.format(*x.values), axis=1)
 
-fig = plt.figure()
+fig = plt.figure(figsize=(10,7))
 
 axes = fig.gca()
 
 sns.lineplot(data=df_j, x='bpp', y=metric, ax=axes)
 sns.lineplot(data=df_j2, x='bpp', y=metric, ax=axes)
-sns.scatterplot(data=df_d, x='bpp', y=metric, hue='layers', style='quantization', size='quality',
+sns.scatterplot(data=df_d, x='bpp', y=metric, hue='n_features', style='quantization', size='entropy_reg',
                 ax=axes, legend='full')
 
 axes.set_xlim([0, 5])
@@ -123,9 +128,9 @@ def func(x, a, b, c):
     return a - np.exp(-b*x**c)
 
 
-dirname = '../data/clic512'
+dirname = '../data/clic256'
 metric = 'ssim'
-images = [34]
+images = [21]
 
 target_bpps= np.linspace(min([df['bpp'].min(), df_j['bpp'].min()]), max([df['bpp'].max(), df_j['bpp'].max()]), 100)
 
@@ -142,6 +147,7 @@ else:
 labels = ['twitter', 'jpeg']
 styles = [['g-', 'gx'], ['r-', 'r.']]
 
+ssim_min = 1
 for index, dfc in enumerate((df, df_j)):
     
     bpps = dfc.loc[dfc['selected'], 'bpp'].values
@@ -151,8 +157,15 @@ for index, dfc in enumerate((df, df_j)):
     
     popt, pcov = curve_fit(func, bpps, ssims, bounds=([0, 1e-7, 1e-7], [100, 20, 3]))
     plt.plot(target_bpps, func(target_bpps, *popt), styles[index][0], label=labels[index])
+    # plt.plot(bpps, ssims, styles[index][1])
     plt.plot(bpps, ssims, styles[index][1], alpha=1/(sum(df['selected'])/5))
+    ssim_min = min([ssim_min, func(target_bpps[0], *popt)])
+    
+    # sns.scatterplot(data=dfc.loc[dfc['selected']], x='bpp', y=metric, hue='n_features', style='quantization', size='entropy_reg',
+    #             ax=axes, legend='full')
 
+
+plt.ylim([ssim_min * 0.99, 1])
 plt.legend()
 plt.title('{} : {} images'.format(
         os.path.split(dirname)[-1],

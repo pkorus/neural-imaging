@@ -20,3 +20,6 @@ python3 train_dcn.py --dcn TwitterDCN --split 10000:1000:1 --param_list config/t
 python3 train_dcn.py --dcn TwitterDCN --split 10000:1000:1 --param_list config/twitter.csv --epochs 2500 --group 0 --out ./data/raw/compression_twitter_10000/ --data data/compression/
 python3 train_dcn.py --dcn TwitterDCN --split 10000:1000:1 --param_list config/twitter.csv --epochs 2500 --group 1 --out ./data/raw/compression_twitter_10000/ --data data/compression/
 python3 train_dcn.py --dcn TwitterDCN --split 10000:1000:1 --param_list config/twitter.csv --epochs 2500 --group 3 --out ./data/raw/compression_twitter_10000/ --data data/compression/
+
+# Entropy experiments
+python3 train_dcn.py --split 4000:1000:1 --dcn TwitterDCN --param_list config/twitter-entropy.csv --out ./data/raw/compression_entropy --epochs 2500 --group 0
