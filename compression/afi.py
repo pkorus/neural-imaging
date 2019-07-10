@@ -1,9 +1,12 @@
 import io
+import json
 import numpy as np
 from scipy import cluster
 from collections import Counter
+from pathlib import Path
 
 from pyfse import pyfse
+from models import compression
 
 
 class AFIError(Exception):
@@ -226,3 +229,36 @@ def afi_decompress(model, stream, verbose=False):
 
     # Use the DCN decoder to decompress the RGB image
     return model.decompress(batch_z)
+
+
+def restore_model(dir_name, patch_size=None, fetch_stats=False):
+
+    training_progress_path = None
+
+    for filename in Path(dir_name).glob('**/progress.json'):
+        training_progress_path = str(filename)
+
+    if training_progress_path is None:
+        raise FileNotFoundError('Could not find a model snapshot in {}'.format(dir_name))
+
+    with open(training_progress_path) as f:
+        training_progress = json.load(f)
+
+    parameters = training_progress['dcn']['args']
+    parameters['patch_size'] = patch_size
+    parameters['default_val_is_train'] = False
+    model = getattr(compression, training_progress['dcn']['model'])(None, None, None, **parameters)
+    model.load_model(dir_name)
+    print('Loaded model: {}'.format(model.model_code))
+
+    if fetch_stats:
+
+        stats = {
+            'loss': training_progress['performance']['loss']['validation'][-1],
+            'entropy': training_progress['performance']['entropy']['training'][-1],
+            'ssim': training_progress['performance']['ssim']['validation'][-1],
+        }
+
+        return model, stats
+    else:
+        return model
