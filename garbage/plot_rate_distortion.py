@@ -111,23 +111,7 @@ plt.plot(bpps, ssims, 'gx', alpha=0.5)
 # df['latent'] = df['codec'].apply(lambda x : re.findall('[0-9]+x[0-9]+x[0-9]+', x)[0])
 # df['features'] = df['latent'].apply(lambda x : x.split('x')[-1])
 
-# %% Binary representations
 
-from compression import ratedistortion
-
-# plots = [('dcn.csv', {'quantization': 'soft-codebook-1bpf', 'entropy_reg': 100}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-
-# plots = [('dcn.csv', {'quantization': 'soft-8bpf', 'entropy_reg': 1}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-
-plots = [('dcn-binary.csv', {}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-
-images = [0, 11, 13, 30, 36]
-
-fig, axes = plotting.sub(len(images)+1, ncols=3)
-fig.set_size_inches((15, 10))
-ratedistortion.plot_curve(plots, axes[0], title='DCN with binary repr.', images=[])
-for i, im in enumerate(images):
-    ratedistortion.plot_curve(plots, axes[i+1], title='Example', images=[im])
 
 # %%
 

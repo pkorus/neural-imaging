@@ -8,7 +8,11 @@ import seaborn as sns
 import glymur
 from pathlib import Path
 from skimage.measure import compare_ssim, compare_psnr
+
+# For curve fitting and regression
 from scipy.optimize import curve_fit
+import uncertainties.unumpy as unp
+import uncertainties as unc
 
 from helpers import loading, utils
 from compression import jpeg_helpers, afi
@@ -152,7 +156,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
     model_dirs = list(Path(model_directory).glob('**/progress.json'))
     print('Found {} models'.format(len(model_dirs)))
 
-    df_path = os.path.join(directory, 'dcn.csv')
+    df_path = os.path.join(directory, 'dcn-{}.csv'.format([x for x in model_directory.split('/') if len(x) > 0][-1]))
 
     if os.path.isfile(df_path) and not force_calc:
         print('Restoring DCN stats from {}'.format(df_path))
@@ -203,13 +207,13 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
     return df
 
 
-def plot_curve(plots, axes, dirname='../data/clic256', images=[], use_kde=False, draw_markers=None, metric='ssim', title=None):
+def plot_curve(plots, axes, dirname='./data/clic256', images=[], use_kde=False, draw_markers=None, metric='ssim', title=None):
     draw_markers = draw_markers if draw_markers is not None else len(images) == 1
 
     df_all = []
 
     def func(x, a, b, c, d):
-        return d - a * np.exp(-b * x ** c)
+        return np.exp(b*x**a - c)/(1 + np.exp(b*x**a - c)) - d
 
     for filename, selectors in plots:
         df = pd.read_csv(os.path.join(dirname, filename), index_col=False)
@@ -234,34 +238,59 @@ def plot_curve(plots, axes, dirname='../data/clic256', images=[], use_kde=False,
         ssims = dfc.loc[dfc['selected'], metric].values
 
         # Discard invalid measurements (e.g., for empty images)
-        bpps = bpps[ssims > 0.5]
-        ssims = ssims[ssims > 0.5]
+        bpps = bpps[ssims > 0.6]
+        ssims = ssims[ssims > 0.6]
 
-        target_bpps = np.linspace(bpps.min(), bpps.max(), 100)
+        with open('debug-{}.txt'.format(labels[index]), 'w') as f:
+            f.write('{}_bpps = '.format(labels[index]))
+            f.write(str(bpps).replace('\n', ' '))
+            f.write('\n{}_ssims = '.format(labels[index]))
+            f.write(str(ssims).replace('\n', ' '))
+
+        x = np.linspace(bpps.min(), bpps.max(), 100)
 
         if use_kde:
-            x, y = utils.ma_gaussian(bpps, ssims, 0.05, 0.2)
-            axes.plot(x, y, styles[index][0], label=labels[index])
-        else:
-            popt, pcov = curve_fit(func, bpps, ssims, bounds=([0, 1e-3, 1e-3, 0.9], [1e6, 20, 5, 1]), maxfev=1000)
-            # print(labels[index], *popt)
-            axes.plot(target_bpps, func(target_bpps, *popt), styles[index][0], label=labels[index])
+            import pyqt_fit.nonparam_regression as smooth
+            from pyqt_fit import npr_methods
 
-        # plt.plot(bpps, ssims, styles[index][1])
+            k2 = smooth.NonParamRegression(bpps, ssims, method=npr_methods.LocalPolynomialKernel(q=1))
+            k2.fit()
+            # x, y = utils.ma_gaussian(bpps, ssims, 0.05, 0.2)
+            # axes.plot(x, y, styles[index][0], label=labels[index])
+            # ssim_min = min([ssim_min, min(y)])
+            axes.plot(x, k2(x), styles[index][0], label=labels[index])
+            ssim_min = min([ssim_min, min(k2(x))])
+        else:
+            # [0.5, 1e-3, 1e-3, 0.9], [1e6, 20, 5, 1]
+            popt, pcov = curve_fit(func, bpps, ssims, bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]), maxfev=1000)
+            axes.plot(x, func(x, *popt), styles[index][0], label=labels[index])
+            # print(labels[index], *popt)
+
+            # If plotting many images, add confidence intervals
+            if len(images) > 5 or len(images) == 0:
+                a, b, c, d = unc.correlated_values(popt, pcov)
+                py = unp.exp(b * x ** a - c) / (1 + unp.exp(b * x ** a - c)) - d
+
+                nom = unp.nominal_values(py)
+                std = unp.std_devs(py)
+
+                axes.plot(x, nom - 1.96 * std, c=styles[index][0][0], alpha=0.2)
+                axes.plot(x, nom + 1.96 * std, c=styles[index][0][0], alpha=0.2)
+                axes.fill(np.concatenate([x, x[::-1]]), np.concatenate([nom - 1.96 * std, (nom + 1.96 * std)[::-1]]),
+                          alpha=0.1, fc=styles[index][0][0], ec='None')
+
+            ssim_min = min([ssim_min, func(x[0], *popt)])
 
         if draw_markers:
             if 'entropy_reg' in dfc:
-                # pass
                 sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
                                 hue='n_features',
                                 size='entropy_reg',
-                                # hue='',
+                                style='quantization',
                                 palette="Set2",
                                 ax=axes, legend='full')
             else:
                 axes.plot(bpps, ssims, styles[index][1], alpha=5 / (sum(dfc['selected'])))
-
-        ssim_min = min([ssim_min, func(target_bpps[0], *popt)])
 
     n_images = len(dfc.loc[dfc['selected'], 'image_id'].unique())
 
@@ -272,8 +301,9 @@ def plot_curve(plots, axes, dirname='../data/clic256', images=[], use_kde=False,
 
     axes.set_xlim([0, 4])
     axes.set_ylim([ssim_min * 0.99, 1])
-    # axes.set_ylim([0.75, 1])
+    axes.set_ylim([0.75, 1])
     axes.legend(loc='lower right')
     axes.set_title(title)
     axes.set_xlabel('Effective bpp')
     axes.set_ylabel('SSIM')
+
