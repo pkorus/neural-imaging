@@ -231,7 +231,7 @@ def afi_decompress(model, stream, verbose=False):
     return model.decompress(batch_z)
 
 
-def restore_model(dir_name, patch_size=None, fetch_stats=False):
+def restore_model(dir_name, patch_size=None, fetch_stats=False, sess=None, graph=None, x=None, nip_input=None):
 
     training_progress_path = None
 
@@ -247,7 +247,13 @@ def restore_model(dir_name, patch_size=None, fetch_stats=False):
     parameters = training_progress['dcn']['args']
     parameters['patch_size'] = patch_size
     parameters['default_val_is_train'] = False
-    model = getattr(compression, training_progress['dcn']['model'])(None, None, None, **parameters)
+
+    if x is not None:
+        parameters['x'] = x
+    if nip_input is not None:
+        parameters['nip_input'] = nip_input
+
+    model = getattr(compression, training_progress['dcn']['model'])(sess, graph, **parameters)
     model.load_model(dir_name)
     print('Loaded model: {}'.format(model.model_code))
 
