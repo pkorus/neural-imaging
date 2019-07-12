@@ -5,6 +5,8 @@ from scipy import cluster
 from collections import Counter
 from pathlib import Path
 
+from scipy.cluster.vq import vq
+
 from pyfse import pyfse
 from models import compression
 
@@ -231,8 +233,27 @@ def afi_decompress(model, stream, verbose=False):
     return model.decompress(batch_z)
 
 
-def restore_model(dir_name, patch_size=None, fetch_stats=False, sess=None, graph=None, x=None, nip_input=None):
+def global_compress(dcn, batch_x):
+    # Naive FSE compression of the entire latent repr.
+    batch_z = dcn.compress(batch_x)
+    indices, distortion = vq(batch_z.reshape((-1)), dcn.get_codebook())
+    return pyfse.easy_compress(bytes(indices.astype(np.uint8)))
 
+
+def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=None, x=None, nip_input=None):
+    """
+    Utility function to restore a DCN model from a training directory. By default,
+    a standalone instance is created. Can also be used for chaining when sess,
+    graph, x, nip_input are provided.
+
+    :param dir_name: directory with a trained model (with progress.json)
+    :param patch_size: input patch size (scalar)
+    :param fetch_stats: return a tuple (model, training_stats)
+    :param sess: existing TF session of None
+    :param graph: existing TF graph or None
+    :param x: input to the model
+    :param nip_input: input to the NIP model (useful for chaining)
+    """
     training_progress_path = None
 
     for filename in Path(dir_name).glob('**/progress.json'):

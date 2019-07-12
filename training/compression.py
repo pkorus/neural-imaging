@@ -16,9 +16,13 @@ import matplotlib.pyplot as plt
 from helpers import plotting, summaries, utils
 
 
-def visualize_distribution(dcn, data):
-    sample_batch_size = np.min((100, data.count_validation))
-    batch_x = data.next_validation_batch(0, sample_batch_size)
+def visualize_distribution(dcn, data, ax=None):
+
+    if type(data) is not np.ndarray:
+        sample_batch_size = np.min((100, data.count_validation))
+        batch_x = data.next_validation_batch(0, sample_batch_size)
+    else:
+        batch_x = data
 
     # Fetch latent distribution for the current batch
     batch_z = dcn.compress(batch_x)
@@ -26,8 +30,14 @@ def visualize_distribution(dcn, data):
 
     # Get current version of the quantization codebook
     codebook = dcn.get_codebook().tolist()
-    qmin = np.floor(codebook[0])
-    qmax = np.ceil(codebook[-1])
+
+    # Find x limits for plotting
+    if dcn._h.rounding == 'identity':
+        qmax = np.ceil(np.max(np.abs(batch_z)))
+        qmin = -qmax
+    else:
+        qmin = np.floor(codebook[0])
+        qmax = np.ceil(codebook[-1])
 
     feed_dict = {dcn.x: batch_x}
     if hasattr(dcn, 'is_training'):
@@ -47,17 +57,23 @@ def visualize_distribution(dcn, data):
     hist = np.histogram(batch_z, bins=bin_boundaries, density=True)[0]
     hist = hist / hist.max()
 
-    fig = plt.figure(figsize=(10, 2))
-    ax = fig.gca()
+    entropy = utils.entropy(batch_z, codebook)
+
+    ticks = np.unique(np.round(np.percentile(batch_z, [1, 5, 25, 50, 75, 95, 99])))
+
+    if ax is None:
+        fig = plt.figure(figsize=(10, 2))
+        ax = fig.gca()
+
     ax.set_xlim([qmin - 1, qmax + 1])
-    ax.set_xticks(np.arange(qmin, qmax))
+    ax.set_xticks(ticks)
     ax.stem(bin_centers, hist, linefmt='r:', markerfmt='r.')  # width=bin_centers[1] - bin_centers[0]
     ax.bar(codebook, histogram, width=(codebook[1] - codebook[0]) / 2, color='b', alpha=0.5)
-    ax.set_title('Histogram of quantized coefficients')
-    ax.legend(['Quantized values', 'Soft quantization estimate'])
+    ax.set_title('QLR histogram (H={:.1f})'.format(entropy))
+    ax.legend(['Quantized values', 'Soft estimate'])
 
     # Render the plot as a PNG image and return a bitmap array
-    return fig
+    return ax.figure
 
 
 def visualize_codebook(dcn):
