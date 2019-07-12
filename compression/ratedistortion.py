@@ -207,7 +207,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
     return df
 
 
-def plot_curve(plots, axes, dirname='./data/clic256', images=[], use_kde=False, draw_markers=None, metric='ssim', title=None):
+def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', draw_markers=None, metric='ssim', title=None):
     draw_markers = draw_markers if draw_markers is not None else len(images) == 1
 
     df_all = []
@@ -220,6 +220,9 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], use_kde=False, 
         for k, v in selectors.items():
             df = df[df[k] == v]
         df_all.append(df)
+
+    if len(images) == 0:
+        images = df['image_id'].unique().tolist()
 
     # Select measurements for the given images
     for dfc in df_all:
@@ -249,7 +252,7 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], use_kde=False, 
 
         x = np.linspace(bpps.min(), bpps.max(), 100)
 
-        if use_kde:
+        if plot == 'kde':
             import pyqt_fit.nonparam_regression as smooth
             from pyqt_fit import npr_methods
 
@@ -260,9 +263,9 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], use_kde=False, 
             # ssim_min = min([ssim_min, min(y)])
             axes.plot(x, k2(x), styles[index][0], label=labels[index])
             ssim_min = min([ssim_min, min(k2(x))])
-        else:
-            # [0.5, 1e-3, 1e-3, 0.9], [1e6, 20, 5, 1]
-            popt, pcov = curve_fit(func, bpps, ssims, bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]), maxfev=1000)
+
+        elif plot == 'fit':
+            popt, pcov = curve_fit(func, bpps, ssims, bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]), maxfev=10000)
             axes.plot(x, func(x, *popt), styles[index][0], label=labels[index])
             # print(labels[index], *popt)
 
@@ -280,6 +283,28 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], use_kde=False, 
                           alpha=0.1, fc=styles[index][0][0], ec='None')
 
             ssim_min = min([ssim_min, func(x[0], *popt)])
+
+        elif plot == 'ensemble':
+            ensemble = []
+
+            for image_id in images:
+
+                bpps = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), 'bpp'].values
+                ssims = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), metric].values
+
+                bpps = bpps[ssims > 0.6]
+                ssims = ssims[ssims > 0.6]
+
+                popt, pcov = curve_fit(func, bpps, ssims, bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]), maxfev=10000)
+
+                ensemble.append(lambda x: func(x, *popt))
+
+            y = np.median([f(x) for f in ensemble], axis=0)
+            axes.plot(x, y, styles[index][0], label=labels[index])
+            ssim_min = min([ssim_min, min(y)])
+
+        else:
+            raise ValueError('Unsupported plot type!')
 
         if draw_markers:
             if 'entropy_reg' in dfc:

@@ -37,33 +37,52 @@ for j, bpf in enumerate(codebooks):
 
     plots = [('dcn-m-ary.csv', {'quantization': 'soft-codebook-{:d}bpf'.format(bpf)}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
 
-    ratedistortion.plot_curve(plots, axes[j * (n_images+1)], title='{}-bit repr.'.format(bpf), images=[])
+    ratedistortion.plot_curve(plots, axes[j * (n_images+1)], title='{}-bit repr.'.format(bpf), images=[], plot='ensemble')
     for i, im in enumerate(images):
         ratedistortion.plot_curve(plots, axes[j * (n_images+1) + i + 1], title='Example {}'.format(im), images=[im])
 
 # %% Entropy-regularization
 # I. Fix codebook and see impact of regularization and #features
 
-plots = [('dcn-entropy.csv', {'quantization': 'soft-codebook-5bpf'}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
+latent_bpf = 5
+
+plots = [('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf)}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
 # plots = [('dcn-entropy.csv', {'quantization': 'soft-codebook-3bpf', 'entropy_reg': 250}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
 
 images = [0, 11, 13, 30, 36]
+# images = []
 
 fig, axes = plotting.sub(len(images)+1, ncols=3)
 fig.set_size_inches((18, 10))
-ratedistortion.plot_curve(plots, axes[0], title='3-bpf codebook w. var reg/#features', images=[])
+ratedistortion.plot_curve(plots, axes[0], title='{}-bpf codebook w. var reg/#features'.format(latent_bpf), images=[], plot='ensemble')
 for i, im in enumerate(images):
     ratedistortion.plot_curve(plots, axes[i+1], title='Example {}'.format(im), images=[im])
 
-# %%
+# %% Entropy-regularization
+# II. Fix codebook and regularization
+
+latent_bpf = 5
 
 # plots = [('dcn-entropy.csv', {'quantization': 'soft-codebook-3bpf'}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-plots = [('dcn-entropy.csv', {'quantization': 'soft-codebook-5bpf', 'entropy_reg': 250}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
+plots = [('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
 
 images = [0, 11, 13, 30, 36]
 
 fig, axes = plotting.sub(len(images)+1, ncols=3)
 fig.set_size_inches((15, 8))
-ratedistortion.plot_curve(plots, axes[0], title='DCN with binary repr.', images=[])
+ratedistortion.plot_curve(plots, axes[0], title='{}-bpf repr.'.format(latent_bpf), images=[], plot='ensemble')
 for i, im in enumerate(images):
     ratedistortion.plot_curve(plots, axes[i+1], title='Example {}'.format(im), images=[im])
+
+# %% Tabularized SSIM for various settings
+
+# %% Show latent representations
+    
+# %% Show latent distributions
+    
+# %% Compare global vs. per-layer entropy coding
+    
+    
+    
+    
+    
