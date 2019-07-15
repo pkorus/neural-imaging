@@ -12,3 +12,5 @@ matplotlib
 matplotlib2tikz
 sewar
 dahuffman
+python-Levenshtein
+uncertainties

@@ -57,7 +57,7 @@ def imarray(image, n_images, fetch_hook, titles, figwidth=16, cmap='gray', ncols
     Function for plotting arrays of images. Not intended to be used directly. See 'imsc' for typical use cases.
     """
     
-    if n_images > 100:
+    if n_images > 128:
         raise RuntimeError('The number of subplots exceeds reasonable limits ({})!'.format(n_images))                            
             
     subplot_x = ncols or int(np.ceil(np.sqrt(n_images)))
@@ -155,7 +155,7 @@ def quickshow(x, label=None, *, axes=None, cmap='gray'):
     in the title will be replaced with '(height x width) -> [min intensity - max intensity]'.
     """
     
-    label = label or '{}'
+    label = label if label is not None else '{}'
     
     x = x.squeeze()
     
@@ -164,12 +164,14 @@ def quickshow(x, label=None, *, axes=None, cmap='gray'):
         
     if axes is None:
         plt.imshow(x, cmap=cmap)
-        plt.title(label)
+        if len(label) > 0:
+            plt.title(label)
         plt.xticks([])
         plt.yticks([])
     else:
         axes.imshow(x, cmap=cmap)
-        axes.set_title(label)
+        if len(label) > 0:
+            axes.set_title(label)
         axes.set_xticks([])
         axes.set_yticks([])        
 

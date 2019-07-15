@@ -59,3 +59,4 @@ scenario,label,active,run_group,n_features,rounding,train_codebook,latent_bpf,sc
 5,3bpf-features,TRUE,6,16,soft-codebook,FALSE,3,TRUE,50
 5,3bpf-features,TRUE,6,16,soft-codebook,FALSE,3,TRUE,10
 5,3bpf-features,TRUE,6,16,soft-codebook,FALSE,3,TRUE,1
+

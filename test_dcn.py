@@ -22,40 +22,7 @@ from models import compression
 from helpers import plotting, dataset, coreutils, loading, utils
 from compression import jpeg_helpers, afi, ratedistortion
 
-supported_plots = ['batch', 'jpeg-match', 'trade-off']
-
-
-def restore_model(dir_name, patch_size=None, fetch_stats=False):
-
-    training_progress_path = None
-
-    for filename in Path(dir_name).glob('**/progress.json'):
-        training_progress_path = str(filename)
-
-    if training_progress_path is None:
-        raise FileNotFoundError('Could not find a model snapshot in {}'.format(dir_name))
-
-    with open(training_progress_path) as f:
-        training_progress = json.load(f)
-
-    parameters = training_progress['dcn']['args']
-    parameters['patch_size'] = patch_size
-    parameters['default_val_is_train'] = False
-    model = getattr(compression, training_progress['dcn']['model'])(None, None, None, **parameters)
-    model.load_model(dir_name)
-    print('Loaded model: {}'.format(model.model_code))
-
-    if fetch_stats:
-
-        stats = {
-            'loss': training_progress['performance']['loss']['validation'][-1],
-            'entropy': training_progress['performance']['entropy']['training'][-1],
-            'ssim': training_progress['performance']['ssim']['validation'][-1],
-        }
-
-        return model, stats
-    else:
-        return model
+supported_plots = ['batch', 'jpeg-match', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off']
 
 
 def match_jpeg(model, batch_x):
@@ -133,7 +100,7 @@ def show_example(model, batch_x):
     batch_y = model.decompress(batch_z)
 
     # Get empirical histogram of the latent representation
-    codebook = model.sess.run(model.codebook).reshape((-1,))
+    codebook = model.get_codebook()
 
     qmin = np.floor(codebook[0])
     qmax = np.ceil(codebook[-1])    
@@ -209,79 +176,40 @@ def main():
 
     if args.plot == 'batch':
 
-        model = restore_model(args.dir, args.patch_size)
+        model = afi.restore_model(args.dir, args.patch_size)
 
         data = dataset.IPDataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
         batch_x = data.next_validation_batch(0, args.images)
 
         show_example(model, batch_x)
 
-    if args.plot == 'jpeg-match':
+    elif args.plot == 'jpeg-match':
 
         files, _ = loading.discover_files(args.data, n_images=-1, v_images=0)
         files = files[args.image_id:args.image_id+1]
         batch_x = loading.load_images(files, args.data, load='y')
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
-        model = restore_model(args.dir, batch_x.shape[1])
+        model = afi.restore_model(args.dir, batch_x.shape[1])
 
         match_jpeg(model, batch_x)
 
-    if args.plot == 'trade-off':
+    elif args.plot == 'jpg-trade-off':
 
-        # Discover test files
-        files, _ = loading.discover_files(args.data, n_images=-1, v_images=0)
-        batch_x = loading.load_images(files, args.data, load='y')
-        batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
-
-        # df = ratedistortion.get_jpeg_df(args.data, write_files=True)
-        # df = ratedistortion.get_jpeg2k_df(args.data, write_files=True, force_calc=True)
-
-        # return
-
-        # Create a new table for the DCN
-        df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'entropy', 'bytes', 'bpp'])
-
-        # Discover available models
-        model_dirs = list(Path(args.dir).glob('**/progress.json'))
-        print('Found {} models'.format(len(model_dirs)))
-
-        for model_dir in model_dirs:
-            print('Processing: {}'.format(model_dir))
-            dcn, stats = restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1], fetch_stats=True)
-
-            # Dump compressed images
-            for image_id, filename in enumerate(files):
-
-                try:
-                    batch_y, image_bytes = afi.dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
-                except Exception as e:
-                    print('Error while processing {} with {} : {}'.format(filename, dcn.model_code, e))
-                    raise e
-
-                # Save the image
-                image_dir = os.path.join(args.data, os.path.splitext(filename)[0])
-                if not os.path.isdir(image_dir):
-                    os.makedirs(image_dir)
-
-                image_path = os.path.join(image_dir, dcn.model_code.replace('/', '-') + '.png')
-
-                imageio.imwrite(image_path, (255*batch_y[0]).astype(np.uint8))
-
-                df = df.append({'image_id': image_id,
-                                'filename': filename,
-                                'codec': dcn.model_code,
-                                'quality': dcn.n_latent,
-                                'ssim': compare_ssim(batch_x[image_id], batch_y[0], multichannel=True, data_range=1),
-                                'psnr': compare_psnr(batch_x[image_id], batch_y[0], data_range=1),
-                                'entropy': stats['entropy'],
-                                'bytes': image_bytes,
-                                'bpp': 8 * image_bytes / batch_x[image_id].shape[0] / batch_x[image_id].shape[1]
-                                }, ignore_index=True)
-            print('')
-
+        df = ratedistortion.get_jpeg_df(args.data, write_files=True)
         print(df.to_string())
-        df.to_csv(os.path.join(args.data, 'dcn.csv'), index=False)
+
+    elif args.plot == 'jp2-trade-off':
+
+        df = ratedistortion.get_jpeg2k_df(args.data, write_files=True)
+        print(df.to_string())
+
+    elif args.plot == 'dcn-trade-off':
+
+        df = ratedistortion.get_dcn_df(args.data, args.dir, write_files=True)
+        print(df.to_string())
+    else:
+        print('Error: Unknown plot!')
 
 
 if __name__ == "__main__":

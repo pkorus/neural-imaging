@@ -162,6 +162,7 @@ class DCN(TFModel):
         histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
         histogram = histogram / tf.reduce_sum(histogram)
         entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
+        entropy = tf.cast(entropy, tf.float32)
 
         return entropy, histogram, weights
 

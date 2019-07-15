@@ -1,8 +1,18 @@
 import io
+import json
 import numpy as np
 from scipy import cluster
+from collections import Counter
+from pathlib import Path
+
+from scipy.cluster.vq import vq
 
 from pyfse import pyfse
+from models import compression
+
+
+class AFIError(Exception):
+    pass
 
 
 def dcn_simulate_compression(dcn, batch_x):
@@ -82,18 +92,46 @@ def afi_compress(model, batch_x, verbose=False):
     # Encode feature layers separately
     coded_layers = []
     code_book = model.get_codebook()
+    if verbose:
+        print('[AFI Encoder]', 'Code book:', code_book)
+
+    if len(code_book) > 256:
+        raise AFIError('Code-books with more than 256 centers are not supported')
+
+    if batch_z.max() > max(code_book) or batch_z.min() < min(code_book):
+        print('[AFI Encoder]', 'Warning - potentially insufficient code-book range!', 'Data range:', batch_z.min(), '-', batch_z.max())
 
     for n in range(latent_shape[-1]):
+        # TODO Should a code book always be used? What about integers?
         indices, _ = cluster.vq.vq(batch_z[:, :, :, n].reshape((-1)), code_book)
-        # Compress layer with FSE
 
         try:
+            # Compress layer with FSE
             coded_layer = pyfse.easy_compress(bytes(indices.astype(np.uint8)))
         except pyfse.FSESymbolRepetitionError:
             # All bytes are identical, fallback to RLE
-            coded_layers.append(np.uint16(len(indices)).tobytes() + np.uint8(indices[0]).tobytes())
+            coded_layer = np.uint16(len(indices)).tobytes() + np.uint8(indices[0]).tobytes()
+        except pyfse.FSENotCompressibleError:
+            # Stream does not compress
+            coded_layer = np.uint8(indices).tobytes()
         finally:
+            if len(coded_layer) == 1:
+                if verbose:
+                    layer_stats = Counter(batch_z[:, :, :, n].reshape((-1))).items()
+                    print('[AFI Encoder]', 'Layer {} values:'.format(n), batch_z[:, :, :, n].reshape((-1)))
+                    print('[AFI Encoder]', 'Layer {} code-book indices:'.format(n), indices.reshape((-1))[:20])
+                    print('[AFI Encoder]', 'Layer {} hist:'.format(n), layer_stats)
+
+                raise AFIError('Layer {} data compresses to a single byte? Something is wrong!'.format(n))
             coded_layers.append(coded_layer)
+
+    # Show example layer
+    if verbose:
+        n = 0
+        layer_stats = Counter(batch_z[:, :, :, n].reshape((-1))).items()
+        print('[AFI Encoder]', 'Layer {} values:'.format(n), batch_z[:, :, :, n].reshape((-1)))
+        print('[AFI Encoder]', 'Layer {} code-book indices:'.format(n), indices.reshape((-1))[:20])
+        print('[AFI Encoder]', 'Layer {} hist:'.format(n), layer_stats)
 
     # Write the layer size array
     layer_lengths = np.array([len(x) for x in coded_layers], dtype=np.uint16)
@@ -138,6 +176,7 @@ def afi_decompress(model, stream, verbose=False):
     # Read the shape of the latent representation
     latent_x, latent_y, n_latent = np.frombuffer(stream.read(3), np.uint8)
 
+    code_book = model.get_codebook()
     # Read the array with layer sizes
     layer_bytes = np.frombuffer(stream.read(2), np.uint16)
     coded_layer_lengths = stream.read(int(layer_bytes))
@@ -171,12 +210,82 @@ def afi_decompress(model, stream, verbose=False):
                 # RLE encoding
                 count = np.frombuffer(coded_layer[:2], dtype=np.uint16)[0]
                 layer_data = coded_layer[-1:] * int(count)
+            elif len(coded_layer) == int(latent_x) * int(latent_y):
+                # If the data could not have been compressed, just read the raw stream
+                layer_data = coded_layer
             else:
                 layer_data = pyfse.easy_decompress(coded_layer, 4 * latent_x * latent_y)
-        except pyfse.FSEException:
+        except pyfse.FSEException as e:
             print('[AFI Decoder]', 'ERROR while decoding layer', n)
             print('[AFI Decoder]', 'Stream of size', len(coded_layer), 'bytes =', coded_layer)
-        batch_z[0, :, :, n] = np.frombuffer(layer_data, np.uint8).reshape((latent_x, latent_y))
+            raise e
+        batch_z[0, :, :, n] = code_book[np.frombuffer(layer_data, np.uint8)].reshape((latent_x, latent_y))
+
+    # Show example layer
+    if verbose:
+        n = 0
+        layer_stats = Counter(batch_z[:, :, :, n].reshape((-1))).items()
+        print('[AFI Decoder]', 'Layer {} values:'.format(n), batch_z[:, :, :, n].reshape((-1)))
+        # print('[AFI Encoder]', 'Layer {} code-book indices:'.format(n), indices.reshape((-1))[:20])
+        print('[AFI Decoder]', 'Layer {} hist:'.format(n), layer_stats)
 
     # Use the DCN decoder to decompress the RGB image
     return model.decompress(batch_z)
+
+
+def global_compress(dcn, batch_x):
+    # Naive FSE compression of the entire latent repr.
+    batch_z = dcn.compress(batch_x)
+    indices, distortion = vq(batch_z.reshape((-1)), dcn.get_codebook())
+    return pyfse.easy_compress(bytes(indices.astype(np.uint8)))
+
+
+def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=None, x=None, nip_input=None):
+    """
+    Utility function to restore a DCN model from a training directory. By default,
+    a standalone instance is created. Can also be used for chaining when sess,
+    graph, x, nip_input are provided.
+
+    :param dir_name: directory with a trained model (with progress.json)
+    :param patch_size: input patch size (scalar)
+    :param fetch_stats: return a tuple (model, training_stats)
+    :param sess: existing TF session of None
+    :param graph: existing TF graph or None
+    :param x: input to the model
+    :param nip_input: input to the NIP model (useful for chaining)
+    """
+    training_progress_path = None
+
+    for filename in Path(dir_name).glob('**/progress.json'):
+        training_progress_path = str(filename)
+
+    if training_progress_path is None:
+        raise FileNotFoundError('Could not find a model snapshot in {}'.format(dir_name))
+
+    with open(training_progress_path) as f:
+        training_progress = json.load(f)
+
+    parameters = training_progress['dcn']['args']
+    parameters['patch_size'] = patch_size
+    parameters['default_val_is_train'] = False
+
+    if x is not None:
+        parameters['x'] = x
+    if nip_input is not None:
+        parameters['nip_input'] = nip_input
+
+    model = getattr(compression, training_progress['dcn']['model'])(sess, graph, **parameters)
+    model.load_model(dir_name)
+    print('Loaded model: {}'.format(model.model_code))
+
+    if fetch_stats:
+
+        stats = {
+            'loss': training_progress['performance']['loss']['validation'][-1],
+            'entropy': training_progress['performance']['entropy']['training'][-1],
+            'ssim': training_progress['performance']['ssim']['validation'][-1],
+        }
+
+        return model, stats
+    else:
+        return model

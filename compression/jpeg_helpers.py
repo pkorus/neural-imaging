@@ -1,6 +1,8 @@
+import re
 import io
 import numpy as np
 import imageio
+import subprocess
 import scipy as sp
 from skimage.measure import compare_ssim
 from collections import OrderedDict
@@ -86,6 +88,52 @@ def compress_batch(batch_x, jpeg_quality, effective=False, subsampling='4:4:4'):
 def get_byte_array(chunk):
     """ convert chunk of bytes to corresponding byte array"""
     return list(unpack("B" * len(chunk), chunk))
+
+
+def jp2bytes(filename):
+    """
+    Gets JPEG 2000 payload size in bytes (using jpylyzer). Not thoroughly tested. Should sum all tiles.
+
+    """
+    pc = subprocess.Popen(['jpylyzer', filename], stdout=subprocess.PIPE)
+
+    if pc.returncode is not None:
+        raise RuntimeError('Error running jpylyzer {}'.format(filename))
+
+    out = pc.stdout.read()
+    data_length = [int(x) for x in re.findall('\<psot\>([0-9]+)\</psot\>', out.decode())]
+    return sum(data_length)
+
+
+def jp2bytes_alt(filename):
+    """
+    Gets JPEG 2000 payload size in bytes (using pirl - jp2info).
+
+    Not thoroughly tested. Will probably NOT work for non-standard files or custom compression settings. Seems to return reasonable results for simple 1-tile images saved using Glymur.
+
+    See also: jpylyzer (http://jpylyzer.openpreservation.org//userManual.html)
+    > jpylyzer /tmp/image.jp2
+
+    The following tag seems to contain the payload size (Length of tile part):
+    jpylyzer/properties/contiguousCodestreamBox/tileParts/tilePart/sot/psot
+
+    """
+    pc = subprocess.Popen(['jp2info', filename], stdout=subprocess.PIPE)
+
+    if pc.returncode is not None:
+        raise RuntimeError('Error running jp2info {}'.format(filename))
+
+    out = pc.stdout.read()
+
+    data_length = re.findall('Data_Length = ([0-9]+) \<bytes\>', out.decode())
+    data_length = int(data_length[-1])
+    
+    all_lengths = [int(x) for x in re.findall('Length = ([0-9]+) \<bytes\>', out.decode())]
+    dl_index = all_lengths.index(data_length)
+    
+    discounds = all_lengths[dl_index+1:]
+    
+    return data_length - sum(discounds)
 
 
 class JPEGStats:

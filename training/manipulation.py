@@ -16,27 +16,40 @@ import tensorflow as tf
 from models import pipelines
 from models.forensics import FAN
 from models.jpeg import DJPG
+from models import compression
+
+from compression import afi
 
 # Helper functions
 from helpers import coreutils, tf_helpers, validation
 
 
 @coreutils.logCall
-def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distribution_down='pool', loss_metric='L2', jpeg_approx='sin'):
+def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='L2'):
     """
     Setup the TF model of the entire acquisition and distribution workflow.
     :param nip_model: name of the NIP class
     :param patch_size: patch size for manipulation training (raw patch - rgb patches will be 4 times as big)
-    :param distribution_jpeg: JPEG quality level in the distribution channel
-    :param distribution_down: Sub-sampling method in the distribution channel ('pool' or 'bilin')
+    :param distribution: definition of the dissemination channel (set to None for the default down+jpeg(50))
     :param loss_metric: NIP loss metric: L2, L1 or SSIM
     """
     # Sanitize inputs
     if patch_size < 32 or patch_size > 512:
         raise ValueError('The patch size ({}) looks incorrect, typical values should be >= 32 and <= 512'.format(patch_size))
 
-    if distribution_jpeg < 1 or distribution_jpeg > 100:
-        raise ValueError('Invalid JPEG quality level ({})'.format(distribution_jpeg))
+    # Setup a default distribution channel
+    if distribution is None:
+        distribution = {
+            'downsampling': 'pool',
+            'compression': 'jpeg',
+            'compression_params': {
+                'quality': 50,
+                'rounding_approximation': 'sin'
+            }
+        }
+
+    if distribution['compression'] == 'jpeg' and (distribution['compression_params']['quality'] < 1 or distribution['compression_params']['quality'] > 100):
+        raise ValueError('Invalid JPEG quality level ({})'.format(distribution['compression_params']['quality']))
 
     if not issubclass(getattr(pipelines, nip_model), pipelines.NIPModel):
         supported_nips = [x for x in dir(pipelines) if x != 'NIPModel' and type(getattr(pipelines, x)) is type and issubclass(getattr(pipelines, x), pipelines.NIPModel)]
@@ -67,7 +80,7 @@ def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distributi
         im_gauss = tf_helpers.tf_gaussian(model.y, 5, 4)
 
         # Mild JPEG
-        tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=80, rounding_approximation=jpeg_approx)
+        tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=80, rounding_approximation='soft')
         im_jpg = tf_jpg.y
 
         # Setup operations for detection
@@ -79,16 +92,39 @@ def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distributi
         # Concatenate outputs from multiple post-processing paths ------------------------------------------------------
         y_concat = tf.concat(operations, axis=0)
 
-        # Add sub-sampling and JPEG compression in the channel ---------------------------------------------------------
-        if distribution_down == 'pool':
+        # Add sub-sampling and lossy compression in the channel --------------------------------------------------------
+        down_patch_size = patch_size if distribution['downsampling'] == 'none' else patch_size // 2
+        if distribution['downsampling'] == 'pool':
             imb_down = tf.nn.avg_pool(y_concat, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME', name='post_downsample')
-        elif distribution_down == 'bilin':
+        elif distribution['downsampling'] == 'bilin':
             imb_down = tf.image.resize_images(y_concat, [tf.shape(y_concat)[1] // 2, tf.shape(y_concat)[1] // 2])
+        elif distribution['downsampling'] == 'none':
+            imb_down = y_concat
         else:
-            raise ValueError('Unsupported channel down-sampling {}'.format(distribution_down))
-            
-        jpg = DJPG(sess, tf.get_default_graph(), imb_down, model.x, quality=distribution_jpeg, rounding_approximation=jpeg_approx)
-        imb_out = jpg.y
+            raise ValueError('Unsupported channel down-sampling {}'.format(distribution['downsampling']))
+
+        if distribution['compression'] == 'jpeg':
+
+            print('Channel compression: JPEG({quality}, {rounding_approximation})'.format(**distribution['compression_params']))
+            dist_compression = DJPG(sess, tf.get_default_graph(), imb_down, model.x, **distribution['compression_params'])
+            imb_out = dist_compression.y
+
+        elif distribution['compression'] == 'dcn':
+
+            print('Channel compression: DCN from {dirname}'.format(**distribution['compression_params']))
+            if 'dirname' in distribution['compression_params']:
+                model_directory = distribution['compression_params']['dirname']
+                dist_compression = afi.restore_model(model_directory, down_patch_size, sess=sess, graph=tf.get_default_graph(), x=imb_down, nip_input=model.x)
+            else:
+                # TODO Not tested yet
+                dist_compression = compression.TwitterDCN(sess, tf.get_default_graph(), x=imb_down, nip_input=model.x, patch_size=down_patch_size, **distribution['compression_params'])
+
+            imb_out = dist_compression.y
+
+        elif distribution['compression'] == 'none':
+            imb_out = imb_down
+        else:
+            raise ValueError('Unsupported channel compression {}'.format(distribution['compression']))
 
     # Add manipulation detection
     fan = FAN(sess, tf.get_default_graph(), n_classes=n_classes, x=imb_out, nip_input=model.x, n_convolutions=4)
@@ -96,11 +132,22 @@ def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distributi
 
     # Setup a combined loss and training op
     with tf.name_scope('combined_optimization') as scope:
-        nip_fw = tf.placeholder(tf.float32, name='nip_weight')
+        lambda_nip = tf.placeholder(tf.float32, name='lambda_nip')
+        lambda_dcn = tf.placeholder(tf.float32, name='lambda_dcn')
         lr = tf.placeholder(tf.float32, name='learning_rate')
-        loss = fan.loss + nip_fw * model.loss
+        loss = fan.loss + lambda_nip * model.loss
+        if 'compression_trainable' in distribution and distribution['compression_trainable']:
+            loss += lambda_dcn * dist_compression.loss
+
         adam = tf.train.AdamOptimizer(learning_rate=lr, name='adam')
-        opt = adam.minimize(loss, name='opt_combined')
+
+        # List parameters that need to be optimized
+        parameters = []
+        parameters.extend(model.parameters)
+        parameters.extend(fan.parameters)
+        if 'compression_trainable' in distribution and distribution['compression_trainable']:
+            parameters.extend(dist_compression.parameters)
+        opt = adam.minimize(loss, name='opt_combined', var_list=parameters)
     
     # Initialize all variables
     sess.run(tf.global_variables_initializer())
@@ -112,19 +159,17 @@ def construct_models(nip_model, patch_size=128, distribution_jpeg=50, distributi
         'loss': loss,
         'opt': opt,
         'lr': lr,
-        'lambda': nip_fw,
+        'lambda_nip': lambda_nip,
+        'lambda_dcn': lambda_dcn,
         'operations': operations,
+        'compression': dist_compression
     }
         
-    distribution = {    
-        'forensics_classes': forensics_classes,
-        'channel_jpeg_quality': distribution_jpeg,
-        'channel_downsampling': distribution_down,
-        'jpeg_approximation': jpeg_approx
-    }
-    
-    return tf_ops, distribution
-#     return sess, model, fan, {'loss': loss, 'opt': opt, 'lr': lr, 'lambda': nip_fw}, operations, {'channel_jpeg_quality': distribution_jpeg, 'forensics_classes': forensics_classes, 'downsampling': distribution_down}
+    dist = {'forensics_classes': forensics_classes}
+    dist.update(distribution)
+
+    return tf_ops, dist
+
 
 # @coreutils.logCall
 def train_manipulation_nip(tf_ops, training, distribution, data, directories=None):
@@ -148,7 +193,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     :param training: {
         camera_name           - name of the camera
         use_pretrained_nip    - boolean flag to enable/disable loading a pre-trained model
-        nip_weight            - regularization strength to control the trade-off between objectives
+        nip_weight            - regularization strength to control the trade-off between objectives (image quality)
+        dcn_weight            - regularization strength to control the trade-off between objectives (compression quality)
         run_number            - number of the current run ()
         n_epochs              - number of training epochs
         learning_rate         - value of the learning rate
@@ -274,6 +320,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     training_summary['Camera name'] = '{}'.format(training['camera_name'])
     training_summary['Joint optimization'] = '{}'.format(joint_optimization)
     training_summary['NIP Regularization'] = '{}'.format(training['nip_weight'])
+    training_summary['DCN Regularization'] = '{}'.format(training['dcn_weight'])
     training_summary['FAN model'] = '{}'.format(tf_ops['fan'].summary())
     training_summary['NIP model'] = '{}'.format(tf_ops['nip'].summary())
     training_summary['NIP loss'] = '{}'.format(tf_ops['nip'].loss_metric)
@@ -318,7 +365,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
                         tf_ops['nip'].y_gt: batch_y,
                         tf_ops['fan'].y: batch_l,
                         tf_ops['lr']: learning_rate,
-                        tf_ops['lambda']: training['nip_weight']                        
+                        tf_ops['lambda_nip']: training['nip_weight'],
+                        tf_ops['lambda_dcn']: training['dcn_weight']
                     })                    
                     
                     loss_epoch['nip'].append(nip_loss)

@@ -330,6 +330,13 @@ def qhist(values, code_book, density=False):
     return np.histogram(values.reshape((-1, )), bins=code_book_edges, density=density)[0]
 
 
+def entropy(batch_z, code_book):
+    counts = qhist(batch_z, code_book)
+    counts = counts.clip(min=1)
+    probs = counts / counts.sum()
+    return - np.sum(probs * np.log2(probs))
+
+
 def bin_egdes(code_book):
     max_float = np.abs(code_book).max() * 2
     code_book_edges = np.convolve(code_book, [0.5, 0.5], mode='valid')
@@ -351,6 +358,7 @@ def crop_middle(image, patch=128):
 
     xx = (image.shape[0] - patch) // 2
     yy = (image.shape[1] - patch) // 2
+
     if image.ndim == 2:
         return image[xx:(xx+patch), yy:(yy+patch)]
     elif image.ndim == 3:

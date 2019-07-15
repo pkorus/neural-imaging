@@ -14,7 +14,9 @@ from training.manipulation import construct_models, train_manipulation_nip
 
 
 @coreutils.logCall
-def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', jpeg_quality=50, jpeg_mode='sin', use_pretrained=True, end_repetition=10, start_repetition=0, n_epochs=1001, nip_directory=None, split='120:30:4', regularization_strengths=None):
+def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', jpeg_quality=50, jpeg_mode='sin',
+                   dcn_model=None, downsampling='pool', use_pretrained=True, end_repetition=10, start_repetition=0,
+                   n_epochs=1001, nip_directory=None, split='120:30:4', regularization_strengths=None):
     """
     Repeat training for multiple NIP regularization strengths.
     """
@@ -47,8 +49,32 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     else:
         regularization_strengths = [float(x) for x in regularization_strengths]
 
+    if downsampling not in ['pool', 'bilinear', 'none']:
+        raise ValueError('Unsupported channel down-sampling')
+
+    # Define the distribution channel
+    compression_params = {}
+    if jpeg_quality is not None:
+        compression_params['quality'] = jpeg_quality
+        compression_params['rounding_approximation'] = jpeg_mode
+    else:
+        compression_params['dirname'] = dcn_model
+
+    if jpeg_quality is not None:
+        compression = 'jpeg'
+    elif dcn_model is not None:
+        compression = 'dcn'
+    else:
+        compression = 'none'
+
+    distribution_spec = {
+        'downsampling': downsampling,
+        'compression': compression,
+        'compression_params': compression_params
+    }
+
     # Construct the TF model
-    tf_ops, distribution = construct_models(nip_model, distribution_jpeg=jpeg_quality, loss_metric=loss_metric, jpeg_approx=jpeg_mode)
+    tf_ops, distribution = construct_models(nip_model, distribution=distribution_spec, loss_metric=loss_metric)
 
     for camera_name in camera_names:
         
@@ -74,18 +100,24 @@ def main():
     parser = argparse.ArgumentParser(description='NIP & FAN optimization for manipulation detection')
     parser.add_argument('--nip', dest='nip_model', action='store',
                         help='the NIP model (INet, UNet, DNet)')
-    parser.add_argument('--quality', dest='jpeg_quality', action='store', default=50, type=int,
-                        help='JPEG quality level in the distribution channel')
-    parser.add_argument('--jpeg', dest='jpeg_mode', action='store', default='sin',
-                        help='JPEG approximation mode: sin, soft, harmonic')
+    parser.add_argument('--cam', dest='cameras', action='append',
+                        help='add cameras for evaluation (repeat if needed)')
+
+    # Directories
     parser.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/train_manipulation/',
                         help='the root directory for storing results')
     parser.add_argument('--nip-dir', dest='nip_directory', action='store', default='./data/raw/nip_model_snapshots/',
                         help='the root directory for storing results')
-    parser.add_argument('--cam', dest='cameras', action='append',
-                        help='add cameras for evaluation (repeat if needed)')
+
+    # Training parameters
     parser.add_argument('--loss', dest='loss_metric', action='store', default='L2',
                         help='loss metric for the NIP (L2, L1, SSIM)')
+    parser.add_argument('--split', dest='split', action='store', default='120:30:4',
+                        help='data split with #training:#validation:#validation_patches - e.g., 120:30:4')
+    parser.add_argument('--reg', dest='regularization_strengths', action='append',
+                        help='set custom regularization strength for the NIP (repeat for multiple values)')
+
+    # Training scope and progress
     parser.add_argument('--scratch', dest='from_scratch', action='store_true', default=False,
                         help='train NIP from scratch (ignore pre-trained model)')
     parser.add_argument('--start', dest='start', action='store', default=0, type=int,
@@ -94,14 +126,23 @@ def main():
                         help='last iteration (exclusive, default 10)')
     parser.add_argument('--epochs', dest='epochs', action='store', default=1001, type=int,
                         help='number of epochs (default 1001)')
-    parser.add_argument('--split', dest='split', action='store', default='120:30:4',
-                        help='data split with #training:#validation:#validation_patches - e.g., 120:30:4')
-    parser.add_argument('--reg', dest='regularization_strengths', action='append',
-                        help='set custom regularization strength for the NIP (repeat for multiple values)')
+
+    # Distribution channel
+    parser.add_argument('--jpeg', dest='jpeg_quality', action='store', default=50, type=int,
+                        help='JPEG quality level in the distribution channel')
+    parser.add_argument('--jpeg_mode', dest='jpeg_mode', action='store', default='sin',
+                        help='JPEG approximation mode: sin, soft, harmonic')
+    parser.add_argument('--dcn', dest='dcn_model', action='store', default='./data/raw/dcn/twitter_ent10k/TwitterDCN-8192D/',
+                        help='DCN compression model path')
+    parser.add_argument('--down', dest='downsampling', action='store', default='pool',
+                        help='Distribution channel sub-sampling: pool/bilinear/none')
 
     args = parser.parse_args()
 
-    batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.jpeg_quality, args.jpeg_mode, not args.from_scratch, start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs, nip_directory=args.nip_directory, split=args.split, regularization_strengths=args.regularization_strengths)
+    batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric,
+                   args.jpeg_quality, args.jpeg_mode, args.dcn_model, args.downsampling, not args.from_scratch,
+                   start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs,
+                   nip_directory=args.nip_directory, split=args.split, regularization_strengths=args.regularization_strengths)
 
 
 if __name__ == "__main__":

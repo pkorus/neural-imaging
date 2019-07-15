@@ -9,6 +9,7 @@ Lightweight Python module with commonly used helper functions.
 import sys
 import os
 import re
+import Levenshtein
 
 
 def listdir(path, regex='.*\..*', dirs_only=False):
@@ -25,14 +26,8 @@ def listdir(path, regex='.*\..*', dirs_only=False):
 
 
 def match_option(x, options):
-    matching = [y for y in options if y.startswith(x)]
-    
-    if len(matching) == 0:
-        return None
-    elif len(matching) == 1:
-        return matching[0]
-    else: 
-        return matching
+    distances = [Levenshtein.distance(x, y) for y in options]
+    return options[distances.index(min(distances))]
 
 
 def logCall(func):
