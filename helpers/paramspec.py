@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-import regex
+# import regex
 import types
 
 from helpers import utils
@@ -130,7 +130,8 @@ class ParamSpec(object):
 
                         # 3. if both string - treat as a regular expression match
                         if type(validation) == str and dtype == str:
-                            if not regex.match(validation, candidate):
+                            if validation not in candidate:
+#                            if not regex.match(validation, candidate):
                                 raise ValueError('{}: {} does not match regex ({})!'.format(key, candidate, validation))
 
                         # 4. if function - run custom validation code

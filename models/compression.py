@@ -120,7 +120,7 @@ class DCN(TFModel):
                 self.ssim = tf.reduce_mean(tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1))
                 self.loss = tf.nn.l2_loss(self.x - self.y)
                 if self.entropy_weight is not None:
-                    self.loss = self.loss + self.entropy_weight * self.entropy
+                    self.loss = self.loss + self.entropy_weight * tf.cast(self.entropy, dtype=tf.float32)
                 self.log('Initializing loss: L2 {}'.format('+ {:.2f} * entropy'.format(self.entropy_weight) if self.entropy_weight is not None else ''))
                 
                 # Optimization
