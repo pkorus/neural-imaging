@@ -25,7 +25,7 @@ from helpers import coreutils, tf_helpers, validation
 
 
 @coreutils.logCall
-def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='L2'):
+def construct_models(nip_model, patch_size=128, trainable=None, distribution=None, loss_metric='L2'):
     """
     Setup the TF model of the entire acquisition and distribution workflow.
     :param nip_model: name of the NIP class
@@ -37,6 +37,8 @@ def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='
     if patch_size < 32 or patch_size > 512:
         raise ValueError('The patch size ({}) looks incorrect, typical values should be >= 32 and <= 512'.format(patch_size))
 
+    trainable = trainable or {}
+    
     # Setup a default distribution channel
     if distribution is None:
         distribution = {
@@ -47,6 +49,9 @@ def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='
                 'rounding_approximation': 'sin'
             }
         }
+    
+    if 'dcn' in trainable and distribution['compression'] != 'dcn':
+        raise ValueError('Cannot make DCN trainable given current compression model: {}'.format(distribution['compression']))
 
     if distribution['compression'] == 'jpeg' and (distribution['compression_params']['quality'] < 1 or distribution['compression_params']['quality'] > 100):
         raise ValueError('Invalid JPEG quality level ({})'.format(distribution['compression_params']['quality']))
@@ -80,7 +85,7 @@ def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='
         im_gauss = tf_helpers.tf_gaussian(model.y, 5, 4)
 
         # Mild JPEG
-        tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=80, rounding_approximation='soft')
+        tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=90, rounding_approximation='soft')
         im_jpg = tf_jpg.y
 
         # Setup operations for detection
@@ -93,7 +98,7 @@ def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='
         y_concat = tf.concat(operations, axis=0)
 
         # Add sub-sampling and lossy compression in the channel --------------------------------------------------------
-        down_patch_size = patch_size if distribution['downsampling'] == 'none' else patch_size // 2
+        down_patch_size = 2 * patch_size if distribution['downsampling'] == 'none' else patch_size
         if distribution['downsampling'] == 'pool':
             imb_down = tf.nn.avg_pool(y_concat, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME', name='post_downsample')
         elif distribution['downsampling'] == 'bilin':
@@ -117,11 +122,13 @@ def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='
                 dist_compression = afi.restore_model(model_directory, down_patch_size, sess=sess, graph=tf.get_default_graph(), x=imb_down, nip_input=model.x)
             else:
                 # TODO Not tested yet
-                dist_compression = compression.TwitterDCN(sess, tf.get_default_graph(), x=imb_down, nip_input=model.x, patch_size=down_patch_size, **distribution['compression_params'])
+                raise NotImplementedError('DCN models should be restored from a pre-training session!')
+                # dist_compression = compression.TwitterDCN(sess, tf.get_default_graph(), x=imb_down, nip_input=model.x, patch_size=down_patch_size, **distribution['compression_params'])
 
             imb_out = dist_compression.y
 
         elif distribution['compression'] == 'none':
+            dist_compression = None
             imb_out = imb_down
         else:
             raise ValueError('Unsupported channel compression {}'.format(distribution['compression']))
@@ -135,23 +142,23 @@ def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='
         lambda_nip = tf.placeholder(tf.float32, name='lambda_nip')
         lambda_dcn = tf.placeholder(tf.float32, name='lambda_dcn')
         lr = tf.placeholder(tf.float32, name='learning_rate')
-        loss = fan.loss + lambda_nip * model.loss
-        if 'compression_trainable' in distribution and distribution['compression_trainable']:
+        loss = fan.loss
+        if 'nip' in trainable:
+            loss += lambda_nip * model.loss
+        if 'dcn' in trainable:
             loss += lambda_dcn * dist_compression.loss
 
         adam = tf.train.AdamOptimizer(learning_rate=lr, name='adam')
 
         # List parameters that need to be optimized
         parameters = []
-        parameters.extend(model.parameters)
         parameters.extend(fan.parameters)
-        if 'compression_trainable' in distribution and distribution['compression_trainable']:
+        if 'nip' in trainable:
+            parameters.extend(model.parameters)
+        if 'dcn' in trainable:
             parameters.extend(dist_compression.parameters)
         opt = adam.minimize(loss, name='opt_combined', var_list=parameters)
-    
-    # Initialize all variables
-    sess.run(tf.global_variables_initializer())
-    
+        
     tf_ops = {
         'sess': sess,
         'nip': model,
@@ -162,7 +169,7 @@ def construct_models(nip_model, patch_size=128, distribution=None, loss_metric='
         'lambda_nip': lambda_nip,
         'lambda_dcn': lambda_dcn,
         'operations': operations,
-        'compression': dist_compression
+        'dcn': dist_compression
     }
         
     dist = {'forensics_classes': forensics_classes}
@@ -193,8 +200,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     :param training: {
         camera_name           - name of the camera
         use_pretrained_nip    - boolean flag to enable/disable loading a pre-trained model
-        nip_weight            - regularization strength to control the trade-off between objectives (image quality)
-        dcn_weight            - regularization strength to control the trade-off between objectives (compression quality)
+        lambda_nip            - regularization strength to control the trade-off between objectives (image quality)
+        lambda_dcn            - regularization strength to control the trade-off between objectives (compression quality)
         run_number            - number of the current run ()
         n_epochs              - number of training epochs
         learning_rate         - value of the learning rate
@@ -234,13 +241,13 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     directories = directories_def
     
     # Check if all necessary keys are present
-    if any([x not in tf_ops for x in ['sess', 'nip', 'fan', 'loss', 'opt', 'lr', 'lambda']]):
+    if any([x not in tf_ops for x in ['sess', 'nip', 'fan', 'loss', 'opt', 'lr', 'lambda_nip', 'lambda_dcn']]):
         raise RuntimeError('Missing keys in the tf_ops dictionary! {}'.format(tf_ops.keys()))
         
-    if any([x not in training for x in ['camera_name', 'use_pretrained_nip', 'nip_weight', 'run_number', 'n_epochs', 'learning_rate']]):
+    if any([x not in training for x in ['camera_name', 'use_pretrained_nip', 'lambda_nip', 'lambda_dcn', 'run_number', 'n_epochs', 'learning_rate']]):
         raise RuntimeError('Missing keys in the training dictionary! {}'.format(training.keys()))
 
-    if any([x not in distribution for x in ['channel_jpeg_quality', 'jpeg_approximation', 'forensics_classes', 'channel_downsampling']]):
+    if any([x not in distribution for x in ['downsampling', 'compression', 'forensics_classes', 'compression_params']]):
         raise RuntimeError('Missing keys in the distribution dictionary! {}'.format(distribution.keys()))
 
     if data is None:
@@ -254,16 +261,29 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     except Exception as e:
         raise ValueError('Data set error: {}'.format(e))
 
-    print('\n## Training NIP/FAN for manipulation detection: cam={} / lr={:.4f} / run={:3d} / epochs={}, root={}'.format(training['camera_name'], training['nip_weight'], training['run_number'], training['n_epochs'], directories['root']), flush=True)
+    print('\n## Training NIP/FAN for manipulation detection: cam={} / lr={:.4f} / run={:3d} / epochs={}, root={}'.format(training['camera_name'], training['lambda_nip'], training['run_number'], training['n_epochs'], directories['root']), flush=True)
 
-    nip_save_dir = os.path.join(directories['root'], training['camera_name'], tf_ops['nip'].class_name, 'lr-{:0.4f}'.format(training['nip_weight']), '{:03d}'.format(training['run_number']))
+    # Construct output directory: root / camera_name / *Net / lr-0.1000 / lc-0.1000 / 001 / 
+    nip_save_dir = [directories['root'], training['camera_name'], tf_ops['nip'].class_name]
+    if 'nip' in training['trainable']:
+        nip_save_dir.append('lr-{:0.4f}'.format(training['lambda_nip']))
+    else:
+        nip_save_dir.append('lr-{:0.4f}'.format(0))
+    if 'dcn' in training['trainable']:
+        nip_save_dir.append('lc-{:0.4f}'.format(training['lambda_dcn']))
+    nip_save_dir.append('{:03d}'.format(training['run_number']))
+    
+    nip_save_dir = os.path.join(*nip_save_dir)
     print('(progress) ->', nip_save_dir)
 
     model_directory = os.path.join(nip_save_dir, 'models')
     print('(model) ---->', model_directory)
 
-    # Enable joint optimization if NIP weight is non-zero
-    joint_optimization = training['nip_weight'] != 0
+    # Setup flags for trainable components
+    joint_opt = ['fan']
+    joint_opt.extend(sorted(training['trainable']))
+    joint_opt = '+'.join(joint_opt)
+    joint_optimization = ['nip' in training['trainable'], 'dcn' in training['trainable']]
 
     # Basic setup
     problem_description = 'manipulation detection'
@@ -275,11 +295,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     learning_rate_decay_rate = 0.90
 
     # Setup the arrays for storing the current batch - randomly sampled from full-resolution images
-    # H, W = data['training']['x'].shape[1:3]
     learning_rate = training['learning_rate']
-
-    # batch_x = np.zeros((batch_size, patch_size, patch_size, 4), dtype=np.float32)
-    # batch_y = np.zeros((batch_size, 2 * patch_size, 2 * patch_size, 3), dtype=np.float32)
 
     # Initialize models
     tf_ops['fan'].init()
@@ -288,6 +304,9 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
     if training['use_pretrained_nip']:
         tf_ops['nip'].load_model(os.path.join(directories['nip_snapshots'], training['camera_name'], tf_ops['nip'].scoped_name))
+    
+    if distribution['compression'] == 'dcn':
+        tf_ops['dcn'].load_model(distribution['compression_params']['dirname'])
 
     n_batches = data.count_training // batch_size
 
@@ -314,13 +333,13 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     training_summary = OrderedDict()
     training_summary['Problem'] = '{}'.format(problem_description)
     training_summary['Classes'] = '{}'.format(distribution['forensics_classes'])
-    training_summary['Channel sub-sampling'] = '{}'.format(distribution['channel_downsampling'])
-    training_summary['Channel JPEG Quality'] = '{}'.format(distribution['channel_jpeg_quality'])
-    training_summary['Channel JPEG Mode'] = '{}'.format(distribution['jpeg_approximation'])
+    training_summary['Channel Downsampling'] = '{}'.format(distribution['downsampling'])
+    training_summary['Channel Compression'] = '{}'.format(tf_ops['dcn'].summary() if tf_ops['dcn'] is not None else None)
+    training_summary['Channel Compression Parameters'] = '{}'.format(distribution['compression_params'])
     training_summary['Camera name'] = '{}'.format(training['camera_name'])
-    training_summary['Joint optimization'] = '{}'.format(joint_optimization)
-    training_summary['NIP Regularization'] = '{}'.format(training['nip_weight'])
-    training_summary['DCN Regularization'] = '{}'.format(training['dcn_weight'])
+    training_summary['Joint optimization'] = '{}'.format(joint_opt)
+    training_summary['NIP Regularization'] = '{}'.format(training['lambda_nip'])
+    training_summary['DCN Regularization'] = '{}'.format(training['lambda_dcn'])
     training_summary['FAN model'] = '{}'.format(tf_ops['fan'].summary())
     training_summary['NIP model'] = '{}'.format(tf_ops['nip'].summary())
     training_summary['NIP loss'] = '{}'.format(tf_ops['nip'].loss_metric)
@@ -352,21 +371,20 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
         for epoch in range(0, training['n_epochs']):
 
-            # Fill the batch with random crops of the images
             for batch_id in range(n_batches):
 
                 # Extract random patches for the current batch of images
                 batch_x, batch_y = data.next_training_batch(batch_id, batch_size, 2 * patch_size)
 
-                if joint_optimization:
+                if any(joint_optimization):
                     # Make custom optimization step                    
                     comb_loss, nip_loss, _ = tf_ops['sess'].run([tf_ops['loss'], tf_ops['nip'].loss, tf_ops['opt']], feed_dict={
                         tf_ops['nip'].x: batch_x,
                         tf_ops['nip'].y_gt: batch_y,
                         tf_ops['fan'].y: batch_l,
                         tf_ops['lr']: learning_rate,
-                        tf_ops['lambda_nip']: training['nip_weight'],
-                        tf_ops['lambda_dcn']: training['dcn_weight']
+                        tf_ops['lambda_nip']: training['lambda_nip'],
+                        tf_ops['lambda_dcn']: training['lambda_dcn']
                     })                    
                     
                     loss_epoch['nip'].append(nip_loss)
@@ -386,10 +404,16 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
             if epoch % sampling_rate == 0:
 
                 # Validate the NIP model
-                if joint_optimization:
-                    values = validation.validate_nip(tf_ops['nip'], data, None, epoch=epoch, show_ref=True, loss_type=tf_ops['nip'].loss_metric)
+                if joint_optimization[0]:
+                    values = validation.validate_nip(tf_ops['nip'], data, nip_save_dir, epoch=epoch, show_ref=True, loss_type=tf_ops['nip'].loss_metric)
                     for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
                         tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
+                        
+                # Validate the DCN model
+                if joint_optimization[1]:
+                    values = validation.validate_dcn(tf_ops['dcn'], data, nip_save_dir, epoch=epoch, show_ref=True)
+                    for metric, val_array in zip(['ssim', 'loss', 'entropy'], values):
+                        tf_ops['dcn'].performance[metric]['validation'].append(float(np.mean(val_array)))                    
 
                 # Validate the forensics network
                 accuracy = validation.validate_fan(tf_ops['fan'], data, lambda x: batch_labels(x, n_classes), n_classes)
@@ -403,7 +427,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
                 # validation.visualize_manipulation_training(model, fan, conf, epoch, nip_save_dir, classes=distribution['forensics_classes'])
 
                 # Save progress stats
-                validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], conf, nip_save_dir)
+                validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], tf_ops['dcn'], conf, nip_save_dir)
 
                 # Monitor memory usage
                 # gc.collect()
@@ -420,10 +444,14 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
             # Update the progress bar
             progress_stats = {
-                'nip': np.log10(np.mean(loss_last_k_epochs['nip'])).round(1),
+                'nip': np.log10(np.mean(loss_last_k_epochs['nip'])).round(1),                
                 'fan': np.mean(loss_last_k_epochs['fan']),
                 'acc': tf_ops['fan'].valid_perf['accuracy'][-1],
             }
+            
+            if distribution['compression'] == 'dcn':
+                progress_stats['dcn'] = tf_ops['dcn'].performance['ssim']['validation'][-1]
+                progress_stats['H'] = tf_ops['dcn'].performance['entropy']['validation'][-1]
 
             if len(tf_ops['nip'].valid_perf['psnr']) > 0:
                 progress_stats['psnr'] = tf_ops['nip'].valid_perf['psnr'][-1]
@@ -439,20 +467,34 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
         tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
 
+    if isinstance(tf_ops['dcn'], compression.DCN):
+        values = validation.validate_dcn(tf_ops['dcn'], data, nip_save_dir, epoch=epoch, show_ref=True)
+        for metric, val_array in zip(['ssim', 'loss', 'entropy'], values):
+            tf_ops['dcn'].performance[metric]['validation'].append(float(np.mean(val_array)))
+        
     # Compute confusion matrix
     conf = validation.confusion(tf_ops['fan'], data, lambda x: batch_labels(x, n_classes))
 
     # Save model progress
-    validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], conf, nip_save_dir)
+    validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], tf_ops['dcn'], conf, nip_save_dir)
 
     # Visualize current progress
     validation.visualize_manipulation_training(tf_ops['nip'], tf_ops['fan'], conf, epoch, nip_save_dir, classes=distribution['forensics_classes'])
 
     # Save models
-    # Root     : train_manipulation / camera_name / {INet} / lr-01 / 001 / models / {INet/FAN}
-    print('Saving models...')
+    print('Saving models...', end='')
 
-    tf_ops['nip'].save_model(os.path.join(model_directory, tf_ops['nip'].scoped_name), epoch)
     tf_ops['fan'].save_model(os.path.join(model_directory, tf_ops['fan'].scoped_name), epoch)
+    print('fan', end='')
+    
+    if joint_optimization[0]:
+        tf_ops['nip'].save_model(os.path.join(model_directory, tf_ops['nip'].scoped_name), epoch)
+        print('nip', end='')
+    
+    if isinstance(tf_ops['dcn'], compression.DCN) and joint_optimization[1]:
+        tf_ops['dcn'].save_model(os.path.join(model_directory, tf_ops['dcn'].scoped_name), epoch)
+        print('dcn', end='')
+    
+    print('') # \newline
     
     return model_directory

@@ -39,17 +39,20 @@ def tf_gaussian(x, kernel, sigma, skip_clip=False):
 
 def tf_sharpen(x, filter=None, hsv=True):
     with tf.name_scope('sharpen_filter'):
-        if filter == 2:
-            gk = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-        elif filter == 1:
-            gk = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-        elif filter == 0:
+
+        if filter == 0: # weak
+            gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 2.0000, -0.1667], [-0.0833, -0.1667, -0.0833]])
+        elif filter == 1: # strong
             gk = np.array([[-0.1667, -0.6667, -0.1667], [-0.6667, 4.3333, -0.6667], [-0.1667, -0.6667, -0.1667]])
         else:
             gk = None
 
+        # Other standard filters
+        # gk = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+        # gk = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])            
+
         if gk is None or gk.ndim != 2 or gk.shape[0] != gk.shape[1]:
-            raise ValueError('Invalid filter!')
+            raise ValueError('Invalid filter! {}'.format(gk))
 
         kernel = gk.shape[0]        
         gfilter = repeat_2dfilter(gk, 3)

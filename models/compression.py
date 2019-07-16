@@ -34,7 +34,7 @@ class DCN(TFModel):
       _h                   - hyper parameters
     """
 
-    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, scale_latent=False, use_batchnorm=False, use_gdn=False, verbose=False, **kwargs):
+    def __init__(self, sess, graph, label=None, x=None, nip_input=None, patch_size=128, latent_bpf=4, train_codebook=False, entropy_weight=None, default_val_is_train=True, scale_latent=False, use_batchnorm=False, use_gdn=False, verbose=False, loss_metric='L2', **kwargs):
         """
         Creates a forensic analysis network.
 
@@ -62,6 +62,7 @@ class DCN(TFModel):
         self.scale_latent = scale_latent
         self.use_batchnorm = use_batchnorm
         self.use_gdn = use_gdn
+        self.loss_metric = loss_metric
 
         # Remember parameters passed to the constructor
         # self.args = kwargs
@@ -117,11 +118,17 @@ class DCN(TFModel):
                     self.entropy, self.histogram, self.weights = self._setup_entropy(self.latent_pre, self._codebook)
 
                 # Loss and SSIM
+                
                 self.ssim = tf.reduce_mean(tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1))
-                self.loss = tf.nn.l2_loss(self.x - self.y)
+                
+                if loss_metric == 'L2':                    
+                    self.loss = tf.nn.l2_loss(self.x - self.y)
+                else:
+                    raise NotImplementedError('Loss metric {} not supported.'.format(loss_metric))
+                
                 if self.entropy_weight is not None:
                     self.loss = self.loss + self.entropy_weight * tf.cast(self.entropy, dtype=tf.float32)
-                self.log('Initializing loss: L2 {}'.format('+ {:.2f} * entropy'.format(self.entropy_weight) if self.entropy_weight is not None else ''))
+                self.log('Initializing loss: {} {}'.format(self.loss_metric, '+ {:.2f} * entropy'.format(self.entropy_weight) if self.entropy_weight is not None else ''))
                 
                 # Optimization
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -229,11 +236,11 @@ class DCN(TFModel):
 
             return self.sess.run(self.histogram, feed_dict=feed_dict)
 
-    def compress(self, batch_x, is_training=None):
+    def compress(self, batch_x, is_training=None, direct=False):
         with self.graph.as_default():
             
             feed_dict = {
-                self.x if not self.use_nip_input else self.nip_input: batch_x,
+                self.x if (direct or not self.use_nip_input) else self.nip_input: batch_x,
             }            
             
             if hasattr(self, 'is_training'):
@@ -267,14 +274,14 @@ class DCN(TFModel):
             y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
             
-    def process(self, batch_x, dropout_keep_prob=1.0, is_training=None):
+    def process(self, batch_x, dropout_keep_prob=1.0, is_training=None, direct=False):
         """
         Process the image through the whole model (encoder-quantization-decoder).
         """
         with self.graph.as_default():
             
             feed_dict={
-                self.x if not self.use_nip_input else self.nip_input: batch_x
+                self.x if (direct or not self.use_nip_input) else self.nip_input: batch_x
             }
             
             if hasattr(self, 'dropout'):
@@ -286,22 +293,22 @@ class DCN(TFModel):
             y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
     
-    def process_direct(self, batch_x, dropout_keep_prob=1.0, is_training=None):
-        """
-        Returns the predicted class for an image batch. The input is always fed to the FAN model directly.
-        """
-        with self.graph.as_default():
-            feed_dict = {
-                self.x: batch_x
-            }
-            if hasattr(self, 'dropout'):
-                feed_dict[self.dropout] = dropout_keep_prob
+#     def process_direct(self, batch_x, dropout_keep_prob=1.0, is_training=None):
+#         """
+#         Returns the predicted class for an image batch. The input is always fed to the FAN model directly.
+#         """
+#         with self.graph.as_default():
+#             feed_dict = {
+#                 self.x: batch_x
+#             }
+#             if hasattr(self, 'dropout'):
+#                 feed_dict[self.dropout] = dropout_keep_prob
                 
-            if hasattr(self, 'is_training'):
-                feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
+#             if hasattr(self, 'is_training'):
+#                 feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
                 
-            y = self.sess.run(self.y, feed_dict)
-            return y.clip(0, 1)
+#             y = self.sess.run(self.y, feed_dict)
+#             return y.clip(0, 1)
     
     def training_step(self, batch_x, learning_rate, dropout_keep_prob=1.0):
         """

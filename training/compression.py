@@ -308,9 +308,9 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/', overw
                         print('Early stopping - the model converged, validation SSIM change {:.4f}'.format(perf_change))
                         break
 
-                    # if current < previous:
-                    #     print('Early stopping - SSIM deterioration {:.4f} -> {:.4f}'.format(previous, current))
-                    #     break
+                    if current < 0.9 * previous:
+                        print('Error - SSIM deterioration by more than 10% {:.4f} -> {:.4f}'.format(previous, current))
+                        break
 
             progress_dict = {
                 'L': np.mean(perf['loss']['training'][-3:]),

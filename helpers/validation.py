@@ -5,8 +5,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import OrderedDict
 from helpers import utils
-from skimage.measure import compare_ssim, compare_psnr
+from skimage.measure import compare_ssim, compare_psnr, compare_mse
 from models.pipelines import NIPModel
+from models.compression import DCN
 
 
 def confusion(mc, data, lagel_generator, label_multiplier=1):
@@ -33,6 +34,49 @@ def confusion(mc, data, lagel_generator, label_multiplier=1):
 
     return conf / data.count_validation
 
+
+def validate_dcn(model, data, save_dir=False, epoch=0, show_ref=False):
+    
+    if not isinstance(model, DCN):
+        return
+
+    if save_dir is not None:
+        # Setup output figure
+        images_x = np.minimum(data.count_validation, 10 if not show_ref else 5)
+        images_y = np.ceil(data.count_validation / images_x)
+        fig = plt.figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
+        
+    developed_out = np.zeros_like(data['validation']['y'], dtype=np.float32)
+
+    # Entropy
+    batch_x = data.next_validation_batch(0, data.count_validation)[-1]
+    batch_z = model.compress(batch_x, direct=True)
+    batch_y = model.process(batch_x, direct=True)
+    
+    codebook = model.get_codebook()
+    
+    ssims = [compare_ssim(batch_x[b], batch_y[b], multichannel=True, data_range=1) for b in range(data.count_validation)]
+    mses = [compare_mse(batch_x[b], batch_y[b]) for b in range(data.count_validation)]
+    entropies = [utils.entropy(batch_z[b], codebook) for b in range(data.count_validation)]
+    
+    if save_dir is not None:
+        for b in range(data.count_validation):
+            ax = fig.add_subplot(images_y, images_x, b+1)
+            if show_ref:
+                ax.imshow(np.concatenate( (batch_x[b], batch_y[b]), axis=1))
+            else:
+                ax.imshow(batch_y[b])
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title('{:.1f} / {:.2f}'.format(mses[b], ssims[b]), fontsize=6)
+
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        fig.savefig('{}/dcn_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=150)
+        plt.close(fig)
+        del fig
+    
+    return ssims, mses, entropies
 
 def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type='L2'):
     """ Develops image patches using the given NIP and returns standard image quality measures.
@@ -193,7 +237,7 @@ def visualize_manipulation_training(nip, fornet, conf, epoch, save_dir=None, cla
         del fig
 
 
-def save_training_progress(training_summary, model, fan, conf, root_dir):
+def save_training_progress(training_summary, model, fan, dcn, conf, root_dir):
     """ Saves training progress to a JSON file."""
     
     # Populate output structures
@@ -232,7 +276,16 @@ def save_training_progress(training_summary, model, fan, conf, root_dir):
     
         if conf is not None:
             training['forensics']['validation']['confusion'] = conf.tolist()
-
+    
+    if dcn is not None and hasattr(dcn, 'performance'):
+        training['compression'] = OrderedDict()
+#         training['compression']['training'] = OrderedDict()
+#         training['compression']['training']['ssim'] = dcn.train_perf['loss']
+        training['compression']['validation'] = OrderedDict() 
+        training['compression']['validation']['ssim'] = dcn.performance['ssim']['validation']
+        training['compression']['validation']['entropy'] = dcn.performance['entropy']['validation']
+        training['compression']['validation']['loss'] = dcn.performance['loss']['validation']
+    
     # Make dirs if needed
     if not os.path.exists(root_dir):
         os.makedirs(root_dir)
