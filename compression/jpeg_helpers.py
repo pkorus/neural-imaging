@@ -7,6 +7,7 @@ import scipy as sp
 from skimage.measure import compare_ssim
 from collections import OrderedDict
 from struct import unpack
+from jpylyzer import jpylyzer
 
 app_markers = (0xffe0, 0xffe1, 0xffe2, 0xffe3, 0xffe4, 0xffe5, 0xffe6, 0xffe7, 0xffe8, 0xffe9, 0xffea, 0xffeb, 0xffec,
                0xffed, 0xffee, 0xffef)
@@ -95,13 +96,12 @@ def jp2bytes(filename):
     Gets JPEG 2000 payload size in bytes (using jpylyzer). Not thoroughly tested. Should sum all tiles.
 
     """
-    pc = subprocess.Popen(['jpylyzer', filename], stdout=subprocess.PIPE)
+    out = jpylyzer.checkOneFile(filename).toxml()
+    data_length = [int(x) for x in re.findall('\<psot\>([0-9]+)\</psot\>', out.decode('utf8'))]
 
-    if pc.returncode is not None:
+    if len(data_length) == 0:
         raise RuntimeError('Error running jpylyzer {}'.format(filename))
 
-    out = pc.stdout.read()
-    data_length = [int(x) for x in re.findall('\<psot\>([0-9]+)\</psot\>', out.decode())]
     return sum(data_length)
 
 
