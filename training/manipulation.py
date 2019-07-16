@@ -479,7 +479,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], tf_ops['dcn'], conf, nip_save_dir)
 
     # Visualize current progress
-    validation.visualize_manipulation_training(tf_ops['nip'], tf_ops['fan'], conf, epoch, nip_save_dir, classes=distribution['forensics_classes'])
+    validation.visualize_manipulation_training(tf_ops['nip'], tf_ops['fan'], tf_ops['dcn'], conf, epoch, nip_save_dir, classes=distribution['forensics_classes'])
 
     # Save models
     print('Saving models...', end='')

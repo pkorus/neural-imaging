@@ -4,7 +4,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import OrderedDict
-from helpers import utils
+from helpers import utils, plotting
 from skimage.measure import compare_ssim, compare_psnr, compare_mse
 from models.pipelines import NIPModel
 from models.compression import DCN
@@ -45,8 +45,6 @@ def validate_dcn(model, data, save_dir=False, epoch=0, show_ref=False):
         images_x = np.minimum(data.count_validation, 10 if not show_ref else 5)
         images_y = np.ceil(data.count_validation / images_x)
         fig = plt.figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
-        
-    developed_out = np.zeros_like(data['validation']['y'], dtype=np.float32)
 
     # Entropy
     batch_x = data.next_validation_batch(0, data.count_validation)[-1]
@@ -61,22 +59,30 @@ def validate_dcn(model, data, save_dir=False, epoch=0, show_ref=False):
     
     if save_dir is not None:
         for b in range(data.count_validation):
-            ax = fig.add_subplot(images_y, images_x, b+1)
-            if show_ref:
-                ax.imshow(np.concatenate( (batch_x[b], batch_y[b]), axis=1))
-            else:
-                ax.imshow(batch_y[b])
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_title('{:.1f} / {:.2f}'.format(mses[b], ssims[b]), fontsize=6)
+            ax = fig.add_subplot(images_y, images_x, b + 1)
+            plotting.quickshow(
+                np.concatenate((batch_x[b], batch_y[b]), axis=1) if show_ref else batch_y[b],
+                '{:.1f} / {:.2f}'.format(mses[b], ssims[b]),
+                axes=ax
+            )
+
+            # if show_ref:
+            #     ax.imshow(np.concatenate( (batch_x[b], batch_y[b]), axis=1))
+            # else:
+            #     ax.imshow(batch_y[b])
+            # ax.set_xticks([])
+            # ax.set_yticks([])
+            # ax.set_title('{:.1f} / {:.2f}'.format(mses[b], ssims[b]), fontsize=6)
 
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
+
         fig.savefig('{}/dcn_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=150)
         plt.close(fig)
         del fig
     
     return ssims, mses, entropies
+
 
 def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type='L2'):
     """ Develops image patches using the given NIP and returns standard image quality measures.
@@ -121,13 +127,11 @@ def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type
         # Display validation results
         if save_dir is not None:
             ax = fig.add_subplot(images_y, images_x, b+1)
-            if show_ref:
-                ax.imshow(np.concatenate( (reference, developed), axis=1))
-            else:
-                ax.imshow(developed)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_title('{:.1f} dB / {:.2f}'.format(psnr, ssim), fontsize=6)
+            plotting.quickshow(
+                np.concatenate((reference, developed), axis=1) if show_ref else developed,
+                '{:.1f} dB / {:.2f}'.format(psnr, ssim),
+                axes=ax
+            )
 
     if save_dir is not None:
         # # Save the figure
@@ -176,12 +180,12 @@ def validate_fan(mc, data, label_generator, label_multiplier, get_labels=False):
         return np.mean(accurracies)
         
 
-def visualize_manipulation_training(nip, fornet, conf, epoch, save_dir=None, classes=None):
+def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, classes=None):
     """ Visualizes progress of manipulation detection training. """
         
     # Init
     images_x = 3
-    images_y = 2
+    images_y = 2 if dcn is None else 3
     fig = plt.figure(figsize=(18, 10 / images_x * images_y))
         
     # Draw the plots
@@ -206,28 +210,46 @@ def visualize_manipulation_training(nip, fornet, conf, epoch, save_dir=None, cla
     ax.set_ylim([0.8, 1])
     
     ax = fig.add_subplot(images_y, images_x, 4)
-    ax.plot(fornet.train_perf['loss'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(fornet.train_perf['loss'], 0))
-    ax.set_ylabel('Forensics network\'s loss')
+    ax.plot(fan.train_perf['loss'], '.', alpha=0.25)
+    ax.plot(utils.ma_conv(fan.train_perf['loss'], 0))
+    ax.set_ylabel('FAN loss')
 
     ax = fig.add_subplot(images_y, images_x, 5)
-    ax.plot(fornet.valid_perf['accuracy'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(fornet.valid_perf['accuracy'], 0))
-    ax.set_ylabel('Forensics network\'s accuracy')
+    ax.plot(fan.valid_perf['accuracy'], '.', alpha=0.25)
+    ax.plot(utils.ma_conv(fan.valid_perf['accuracy'], 0))
+    ax.set_ylabel('FAN accuracy')
     ax.set_ylim([0, 1])
         
     ax = fig.add_subplot(images_y, images_x, 6)
     ax.imshow(conf, vmin=0, vmax=1)
     if classes is not None:
-        ax.set_xticks(range(fornet.n_classes))
+        ax.set_xticks(range(fan.n_classes))
         ax.set_xticklabels(classes, rotation='vertical')
-        ax.set_yticks(range(fornet.n_classes))
+        ax.set_yticks(range(fan.n_classes))
         ax.set_yticklabels(classes)
-    for r in range(fornet.n_classes):
+    for r in range(fan.n_classes):
         ax.text(r, r, '{:.2f}'.format(conf[r, r]), horizontalalignment='center', color='b' if conf[r,r] > 0.5 else 'w')        
     ax.set_xlabel('PREDICTED class')
     ax.set_ylabel('TRUE class')
     ax.set_title('Accuracy: {:.2f}'.format(np.mean(np.diag(conf))))
+
+    if images_y == 3:
+        ax = fig.add_subplot(images_y, images_x, 7)
+        ax.plot(dcn.performance['loss']['validation'], '.', alpha=0.25)
+        ax.plot(utils.ma_conv(dcn.performance['loss']['validation'], 0))
+        ax.set_ylabel('DCN loss')
+
+        ax = fig.add_subplot(images_y, images_x, 8)
+        ax.plot(dcn.performance['ssim']['validation'], '.', alpha=0.25)
+        ax.plot(utils.ma_conv(dcn.performance['ssim']['validation'], 0))
+        ax.set_ylabel('DCN ssim')
+        ax.set_ylim([0, 1])
+
+        ax = fig.add_subplot(images_y, images_x, 9)
+        ax.plot(dcn.performance['entropy']['validation'], '.', alpha=0.25)
+        ax.plot(utils.ma_conv(dcn.performance['entropy']['validation'], 0))
+        ax.set_ylabel('DCN entropy')
+        # ax.set_ylim([0, 5])
 
     if save_dir is not None:
         if not os.path.exists(save_dir):
