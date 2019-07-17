@@ -176,7 +176,8 @@ def main():
 
     if args.plot == 'batch':
 
-        model = afi.restore_model(args.dir, args.patch_size)
+        model, stats = afi.restore_model(args.dir, args.patch_size, fetch_stats=True)
+        print('Training stats:', stats)
 
         data = dataset.IPDataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
         batch_x = data.next_validation_batch(0, args.images)

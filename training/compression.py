@@ -224,7 +224,7 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/', overw
                 for key, value in values.items():
                     caches[key]['training'].append(value)
 
-                    # Record average values for the whole epoch
+            # Record average values for the whole epoch
             for key in ['loss', 'ssim', 'entropy']:
                 perf[key]['training'].append(float(np.mean(caches[key]['training'])))
 
@@ -242,7 +242,8 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/', overw
 
                 for batch_id in range(v_batches):
                     batch_x = data.next_validation_batch(batch_id, training['batch_size'])
-                    batch_y = dcn.process(batch_x, is_training=training['validation_is_training'])
+                    batch_z = dcn.compress(batch_x, is_training=training['validation_is_training'])
+                    batch_y = dcn.decompress(batch_z)
 
                     # Compute loss
                     loss_value = np.linalg.norm(batch_x - batch_y)
@@ -252,8 +253,16 @@ def train_dcn(tf_ops, training, data, directory='./data/raw/compression/', overw
                     ssim_value = np.mean([ssim(batch_x[r], batch_y[r], multichannel=True) for r in range(len(batch_x))])
                     caches['ssim']['validation'].append(ssim_value)
 
-                perf['loss']['validation'].append(float(np.mean(caches['loss']['validation'])))
-                perf['ssim']['validation'].append(float(np.mean(caches['ssim']['validation'])))
+                    # Entropy
+                    entropy_value = utils.entropy(batch_z, codebook)
+                    caches['entropy']['validation'].append(entropy_value)
+
+                for key in ['loss', 'ssim', 'entropy']:
+                    perf[key]['validation'].append(float(np.mean(caches[key]['validation'])))
+
+                # TODO Remove once verified
+                # perf['loss']['validation'].append(float(np.mean(caches['loss']['validation'])))
+                # perf['ssim']['validation'].append(float(np.mean(caches['ssim']['validation'])))
 
                 # Save current snapshot
                 indices = np.argsort(np.var(batch_x, axis=(1, 2, 3)))[::-1]
