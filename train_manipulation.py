@@ -13,10 +13,16 @@ from helpers import coreutils, dataset
 from training.manipulation import construct_models, train_manipulation_nip
 
 
+dcn_presets = {
+    '4k' : './data/raw/dcn/entropy/TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
+    '8k' : './data/raw/dcn/entropy/TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
+    '16k' : './data/raw/dcn/entropy/TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
+}
+
 @coreutils.logCall
 def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', trainables=None,
-                   jpeg_quality=50, jpeg_mode='soft', dcn_model=None, downsampling='pool',
-                   end_repetition=10, start_repetition=0, n_epochs=1001,
+                   jpeg_quality=None, jpeg_mode='soft', dcn_model=None, downsampling='pool',
+                   end_repetition=10, start_repetition=0, n_epochs=1001, patch=128,
                    use_pretrained=True, lambdas_nip=None, lambdas_dcn=None, nip_directory=None, split='120:30:4'):
     """
     Repeat training for multiple NIP regularization strengths.
@@ -25,7 +31,7 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     training = {
         'use_pretrained_nip': use_pretrained,
         'n_epochs': n_epochs,
-        'patch_size': 128,
+        'patch_size': patch,
         'batch_size': 20,
         'sampling_rate': 50,
         'learning_rate': 1e-4,
@@ -47,10 +53,12 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     camera_names = camera_names or ['Nikon D90', 'Nikon D7000', 'Canon EOS 5D', 'Canon EOS 40D']
 
     # Trainable elements
-    trainables = trainables or {'nip'}
+    trainables = trainables if trainables is not None else {'nip'}
     for tr in trainables:
         if tr not in {'nip', 'dcn'}:
             raise ValueError('Invalid specifier of trainable elements: only nip, dcn allowed!')
+            
+    training['trainable'] = trainables
 
     # Regularization
     if lambdas_nip is None or len(lambdas_nip) == 0:
@@ -66,6 +74,9 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     if downsampling not in ['pool', 'bilinear', 'none']:
         raise ValueError('Unsupported channel down-sampling')
 
+    if dcn_model is None and jpeg_quality is None:
+        jpeg_quality = 50
+        
     # Define the distribution channel
     compression_params = {}
     if jpeg_quality is not None:
@@ -88,7 +99,7 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     }
 
     # Construct the TF model
-    tf_ops, distribution = construct_models(nip_model, trainable=trainables, distribution=distribution_spec, loss_metric=loss_metric)
+    tf_ops, distribution = construct_models(nip_model, patch_size=training['patch_size'], trainable=trainables, distribution=distribution_spec, loss_metric=loss_metric)
 
     for camera_name in camera_names:
         
@@ -118,6 +129,8 @@ def main():
                         help='the NIP model (INet, UNet, DNet)')
     parser.add_argument('--cam', dest='cameras', action='append',
                         help='add cameras for evaluation (repeat if needed)')
+    parser.add_argument('--patch', dest='patch', action='store', default=256, type=int,
+                        help='RGB patch size for NIP output (default 256)')
 
     # Directories
     parser.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/train_manipulation/',
@@ -148,19 +161,23 @@ def main():
                         help='number of epochs (default 1001)')
 
     # Distribution channel
-    parser.add_argument('--jpeg', dest='jpeg_quality', action='store', default=50, type=int,
+    parser.add_argument('--jpeg', dest='jpeg_quality', action='store', default=None, type=int,
                         help='JPEG quality level in the distribution channel')
-    parser.add_argument('--jpeg_mode', dest='jpeg_mode', action='store', default='sin',
+    parser.add_argument('--jpeg_mode', dest='jpeg_mode', action='store', default='soft',
                         help='JPEG approximation mode: sin, soft, harmonic')
-    parser.add_argument('--dcn', dest='dcn_model', action='store', default='./data/raw/dcn/entropy/TwitterDCN-8192D/',
+    parser.add_argument('--dcn', dest='dcn_model', action='store', default=None,
                         help='DCN compression model path')
     parser.add_argument('--ds', dest='downsampling', action='store', default='pool',
                         help='Distribution channel sub-sampling: pool/bilinear/none')
 
     args = parser.parse_args()
 
+    if args.dcn_model is not None:
+        if args.dcn_model in dcn_presets:
+            args.dcn_model = dcn_presets[args.dcn_model]
+    
     batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.trainables,
-                   args.jpeg_quality, args.jpeg_mode, args.dcn_model, args.downsampling,
+                   args.jpeg_quality, args.jpeg_mode, args.dcn_model, args.downsampling, patch=args.patch // 2,
                    use_pretrained=not args.from_scratch, start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs,
                    nip_directory=args.nip_directory, split=args.split, lambdas_nip=args.lambdas_nip, lambdas_dcn=args.lambdas_dcn)
 
