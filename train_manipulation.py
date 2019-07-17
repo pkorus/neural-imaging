@@ -14,9 +14,10 @@ from training.manipulation import construct_models, train_manipulation_nip
 
 
 @coreutils.logCall
-def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', jpeg_quality=50, jpeg_mode='sin',
-                   dcn_model=None, downsampling='pool', use_pretrained=True, end_repetition=10, start_repetition=0,
-                   n_epochs=1001, nip_directory=None, split='120:30:4', regularization_strengths=None):
+def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', trainables=None,
+                   jpeg_quality=50, jpeg_mode='soft', dcn_model=None, downsampling='pool',
+                   end_repetition=10, start_repetition=0, n_epochs=1001,
+                   use_pretrained=True, lambdas_nip=None, lambdas_dcn=None, nip_directory=None, split='120:30:4'):
     """
     Repeat training for multiple NIP regularization strengths.
     """
@@ -44,10 +45,23 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
 
     # Experiment setup
     camera_names = camera_names or ['Nikon D90', 'Nikon D7000', 'Canon EOS 5D', 'Canon EOS 40D']
-    if regularization_strengths is None or len(regularization_strengths) == 0:
-        regularization_strengths = [0, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 0.1, 0.25, 0.5, 1]
+
+    # Trainable elements
+    trainables = trainables or {'nip'}
+    for tr in trainables:
+        if tr not in {'nip', 'dcn'}:
+            raise ValueError('Invalid specifier of trainable elements: only nip, dcn allowed!')
+
+    # Regularization
+    if lambdas_nip is None or len(lambdas_nip) == 0:
+        lambdas_nip = [0, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 0.1, 0.25, 0.5, 1]
     else:
-        regularization_strengths = [float(x) for x in regularization_strengths]
+        lambdas_nip = [float(x) for x in lambdas_nip]
+
+    if lambdas_dcn is None or len(lambdas_dcn) == 0:
+        lambdas_dcn = [0]
+    else:
+        lambdas_dcn = [float(x) for x in lambdas_dcn]
 
     if downsampling not in ['pool', 'bilinear', 'none']:
         raise ValueError('Unsupported channel down-sampling')
@@ -74,7 +88,7 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     }
 
     # Construct the TF model
-    tf_ops, distribution = construct_models(nip_model, distribution=distribution_spec, loss_metric=loss_metric)
+    tf_ops, distribution = construct_models(nip_model, trainable=trainables, distribution=distribution_spec, loss_metric=loss_metric)
 
     for camera_name in camera_names:
         
@@ -90,10 +104,12 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
 
         # Repeat evaluation
         for rep in range(start_repetition, end_repetition):
-            for reg in regularization_strengths:
-                training['nip_weight'] = reg
-                training['run_number'] = rep
-                train_manipulation_nip(tf_ops, training, distribution, data, {'root': root_directory, 'nip_snapshots': nip_directory})
+            for lr in lambdas_nip:
+                for lc in lambdas_dcn:
+                    training['lambda_nip'] = lr
+                    training['lambda_dcn'] = lc
+                    training['run_number'] = rep
+                    train_manipulation_nip(tf_ops, training, distribution, data, {'root': root_directory, 'nip_snapshots': nip_directory})
 
                 
 def main():
@@ -114,8 +130,12 @@ def main():
                         help='loss metric for the NIP (L2, L1, SSIM)')
     parser.add_argument('--split', dest='split', action='store', default='120:30:4',
                         help='data split with #training:#validation:#validation_patches - e.g., 120:30:4')
-    parser.add_argument('--reg', dest='regularization_strengths', action='append',
+    parser.add_argument('--ln', dest='lambdas_nip', action='append',
                         help='set custom regularization strength for the NIP (repeat for multiple values)')
+    parser.add_argument('--lc', dest='lambdas_dcn', action='append',
+                        help='set custom regularization strength for the DCN (repeat for multiple values)')
+    parser.add_argument('--train', dest='trainables', action='append',
+                        help='add trainable elements (nip, dcn)')
 
     # Training scope and progress
     parser.add_argument('--scratch', dest='from_scratch', action='store_true', default=False,
@@ -132,17 +152,17 @@ def main():
                         help='JPEG quality level in the distribution channel')
     parser.add_argument('--jpeg_mode', dest='jpeg_mode', action='store', default='sin',
                         help='JPEG approximation mode: sin, soft, harmonic')
-    parser.add_argument('--dcn', dest='dcn_model', action='store', default='./data/raw/dcn/twitter_ent10k/TwitterDCN-8192D/',
+    parser.add_argument('--dcn', dest='dcn_model', action='store', default='./data/raw/dcn/entropy/TwitterDCN-8192D/',
                         help='DCN compression model path')
-    parser.add_argument('--down', dest='downsampling', action='store', default='pool',
+    parser.add_argument('--ds', dest='downsampling', action='store', default='pool',
                         help='Distribution channel sub-sampling: pool/bilinear/none')
 
     args = parser.parse_args()
 
-    batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric,
-                   args.jpeg_quality, args.jpeg_mode, args.dcn_model, args.downsampling, not args.from_scratch,
-                   start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs,
-                   nip_directory=args.nip_directory, split=args.split, regularization_strengths=args.regularization_strengths)
+    batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.trainables,
+                   args.jpeg_quality, args.jpeg_mode, args.dcn_model, args.downsampling,
+                   use_pretrained=not args.from_scratch, start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs,
+                   nip_directory=args.nip_directory, split=args.split, lambdas_nip=args.lambdas_nip, lambdas_dcn=args.lambdas_dcn)
 
 
 if __name__ == "__main__":
