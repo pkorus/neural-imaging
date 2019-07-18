@@ -65,12 +65,13 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     training['trainable'] = trainables
 
     if lambdas_nip is None or len(lambdas_nip) == 0:
-        lambdas_nip = [0, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 0.1, 0.25, 0.5, 1]
+        lambdas_nip = [1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 0.1, 0.25, 0.5, 1] if 'nip' in trainables else [0]
+
     else:
         lambdas_nip = [float(x) for x in lambdas_nip]
 
     if lambdas_dcn is None or len(lambdas_dcn) == 0:
-        lambdas_dcn = [0]
+        lambdas_dcn = [0.1, 0.05, 0.01, 0.005, 0.001] if 'dcn' in trainables else [0]
     else:
         lambdas_dcn = [float(x) for x in lambdas_dcn]
 
