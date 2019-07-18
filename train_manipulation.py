@@ -10,8 +10,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 # Helper functions
 from helpers import coreutils, dataset
-from training.manipulation import construct_models, train_manipulation_nip
-
 
 dcn_presets = {
     '4k': './data/raw/dcn/entropy/TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
@@ -39,6 +37,9 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
 
     if not os.path.isdir(root_directory):
         os.makedirs(root_directory)
+
+    # Lazy loading to minimize delays when checking cli parameters
+    from training.manipulation import construct_models, train_manipulation_nip
 
     camera_names = camera_names or ['Nikon D90', 'Nikon D7000', 'Canon EOS 5D', 'Canon EOS 40D']
 
@@ -127,49 +128,55 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
                 
 def main():
     parser = argparse.ArgumentParser(description='NIP & FAN optimization for manipulation detection')
-    parser.add_argument('--nip', dest='nip_model', action='store', required=True,
+
+    group = parser.add_argument_group('general parameters')
+    group.add_argument('--nip', dest='nip_model', action='store', required=True,
                         help='the NIP model (INet, UNet, DNet)')
-    parser.add_argument('--cam', dest='cameras', action='append',
+    group.add_argument('--cam', dest='cameras', action='append',
                         help='add cameras for evaluation (repeat if needed)')
-    parser.add_argument('--patch', dest='patch', action='store', default=256, type=int,
-                        help='RGB patch size for NIP output (default 256)')
 
     # Directories
-    parser.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/train_manipulation/',
+    group = parser.add_argument_group('directories')
+    group.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/train_manipulation/',
                         help='the root directory for storing results')
-    parser.add_argument('--nip-dir', dest='nip_directory', action='store', default='./data/raw/nip_model_snapshots/',
+    group.add_argument('--nip-dir', dest='nip_directory', action='store', default='./data/raw/nip_model_snapshots/',
                         help='the root directory for storing results')
 
     # Training parameters
-    parser.add_argument('--loss', dest='loss_metric', action='store', default='L2',
+    group = parser.add_argument_group('training parameters')
+    group.add_argument('--loss', dest='loss_metric', action='store', default='L2',
                         help='loss metric for the NIP (L2, L1, SSIM)')
-    parser.add_argument('--split', dest='split', action='store', default='120:30:4',
-                        help='data split with #training:#validation:#validation_patches - e.g., 120:30:4')
-    parser.add_argument('--ln', dest='lambdas_nip', action='append',
+    group.add_argument('--split', dest='split', action='store', default='120:30:4',
+                        help='data split (#training:#validation:#validation_patches): e.g., 120:30:4')
+    group.add_argument('--ln', dest='lambdas_nip', action='append',
                         help='set custom regularization strength for the NIP (repeat for multiple values)')
-    parser.add_argument('--lc', dest='lambdas_dcn', action='append',
+    group.add_argument('--lc', dest='lambdas_dcn', action='append',
                         help='set custom regularization strength for the DCN (repeat for multiple values)')
-    parser.add_argument('--train', dest='trainables', action='append',
+    group.add_argument('--train', dest='trainables', action='append',
                         help='add trainable elements (nip, dcn)')
+    group.add_argument('--patch', dest='patch', action='store', default=256, type=int,
+                        help='RGB patch size for NIP output (default 256)')
 
     # Training scope and progress
-    parser.add_argument('--scratch', dest='from_scratch', action='store_true', default=False,
+    group = parser.add_argument_group('training scope')
+    group.add_argument('--scratch', dest='from_scratch', action='store_true', default=False,
                         help='train NIP from scratch (ignore pre-trained model)')
-    parser.add_argument('--start', dest='start', action='store', default=0, type=int,
+    group.add_argument('--start', dest='start', action='store', default=0, type=int,
                         help='first iteration (default 0)')
-    parser.add_argument('--end', dest='end', action='store', default=10, type=int,
+    group.add_argument('--end', dest='end', action='store', default=10, type=int,
                         help='last iteration (exclusive, default 10)')
-    parser.add_argument('--epochs', dest='epochs', action='store', default=1001, type=int,
+    group.add_argument('--epochs', dest='epochs', action='store', default=1001, type=int,
                         help='number of epochs (default 1001)')
 
     # Distribution channel
-    parser.add_argument('--jpeg', dest='jpeg_quality', action='store', default=None, type=int,
-                        help='JPEG quality level in the distribution channel')
-    parser.add_argument('--jpeg_mode', dest='jpeg_mode', action='store', default='soft',
+    group = parser.add_argument_group('distribution channel')
+    group.add_argument('--jpeg', dest='jpeg_quality', action='store', default=None, type=int,
+                        help='JPEG quality level (distribution channel)')
+    group.add_argument('--jpeg_mode', dest='jpeg_mode', action='store', default='soft',
                         help='JPEG approximation mode: sin, soft, harmonic')
-    parser.add_argument('--dcn', dest='dcn_model', action='store', default=None,
+    group.add_argument('--dcn', dest='dcn_model', action='store', default=None,
                         help='DCN compression model path')
-    parser.add_argument('--ds', dest='downsampling', action='store', default='pool',
+    group.add_argument('--ds', dest='downsampling', action='store', default='pool',
                         help='Distribution channel sub-sampling: pool/bilinear/none')
 
     args = parser.parse_args()

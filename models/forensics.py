@@ -140,8 +140,10 @@ class FAN(TFModel):
         self.kernel = kernel
 
     def reset_performance_stats(self):
-        self.train_perf = {'loss': []}
-        self.valid_perf = {'accuracy': [], 'loss': []}
+        self.performance = {
+            'loss': {'training': [], 'validation': []},
+            'accuracy': {'validation': []},
+        }
 
     def process(self, batch_x):
         """

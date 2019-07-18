@@ -15,6 +15,7 @@ TQDM_WIDTH = 120
 # Disable unimportant logging and import TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+
 def validate(model, data, out_directory, savefig=False, epoch=0, show_ref=False, loss_metric='L2'):
     
     ssims, psnrs, losss = [], [], []
@@ -63,12 +64,6 @@ def validate(model, data, out_directory, savefig=False, epoch=0, show_ref=False,
             plt.xticks([])
             plt.yticks([])
             label_index = int(b // (data.count_validation / len(data.files['validation'])))
-            if label_index >= len(data.files['validation']):
-                print('DUmp: ')
-                print('b=', b)
-                print('cv=', data.count_validation)
-                print('lv=', len(data.files['validation']))
-                print('li', label_index)
             plt.title('{} : {:.1f} dB / {:.2f}'.format(data.files['validation'][label_index], psnr, ssim), fontsize=6)
 
     if savefig:
@@ -84,36 +79,36 @@ def validate(model, data, out_directory, savefig=False, epoch=0, show_ref=False,
 def visualize_progress(arch, performance, patch_size, camera_name, out_directory, plot=False, sampling_rate=100):
     from helpers import utils
 
-    v_range = np.arange(0, sampling_rate*len(performance['ssim']), sampling_rate)
+    v_range = np.arange(0, sampling_rate*len(performance['ssim']['validation']), sampling_rate)
 
     plt.figure(figsize=(16, 6))
     plt.subplot(2,2,1)
-    plt.semilogy(performance['train_loss'], alpha=0.15)
-    plt.plot(utils.ma_conv(performance['train_loss'], np.maximum(10, len(performance['train_loss']) // 25)))
-    plt.plot(v_range, np.array(performance['loss']), '.-', alpha=0.5)
+    plt.semilogy(performance['loss']['training'], alpha=0.15)
+    plt.plot(utils.ma_conv(performance['loss']['training'], np.maximum(10, len(performance['loss']['training']) // 25)))
+    plt.plot(v_range, np.array(performance['loss']['validation']), '.-', alpha=0.5)
     plt.ylabel('Loss')
     plt.legend(['loss (batch)', 'mov. avg loss (batch)', 'loss (valid.)'])
 
-    if len(performance['loss']) > 10:
+    if len(performance['loss']['validation']) > 10:
         n_tail = 5
-        current = np.mean(performance['loss'][-n_tail:-1])
-        previous = np.mean(performance['loss'][-(n_tail + 1):-2])
+        current = np.mean(performance['loss']['validation'][-n_tail:-1])
+        previous = np.mean(performance['loss']['validation'][-(n_tail + 1):-2])
         vloss_change = abs((current - previous) / previous)
         plt.title('Validation loss change: {:.6f}'.format(vloss_change))
     
     plt.subplot(2,2,2)
-    plt.plot(v_range, performance['ssim'], '.-', alpha=0.5)
+    plt.plot(v_range, performance['ssim']['validation'], '.-', alpha=0.5)
     plt.ylabel('SSIM')
     
     plt.subplot(2,2,3)    
-    plt.plot(v_range, np.array(performance['psnr']), '.-', alpha=0.5)
+    plt.plot(v_range, np.array(performance['psnr']['validation']), '.-', alpha=0.5)
     plt.ylabel('PSNR')
     
     plt.subplot(2,2,4)
-    plt.semilogy(v_range, np.array(performance['dmse']), '.-', alpha=0.5)
+    plt.semilogy(v_range, np.array(performance['dmse']['validation']), '.-', alpha=0.5)
     plt.ylabel('$\Delta$ MSE from last')
     
-    plt.suptitle('{} for {} ({}px): PSNR={:.1f}, SSIM={:.2f}'.format(arch, camera_name, patch_size, performance['psnr'][-1], performance['ssim'][-1]))
+    plt.suptitle('{} for {} ({}px): PSNR={:.1f}, SSIM={:.2f}'.format(arch, camera_name, patch_size, performance['psnr']['validation'][-1], performance['ssim']['validation'][-1]))
     if plot:
         plt.show()
     else:
@@ -124,7 +119,7 @@ def visualize_progress(arch, performance, patch_size, camera_name, out_directory
 def save_progress(performance, training_summary, out_directory):
 
     filename = os.path.join(out_directory, 'progress.json')
-    output_stats = {'Performance': performance}
+    output_stats = {'performance': performance}
     output_stats.update(training_summary)
     with open(filename, 'w') as f:
         json.dump(output_stats, f, indent=4)
@@ -157,7 +152,6 @@ def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshol
     if not resume:
         losses_buf = deque(maxlen=10)
         loss_local = deque(maxlen=n_batches)
-        performance = {'ssim': [], 'psnr': [], 'loss': [], 'dmse': [], 'train_loss': []}
         model.init()
         start_epoch = 0
     else:
@@ -174,16 +168,13 @@ def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshol
             summary_data = json.load(f)
 
         # Read performance stats to date
-        performance = {}
-        for key in ['ssim', 'psnr', 'loss', 'dmse', 'train_loss']:
-            performance[key] = summary_data['Performance'][key]
+        model.performance = summary_data['performance']
 
         # Initialize counters
         start_epoch = summary_data['Epoch']
         losses_buf = deque(maxlen=10)
         loss_local = deque(maxlen=n_batches)
-        for x in performance['loss'][-10:]:
-            losses_buf.append(x)
+        losses_buf.extend(model.performance['loss']['validation'][-10:])
 
     # Collect and print training summary
     training_summary = OrderedDict()
@@ -203,7 +194,7 @@ def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshol
     print('\n## Training summary')
     for k, v in training_summary.items():
         print('{:30s}: {}'.format(k, v))
-    print('\n', flush=True)
+    print('', flush=True)
 
     with tqdm(total=n_epochs, ncols=TQDM_WIDTH, desc='Train {} for {}'.format(type(model).__name__, camera_name)) as pbar:
         pbar.update(start_epoch)
@@ -215,8 +206,8 @@ def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshol
                 loss = model.training_step(batch_x, batch_y, learning_rate)
                 loss_local.append(loss)
 
-            performance['train_loss'].append(float(np.mean(loss_local)))
-            losses_buf.append(performance['train_loss'][-1])
+            model.performance['loss']['training'].append(float(np.mean(loss_local)))
+            losses_buf.append(model.performance['loss']['training'][-1])
 
             if epoch == start_epoch:
                 developed = np.zeros_like(data['validation']['y'], dtype=np.float32)
@@ -225,39 +216,39 @@ def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshol
                 # Use the current model to develop images in the validation set
                 developed_old = developed
                 ssims, psnrs, v_losses, developed = validate(model, data, out_directory, True, epoch, True, loss_metric=model.loss_metric)
-                performance['ssim'].append(float(np.mean(ssims)))
-                performance['psnr'].append(float(np.mean(psnrs)))
-                performance['loss'].append(float(np.mean(v_losses)))
+                model.performance['ssim']['validation'].append(float(np.mean(ssims)))
+                model.performance['psnr']['validation'].append(float(np.mean(psnrs)))
+                model.performance['loss']['validation'].append(float(np.mean(v_losses)))
 
                 # Compare the current images to the ones from a previous model iteration
-                dpsnrs = []
+                dmses = []
                 for v in range(data['validation']['x'].shape[0]):
-                    dpsnrs.append(compare_mse(developed_old[v, :, :, :], developed[v, :, :, :]))
+                    dmses.append(compare_mse(developed_old[v, :, :, :], developed[v, :, :, :]))
 
-                performance['dmse'].append(np.mean(dpsnrs))
+                model.performance['dmse']['validation'].append(np.mean(dmses))
 
                 # Generate progress summary
                 training_summary['Epoch'] = epoch
-                visualize_progress(model.class_name, performance, patch_size, camera_name, out_directory, False, sampling_rate)
-                save_progress(performance, training_summary, out_directory)
+                visualize_progress(model.class_name, model.performance, patch_size, camera_name, out_directory, False, sampling_rate)
+                save_progress(model.performance, training_summary, out_directory)
                 model.save_model(out_directory, epoch)
 
                 # Check for convergence
-                if len(performance['loss']) > 10:
-                    current = np.mean(performance['loss'][-n_tail:-1])
-                    previous = np.mean(performance['loss'][-(n_tail + 1):-2])
+                if len(model.performance['loss']['validation']) > 10:
+                    current = np.mean(model.performance['loss']['validation'][-n_tail:-1])
+                    previous = np.mean(model.performance['loss']['validation'][-(n_tail + 1):-2])
                     vloss_change = abs((current - previous) / previous)
 
                     if vloss_change < validation_loss_threshold:
                         print('Early stopping - the model converged, validation loss change {}'.format(vloss_change))
                         break
 
-            pbar.set_postfix(loss=np.mean(losses_buf), psnr=performance['psnr'][-1], ldmse=np.log10(performance['dmse'][-1]))
+            pbar.set_postfix(loss=np.mean(losses_buf), psnr=model.performance['psnr']['validation'][-1], dmse=np.log10(model.performance['dmse']['validation'][-1]))
             pbar.update(1)
 
     training_summary['Epoch'] = epoch
-    visualize_progress(model.class_name, performance, patch_size, camera_name, out_directory, False, sampling_rate)
-    save_progress(performance, training_summary, out_directory)
+    visualize_progress(model.class_name, model.performance, patch_size, camera_name, out_directory, False, sampling_rate)
+    save_progress(model.performance, training_summary, out_directory)
     model.save_model(out_directory, epoch)
 
     return out_directory

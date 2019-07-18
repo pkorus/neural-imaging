@@ -172,6 +172,8 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
                 try:
                     batch_y, image_bytes = afi.dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
+                    batch_z = dcn.compress(batch_x[image_id:image_id + 1])
+                    entropy = utils.entropy(batch_z, dcn.get_codebook())
                 except Exception as e:
                     print('Error while processing {} with {} : {}'.format(filename, dcn.model_code, e))
                     raise e
@@ -190,7 +192,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
                                 'codec': dcn.model_code,
                                 'ssim': compare_ssim(batch_x[image_id], batch_y[0], multichannel=True, data_range=1),
                                 'psnr': compare_psnr(batch_x[image_id], batch_y[0], data_range=1),
-                                'entropy': stats['entropy'],
+                                'entropy': entropy,
                                 'bytes': image_bytes,
                                 'bpp': 8 * image_bytes / batch_x[image_id].shape[0] / batch_x[image_id].shape[1],
                                 'layers': dcn.n_layers if 'n_layers' in dcn._h else None,

@@ -280,9 +280,10 @@ def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=
 
     if fetch_stats:
 
+        # TODO Entropy is fetched from training measurements instead of validation (didn't get recorded)
         stats = {
             'loss': np.round(training_progress['performance']['loss']['validation'][-1], 3),
-            'entropy*': np.round(training_progress['performance']['entropy']['training'][-1], 3),
+            'entropy': np.round(training_progress['performance']['entropy']['training'][-1], 3),
             'ssim': np.round(training_progress['performance']['ssim']['validation'][-1], 3)
         }
 

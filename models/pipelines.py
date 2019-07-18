@@ -115,8 +115,12 @@ class NIPModel(TFModel):
             return y
     
     def reset_performance_stats(self):
-        self.train_perf = {'loss': []}
-        self.valid_perf = {'loss': [], 'psnr': [], 'ssim': []}        
+        self.performance = {
+            'loss': {'training': [], 'validation': []},
+            'psnr': {'validation': []},
+            'ssim': {'validation': []},
+            'dmse': {'validation': []}
+        }
 
 
 class UNet(NIPModel):

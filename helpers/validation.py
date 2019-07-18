@@ -185,38 +185,38 @@ def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, c
         
     # Init
     images_x = 3
-    images_y = 2 if dcn is None else 3
+    images_y = 3 if isinstance(dcn, DCN) else 2
     fig = plt.figure(figsize=(18, 10 / images_x * images_y))
         
     # Draw the plots
     ax = fig.add_subplot(images_y, images_x, 1)
-    ax.plot(nip.train_perf['loss'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(nip.train_perf['loss'], 0))
+    ax.plot(nip.performance['loss']['training'], '.', alpha=0.25)
+    ax.plot(utils.ma_conv(nip.performance['loss']['training'], 0))
     ax.set_ylabel('{} NIP loss'.format(type(nip).__name__))
     ax.set_title('Loss')
 
     ax = fig.add_subplot(images_y, images_x, 2)
-    ax.plot(nip.valid_perf['psnr'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(nip.valid_perf['psnr'], 0))
+    ax.plot(nip.performance['psnr']['validation'], '.', alpha=0.25)
+    ax.plot(utils.ma_conv(nip.performance['psnr']['validation'], 0))
     ax.set_ylabel('{} NIP psnr'.format(type(nip).__name__))
     ax.set_title('PSNR')
     ax.set_ylim([30, 50])
 
     ax = fig.add_subplot(images_y, images_x, 3)
-    ax.plot(nip.valid_perf['ssim'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(nip.valid_perf['ssim'], 0))
+    ax.plot(nip.performance['ssim']['validation'], '.', alpha=0.25)
+    ax.plot(utils.ma_conv(nip.performance['ssim']['validation'], 0))
     ax.set_ylabel('{} NIP psnr'.format(type(nip).__name__))
     ax.set_title('SSIM')
     ax.set_ylim([0.8, 1])
     
     ax = fig.add_subplot(images_y, images_x, 4)
-    ax.plot(fan.train_perf['loss'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(fan.train_perf['loss'], 0))
+    ax.plot(fan.performance['loss']['training'], '.', alpha=0.25)
+    ax.plot(utils.ma_conv(fan.performance['loss']['training'], 0))
     ax.set_ylabel('FAN loss')
 
     ax = fig.add_subplot(images_y, images_x, 5)
-    ax.plot(fan.valid_perf['accuracy'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(fan.valid_perf['accuracy'], 0))
+    ax.plot(fan.performance['accuracy']['validation'], '.', alpha=0.25)
+    ax.plot(utils.ma_conv(fan.performance['accuracy']['validation'], 0))
     ax.set_ylabel('FAN accuracy')
     ax.set_ylim([0, 1])
         
@@ -269,32 +269,32 @@ def save_training_progress(training_summary, model, fan, dcn, conf, root_dir):
     if isinstance(model, NIPModel):    
         training['nip'] = OrderedDict()
         training['nip']['training'] = OrderedDict() 
-        training['nip']['training']['loss'] = model.train_perf['loss']    
+        training['nip']['training']['loss'] = model.performance['loss']['training']
         training['nip']['validation'] = OrderedDict() 
-        training['nip']['validation']['ssim'] = model.valid_perf['ssim']
-        training['nip']['validation']['ssim'] = model.valid_perf['ssim']
-        training['nip']['validation']['psnr'] = model.valid_perf['psnr']
-        training['nip']['validation']['loss'] = model.valid_perf['loss']
+        training['nip']['validation']['ssim'] = model.performance['ssim']['validation']
+        training['nip']['validation']['ssim'] = model.performance['ssim']['validation']
+        training['nip']['validation']['psnr'] = model.performance['psnr']['validation']
+        training['nip']['validation']['loss'] = model.performance['loss']['validation']
     elif hasattr(model, '__getitem__'):
         for m in model:
             name = 'nip/{}'.format(m.name)
             training[name] = OrderedDict()
             training[name]['training'] = OrderedDict() 
-            training[name]['training']['loss'] = m.train_perf['loss']    
+            training[name]['training']['loss'] = m.performance['loss']['training']
             training[name]['validation'] = OrderedDict() 
-            training[name]['validation']['ssim'] = m.valid_perf['ssim']
-            training[name]['validation']['ssim'] = m.valid_perf['ssim']
-            training[name]['validation']['psnr'] = m.valid_perf['psnr']
-            training[name]['validation']['loss'] = m.valid_perf['loss']            
+            training[name]['validation']['ssim'] = m.performance['ssim']['validation']
+            training[name]['validation']['ssim'] = m.performance['ssim']['validation']
+            training[name]['validation']['psnr'] = m.performance['psnr']['validation']
+            training[name]['validation']['loss'] = m.performance['loss']      ['validation']
     else:
         raise ValueError('Unsupported value passed as a NIP model ({})'.format(type(model)))
     
     if fan is not None:
         training['forensics'] = OrderedDict()
         training['forensics']['training'] = OrderedDict()
-        training['forensics']['training']['loss'] = fan.train_perf['loss']
+        training['forensics']['training']['loss'] = fan.performance['loss']['training']
         training['forensics']['validation'] = OrderedDict() 
-        training['forensics']['validation']['accuracy'] = fan.valid_perf['accuracy']
+        training['forensics']['validation']['accuracy'] = fan.performance['accuracy']['validation']
     
         if conf is not None:
             training['forensics']['validation']['confusion'] = conf.tolist()
@@ -302,7 +302,7 @@ def save_training_progress(training_summary, model, fan, dcn, conf, root_dir):
     if dcn is not None and hasattr(dcn, 'performance'):
         training['compression'] = OrderedDict()
 #         training['compression']['training'] = OrderedDict()
-#         training['compression']['training']['ssim'] = dcn.train_perf['loss']
+#         training['compression']['training']['ssim'] = dcn.performance['loss']['training']
         training['compression']['validation'] = OrderedDict() 
         training['compression']['validation']['ssim'] = dcn.performance['ssim']['validation']
         training['compression']['validation']['entropy'] = dcn.performance['entropy']['validation']
