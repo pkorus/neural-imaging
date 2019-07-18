@@ -103,6 +103,9 @@ class DCN(TFModel):
             
             # Construct the actual model -------------------------------------------------------------------------------
             self.construct_model(kwargs)
+            
+            # Overwrite the output to guarantee clipping and gradient propagation
+            self.y = tf.stop_gradient(tf.clip_by_value(self.y, 0, 1) - self.y) + self.y
 
             # Check if the model has set all expected attributes
             setup_status = {key: hasattr(self, key) for key in ['y', 'latent_pre', 'latent_post', 'latent_shape', 'n_latent']}
