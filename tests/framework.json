@@ -37,7 +37,7 @@
       "manipulation/{}/INet/fixed-nip/000/models/fan/fan-200.meta"
     ],
     "performance" : {
-      "file": "manipulation/{}/INet/lr-0.1000/000/training.json",
+      "file": "manipulation/{}/INet/fixed-nip/000/training.json",
       "values": {
         "forensics/validation/accuracy": 0.40
       }
