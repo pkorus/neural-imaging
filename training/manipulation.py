@@ -263,12 +263,15 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
     print('\n## Training NIP/FAN for manipulation detection: cam={} / lr={:.4f} / run={:3d} / epochs={}, root={}'.format(training['camera_name'], training['lambda_nip'], training['run_number'], training['n_epochs'], directories['root']), flush=True)
 
-    # Construct output directory: root / camera_name / *Net / lr-0.1000 / lc-0.1000 / 001 / 
+    # Construct output directory - some example paths:
+    #  root / camera_name / *Net / fixed-nip / 001 /
+    #  root / camera_name / *Net / lr-0.1000 / lc-0.1000 / 001 /
+    #  root / camera_name / *Net / fixed-nip / lc-0.1000 / 001 /
     nip_save_dir = [directories['root'], training['camera_name'], tf_ops['nip'].class_name]
     if 'nip' in training['trainable']:
-        nip_save_dir.append('lr-{:0.4f}'.format(training['lambda_nip']))
+        nip_save_dir.append('ln-{:0.4f}'.format(training['lambda_nip']))
     else:
-        nip_save_dir.append('lr-{:0.4f}'.format(0))
+        nip_save_dir.append('fixed-nip')
     if 'dcn' in training['trainable']:
         nip_save_dir.append('lc-{:0.4f}'.format(training['lambda_dcn']))
     nip_save_dir.append('{:03d}'.format(training['run_number']))
@@ -359,7 +362,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     if any(collect_memory_stats.values()):
         training_summary['memory_consumption'] = memory
 
-    print('\n')
+    print('')
     for k, v in training_summary.items():
         print('{:30s}: {}'.format(k, v))
     print('\n', flush=True)
@@ -398,8 +401,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
             # Average and record loss values
             for model_name in model_list:
-                tf_ops[model_name].train_perf['loss'].append(float(np.mean(loss_epoch[model_name])))
-                loss_last_k_epochs[model_name].append(tf_ops[model_name].train_perf['loss'][-1])
+                tf_ops[model_name].performance['loss']['training'].append(float(np.mean(loss_epoch[model_name])))
+                loss_last_k_epochs[model_name].append(tf_ops[model_name].performance['loss']['training'][-1])
 
             if epoch % sampling_rate == 0:
 
@@ -407,7 +410,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
                 if joint_optimization[0]:
                     values = validation.validate_nip(tf_ops['nip'], data, nip_save_dir, epoch=epoch, show_ref=True, loss_type=tf_ops['nip'].loss_metric)
                     for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
-                        tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
+                        tf_ops['nip'].performance[metric]['validation'].append(float(np.mean(val_array)))
                         
                 # Validate the DCN model
                 if joint_optimization[1]:
@@ -417,7 +420,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
                 # Validate the forensics network
                 accuracy = validation.validate_fan(tf_ops['fan'], data, lambda x: batch_labels(x, n_classes), n_classes)
-                tf_ops['fan'].valid_perf['accuracy'].append(accuracy)
+                tf_ops['fan'].performance['accuracy']['validation'].append(accuracy)
 
                 # Confusion matrix
                 conf = validation.confusion(tf_ops['fan'], data, lambda x: batch_labels(x, n_classes))
@@ -446,15 +449,15 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
             progress_stats = {
                 'nip': np.log10(np.mean(loss_last_k_epochs['nip'])).round(1),                
                 'fan': np.mean(loss_last_k_epochs['fan']),
-                'acc': tf_ops['fan'].valid_perf['accuracy'][-1],
+                'acc': tf_ops['fan'].performance['accuracy']['validation'][-1],
             }
             
             if distribution['compression'] == 'dcn' and joint_optimization[1]:
                 progress_stats['dcn'] = tf_ops['dcn'].performance['ssim']['validation'][-1]
                 progress_stats['H'] = tf_ops['dcn'].performance['entropy']['validation'][-1]
 
-            if len(tf_ops['nip'].valid_perf['psnr']) > 0:
-                progress_stats['psnr'] = tf_ops['nip'].valid_perf['psnr'][-1]
+            if len(tf_ops['nip'].performance['psnr']['validation']) > 0:
+                progress_stats['psnr'] = tf_ops['nip'].performance['psnr']['validation'][-1]
 
             if collect_memory_stats['ram']:
                 progress_stats['ram'] = round(memory['cpu-proc'][-1]//1024, 2)
@@ -465,7 +468,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     # Plot final results
     values = validation.validate_nip(tf_ops['nip'], data, nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
     for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
-        tf_ops['nip'].valid_perf[metric].append(float(np.mean(val_array)))
+        tf_ops['nip'].performance[metric]['validation'].append(float(np.mean(val_array)))
 
     if isinstance(tf_ops['dcn'], compression.DCN):
         values = validation.validate_dcn(tf_ops['dcn'], data, nip_save_dir, epoch=epoch, show_ref=True)
