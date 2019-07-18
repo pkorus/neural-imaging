@@ -86,7 +86,7 @@ for i, im in enumerate(images):
 
 # %% Load sample data
 
-dataset = './data/clic512/'
+dataset = './data/clic256/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -100,7 +100,7 @@ plotting.imsc(batch_x, titles='')
 
 latent_bpf = 3
 
-dirname = './data/raw/dcn/twitter_ent10k/TwitterDCN-8192D/'
+dirname = './data/raw/dcn/entropy/TwitterDCN-8192D/'
 
 models = ['16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+1.00'.format(latent_bpf),
           '16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+10.00'.format(latent_bpf),
@@ -154,7 +154,7 @@ for i, model in enumerate(models):
 
 latent_bpf = 3
 
-dirname = './data/raw/dcn/twitter_ent10k/TwitterDCN-8192D/'
+dirname = './data/raw/dcn/entropy/TwitterDCN-8192D/'
 
 models = ['16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+1.00'.format(latent_bpf),
           '16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+10.00'.format(latent_bpf),

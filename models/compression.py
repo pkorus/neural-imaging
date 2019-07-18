@@ -183,7 +183,7 @@ class DCN(TFModel):
     def construct_model(self, params):
         raise NotImplementedError('Not implemented!')
 
-    def setup_latent_space(self, net):
+    def _setup_latent_space(self, net):
         latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.scoped_name))
 
         # Use GDN to Gaussianize data
@@ -265,7 +265,7 @@ class DCN(TFModel):
             y = self.sess.run(self.latent_pre, feed_dict=feed_dict)
             return y        
         
-    def decompress(self, batch_z):
+    def decompress(self, batch_z, is_training=None):
         with self.graph.as_default():
             
             feed_dict = {
@@ -273,7 +273,10 @@ class DCN(TFModel):
             }
             if hasattr(self, 'dropout'):
                 feed_dict[self.dropout] = 1.0
-                
+
+            if hasattr(self, 'is_training'):
+                feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
+
             y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
             
@@ -479,7 +482,7 @@ class AutoencoderDCN(DCN):
         else:
             latent = tf.identity(net, name=e_prefix+'latent_raw')
 
-        latent = self.setup_latent_space(latent)
+        latent = self._setup_latent_space(latent)
 
         # If using a bottleneck layer, inverse the projection
         if self._h.n_latent > 0:
@@ -631,7 +634,7 @@ class TwitterDCN(DCN):
 
         # Latent space -------------------------------------------------------------------------------------------------
 
-        latent = self.setup_latent_space(net)
+        latent = self._setup_latent_space(net)
 
         # Decoder ------------------------------------------------------------------------------------------------------
 
@@ -765,7 +768,7 @@ class WaveOne(DCN):
 
         # Latent space -------------------------------------------------------------------------------------------------
 
-        latent = self.setup_latent_space(code)
+        latent = self._setup_latent_space(code)
 
         # Decoder ------------------------------------------------------------------------------------------------------
 
