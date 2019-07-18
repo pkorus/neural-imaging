@@ -23,3 +23,13 @@ python3 train_dcn.py --dcn TwitterDCN --split 10000:1000:1 --param_list config/t
 
 # Entropy experiments
 python3 train_dcn.py --split 4000:1000:1 --dcn TwitterDCN --param_list config/twitter-entropy.csv --out ./data/raw/compression_entropy --epochs 2500 --group 0
+
+# Manipulation + DCN experiments 
+
+python3 train_manipulation.py --nip DNet --cam "Nikon D90" --dir ./data/raw/manipulation_dcn --train dcn --end 1 --ds none --dcn 8k --patch 128 --split 40:20:2
+
+python3 train_manipulation.py --nip DNet --cam "Nikon D90" --dir ./data/raw/manipulation_dcn --end 1 --ds none --jpeg 50 --patch 128 --split 40:20:2
+
+# Various JPEG quality levels
+
+python3 train_manipulation.py --nip DNet --cam "Nikon D90" --dir ./data/raw/manipulation_dcn --end 1 --ds none --patch 128 --split 40:20:2

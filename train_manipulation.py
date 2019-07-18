@@ -14,9 +14,9 @@ from training.manipulation import construct_models, train_manipulation_nip
 
 
 dcn_presets = {
-    '4k' : './data/raw/dcn/entropy/TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
-    '8k' : './data/raw/dcn/entropy/TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
-    '16k' : './data/raw/dcn/entropy/TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
+    '4k': './data/raw/dcn/entropy/TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
+    '8k': './data/raw/dcn/entropy/TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
+    '16k': './data/raw/dcn/entropy/TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
 }
 
 @coreutils.logCall
@@ -27,6 +27,20 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     """
     Repeat training for multiple NIP regularization strengths.
     """
+
+    if nip_model is None:
+        raise FileNotFoundError('NIP model not specified!')
+
+    if nip_directory is None or not os.path.isdir(nip_directory):
+        raise FileNotFoundError('Invalid NIP snapshots directory: {}'.format(nip_directory))
+
+    if root_directory is None:
+        raise FileNotFoundError('Invalid root directory: {}'.format(root_directory))
+
+    if not os.path.isdir(root_directory):
+        os.makedirs(root_directory)
+
+    camera_names = camera_names or ['Nikon D90', 'Nikon D7000', 'Canon EOS 5D', 'Canon EOS 40D']
 
     training = {
         'use_pretrained_nip': use_pretrained,
@@ -40,27 +54,15 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         'val_n_patches': int(split.split(':')[2])
     }
 
-    if root_directory is None:
-        raise FileNotFoundError('Invalid root directory: {}'.format(root_directory))
+    # Setup trainable elements and regularization ----------------------------------------------------------------------
 
-    if not os.path.isdir(root_directory):
-        os.makedirs(root_directory)
-
-    if nip_directory is None or not os.path.isdir(nip_directory):
-        raise FileNotFoundError('Invalid NIP snapshots directory: {}'.format(nip_directory))
-
-    # Experiment setup
-    camera_names = camera_names or ['Nikon D90', 'Nikon D7000', 'Canon EOS 5D', 'Canon EOS 40D']
-
-    # Trainable elements
-    trainables = trainables if trainables is not None else {'nip'}
+    trainables = trainables if trainables is not None else set()
     for tr in trainables:
         if tr not in {'nip', 'dcn'}:
             raise ValueError('Invalid specifier of trainable elements: only nip, dcn allowed!')
             
     training['trainable'] = trainables
 
-    # Regularization
     if lambdas_nip is None or len(lambdas_nip) == 0:
         lambdas_nip = [0, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 0.1, 0.25, 0.5, 1]
     else:
@@ -77,7 +79,7 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     if dcn_model is None and jpeg_quality is None:
         jpeg_quality = 50
         
-    # Define the distribution channel
+    # Define the distribution channel ----------------------------------------------------------------------------------
     compression_params = {}
     if jpeg_quality is not None:
         compression_params['quality'] = jpeg_quality
@@ -125,7 +127,7 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
                 
 def main():
     parser = argparse.ArgumentParser(description='NIP & FAN optimization for manipulation detection')
-    parser.add_argument('--nip', dest='nip_model', action='store',
+    parser.add_argument('--nip', dest='nip_model', action='store', required=True,
                         help='the NIP model (INet, UNet, DNet)')
     parser.add_argument('--cam', dest='cameras', action='append',
                         help='add cameras for evaluation (repeat if needed)')

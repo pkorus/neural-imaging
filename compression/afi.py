@@ -281,9 +281,9 @@ def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=
     if fetch_stats:
 
         stats = {
-            'loss': training_progress['performance']['loss']['validation'][-1],
-            'entropy': training_progress['performance']['entropy']['training'][-1],
-            'ssim': training_progress['performance']['ssim']['validation'][-1],
+            'loss': np.round(training_progress['performance']['loss']['validation'][-1], 3),
+            'entropy*': np.round(training_progress['performance']['entropy']['training'][-1], 3),
+            'ssim': np.round(training_progress['performance']['ssim']['validation'][-1], 3)
         }
 
         return model, stats
