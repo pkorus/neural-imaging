@@ -156,7 +156,7 @@ def estimate_errors(X, codebook, v=100, sigma=5):
 
 #%% Large synthetic data experiment
 
-v = 0
+v = 25
 sigma = 5
 n_scales = 500
 n_samples = 1000
@@ -193,13 +193,13 @@ axes[0, 2].set_ylim([-0.05, 1.05*max(data[1])])
 axes[0, 2].set_xlabel('Real entropy')
 axes[0, 2].set_ylabel('Soft estimate')
 
-fig.suptitle('Kernel: {}, sigma={}'.format('gaussian' if v == 0 else 't-Student({})'.format(v), sigma))
+fig.suptitle('Kernel: {}, $\sigma$={}'.format('Gaussian' if v == 0 else 't-Student({})'.format(v), sigma))
 
 # %% Hyper-parameter search
 
 n_scales = 250
 n_samples = 1000
-distribution = 'Laplace'
+distribution = 'Gaussian'
 
 vs = [0, 5, 10, 25, 50, 100]
 sig = [5, 10, 25, 50]
@@ -229,7 +229,9 @@ for n, v in enumerate(vs):
             axes[m, n].set_xlabel('{} distribution scale'.format(distribution))
         if n == 0:
             axes[m, n].set_ylabel('Relative entropy error [\\%]')
-        axes[m, n].set_title('Kernel: {}, sigma={} $\\rightarrow$ {:.2f}'.format('gaussian' if v == 0 else 't-Student({})'.format(v), s, np.mean(data[4])))
+        axes[m, n].set_title('Kernel: {}, $\sigma$={} $\\rightarrow$ {:.2f}'.format('Gaussian' if v == 0 else 't-Student({})'.format(v), s, np.mean(data[4])))
+
+fig.savefig('fig_entropy_hp_{}.pdf'.format(distribution), bbox_inches='tight')
 
 # %% Real compression model and real images
 
@@ -249,7 +251,7 @@ dcn = afi.restore_model(dcn_presets['8k'])
 
 # %%
 
-n_epochs = data.count_training * 10
+n_epochs = data.count_training * 5
 
 results = np.zeros((2, n_epochs))
 
