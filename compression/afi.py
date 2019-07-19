@@ -11,6 +11,13 @@ from pyfse import pyfse
 from models import compression
 
 
+dcn_presets = {
+    '4k': './data/raw/dcn/entropy/TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
+    '8k': './data/raw/dcn/entropy/TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
+    '16k': './data/raw/dcn/entropy/TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
+}
+
+
 class AFIError(Exception):
     pass
 
@@ -255,6 +262,9 @@ def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=
     :param nip_input: input to the NIP model (useful for chaining)
     """
     training_progress_path = None
+
+    if dir_name in dcn_presets:
+        dir_name = dcn_presets[dir_name]
 
     for filename in Path(dir_name).glob('**/progress.json'):
         training_progress_path = str(filename)

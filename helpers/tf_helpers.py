@@ -1,5 +1,8 @@
+import numpy
+import tensorflow
 import tensorflow as tf
 import numpy as np
+from Cython.Includes import numpy
 from tensorflow.contrib import slim as slim
 
 from helpers.utils import gkern, repeat_2dfilter
@@ -223,3 +226,37 @@ def nm(x):
     w0 = tf.Variable(1.0, name='w0')
     w1 = tf.Variable(0.0, name='w1')
     return w0*x + w1*slim.batch_norm(x) # the parameter "is_training" in slim.batch_norm does not seem to help so I do not use it
+
+
+def entropy(values, codebook, v=25, soft_quantization_sigma=5):
+
+    # t-Student degrees of freedom
+    eps = 1e-72
+    prec_dtype = tf.float64
+
+    assert (codebook.shape[0] == 1)
+    assert (codebook.shape[1] > 1)
+
+    values = tf.reshape(values, (-1, 1))
+
+    # Compute soft-quantization
+    if v <= 0:
+        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
+        weights = tf.exp(-soft_quantization_sigma * tf.pow(dff, 2))
+    else:
+        # t-Student-like distance measure with heavy tails
+        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
+        dff = soft_quantization_sigma * dff
+        weights = tf.pow((1 + tf.pow(dff, 2) / v), -(v + 1) / 2)
+
+    weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
+    assert (weights.shape[1] == np.prod(codebook.shape))
+
+    # Compute soft histogram
+    histogram = tf.reduce_mean(weights, axis=0)
+    histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
+    histogram = histogram / tf.reduce_sum(histogram)
+    entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
+    entropy = tf.cast(entropy, tf.float32)
+
+    return entropy, histogram, weights
