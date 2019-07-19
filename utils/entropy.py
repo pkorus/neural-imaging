@@ -3,6 +3,15 @@ import sys
 sys.path.append('..')
 
 import numpy as np
+
+# import matplotlib
+from matplotlib import rc
+# rc('font',family='serif')
+rc('text', usetex=True)
+# rc('xtick', labelsize='x-small')
+# rc('ytick', labelsize='x-small')
+
+import seaborn as sns
 import matplotlib.pyplot as plt
 
 #%%
@@ -38,7 +47,29 @@ def quantize(x, codebook, v=100, sigma=5, dtype=np.float64):
 
     return soft, hard, histogram, entropy, weights
 
+# %%
+
+def set_style():
+    # This sets reasonable defaults for font size for
+    # a figure that will go in a paper
+    sns.set_context("paper")
+    
+    # Set the font to be serif, rather than sans
+    sns.set(font='serif')
+    
+    # Make the background white, and specify the
+    # specific font family
+    sns.set_style("white", {
+        "font.family": "serif",
+        "font.serif": ["Times", "Palatino", "serif"]
+    })
+
+
+set_style()
+
 #%% Single example
+
+sns.set()
 
 c_max = 5
 
@@ -59,9 +90,9 @@ hist = hist / hist.sum()
 entropy_real = - np.sum(hist * np.log2(hist))
 
 # Soft approximations
-X_soft, X_hard, histogram, entropy, weights = quantize(X, codebook, v=0, sigma=5)
+X_soft, X_hard, histogram, entropy, weights = quantize(X, codebook, v=50, sigma=5)
 
-fig, axes = plt.subplots(2, 3, squeeze=False, figsize=(20,9))
+fig, axes = plt.subplots(2, 3, squeeze=False, figsize=(20,12))
 axes[0, 0].plot(X_rnd, X_hard, '.')
 axes[0, 0].plot([-c_max, c_max], [-c_max, c_max], ':')
 axes[0, 0].set_title('Standard vs estimated hard quantization')
@@ -79,13 +110,14 @@ axes[1, 0].plot(codebook, hist, '.-')
 axes[1, 0].set_title('Histograms: real vs estimated')
 axes[1, 0].legend(['soft estimate', 'real histogram'])
 
-axes[1, 1].loglog(histogram, hist, '.')
-axes[1, 1].loglog([0, 1], [0, 1], ':')
-axes[1, 1].set_xlim([hist.min(), hist.max()])
-axes[1, 1].set_ylim([hist.min(), hist.max()])
+axes[1, 1].plot(histogram, hist, '.')
+axes[1, 1].plot([0, 1], [0, 1], ':')
+axes[1, 1].set_xlim([0.9*hist.min(), 1.05*hist.max()])
+axes[1, 1].set_ylim([0.9*hist.min(), 1.05*hist.max()])
 axes[1, 1].set_title('Histogram bins: real vs estimated')
 
-axes[0, 2].imshow(weights[0:c_max*3])
+axes[0, 2].imshow(weights[0:c_max*3], cmap='gray')
+axes[0, 2].grid(False)
 axes[1, 2].remove()
 
 quant_h_error = np.mean(np.abs(X_rnd - X_hard))
@@ -101,7 +133,6 @@ print('Entropy (soft)            : {:.4f}'.format(entropy))
 print('Entropy error             : {:.2f}'.format(np.abs(entropy_real - entropy)))
 print('Entropy error             : {:.3f}%'.format(100 * np.abs(entropy_real - entropy) / entropy_real))
 print('Kullback-Leibler div.     : {:.4f}'.format(kld))
-
 
 #%%
 
@@ -166,14 +197,15 @@ fig.suptitle('Kernel: {}, sigma={}'.format('gaussian' if v == 0 else 't-Student(
 
 # %% Hyper-parameter search
 
-n_scales = 500
+n_scales = 250
 n_samples = 1000
 distribution = 'Laplace'
 
 vs = [0, 5, 10, 25, 50, 100]
 sig = [5, 10, 25, 50]
 
-fig, axes = plt.subplots(len(vs), len(sig), sharex=True, sharey=True, squeeze=False, figsize=(5 * len(sig), 3 * len(vs)))
+fig, axes = plt.subplots(len(sig), len(vs), sharex=True, sharey=True,
+                         squeeze=False, figsize=(4 * len(vs), 3 * len(sig)))
 
 for n, v in enumerate(vs):
     for m, s in enumerate(sig):
@@ -192,12 +224,12 @@ for n, v in enumerate(vs):
 
         data[-1] = 100 * data[3] / data[1]
 
-        axes[n, m].plot(data[0], data[4], '.', alpha=0.25, markersize=5)
-        if v == vs[-1]:
-            axes[n, m].set_xlabel('{} distribution scale'.format(distribution))
-        if m == 0:
-            axes[n, m].set_ylabel('Relative entropy error [%]')
-        axes[n, m].set_title('Kernel: {}, sigma={} -> {:.2f}'.format('gaussian' if v == 0 else 't-Student({})'.format(v), s, np.mean(data[4])))
+        axes[m, n].plot(data[0], data[4], '.', alpha=0.25, markersize=5)
+        if s == sig[-1]:
+            axes[m, n].set_xlabel('{} distribution scale'.format(distribution))
+        if n == 0:
+            axes[m, n].set_ylabel('Relative entropy error [\\%]')
+        axes[m, n].set_title('Kernel: {}, sigma={} $\\rightarrow$ {:.2f}'.format('gaussian' if v == 0 else 't-Student({})'.format(v), s, np.mean(data[4])))
 
 # %% Real compression model and real images
 
