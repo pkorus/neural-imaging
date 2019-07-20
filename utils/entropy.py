@@ -14,6 +14,9 @@ rc('text', usetex=True)
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+sns.set()
+sns.set_context("paper")
+
 #%%
 
 def quantize(x, codebook, v=100, sigma=5, dtype=np.float64):
@@ -47,29 +50,21 @@ def quantize(x, codebook, v=100, sigma=5, dtype=np.float64):
 
     return soft, hard, histogram, entropy, weights
 
-# %%
 
-def set_style():
-    # This sets reasonable defaults for font size for
-    # a figure that will go in a paper
-    sns.set_context("paper")
-    
-    # Set the font to be serif, rather than sans
-    sns.set(font='serif')
-    
-    # Make the background white, and specify the
-    # specific font family
-    sns.set_style("white", {
-        "font.family": "serif",
-        "font.serif": ["Times", "Palatino", "serif"]
-    })
+def quantize_real(x, codebook):
+    X_rnd = np.round(X).clip(-c_max, c_max)
+    hist = np.zeros_like(codebook)
+    unique, counts = np.unique(X_rnd.astype(np.int), return_counts=True)
+    indices = np.where(np.abs(codebook.reshape((-1,1)) - unique.reshape((1,-1))) == 0)[0]
+    hist[indices] = counts
+    hist = hist.clip(1)
+    hist = hist / hist.sum()
+    entropy_real = - np.sum(hist * np.log2(hist))
 
+    return X_rnd, hist, entropy_real
 
-set_style()
 
 #%% Single example
-
-sns.set()
 
 c_max = 5
 
@@ -80,14 +75,7 @@ X = np.random.laplace(size=(2000,1), scale=2)
 codebook = np.arange(-c_max, c_max+1, 1)
 
 # Standard rounding / histogram / entropy
-X_rnd = np.round(X).clip(-c_max, c_max)
-hist = np.zeros_like(codebook)
-unique, counts = np.unique(X_rnd.astype(np.int), return_counts=True)
-indices = np.where(np.abs(codebook.reshape((-1,1)) - unique.reshape((1,-1))) == 0)[0]
-hist[indices] = counts
-hist = hist.clip(1)
-hist = hist / hist.sum()
-entropy_real = - np.sum(hist * np.log2(hist))
+X_rnd, hist, entropy_real = quantize_real(X, codebook)
 
 # Soft approximations
 X_soft, X_hard, histogram, entropy, weights = quantize(X, codebook, v=50, sigma=5)
@@ -134,18 +122,53 @@ print('Entropy error             : {:.2f}'.format(np.abs(entropy_real - entropy)
 print('Entropy error             : {:.3f}%'.format(100 * np.abs(entropy_real - entropy) / entropy_real))
 print('Kullback-Leibler div.     : {:.4f}'.format(kld))
 
+#%% Histogram & quantization for various distribution scales
+
+v = 0
+sigma = 5
+c_max = 5
+n_samples = 1000
+distribution = 'Gaussian'
+
+codebook = np.arange(-c_max, c_max+1, 1)
+
+fig, axes = plt.subplots(2, 5, squeeze=False, figsize=(20,6))
+
+for i, scale in enumerate([0.15, 0.5, 1, 2, 4]):
+
+    if distribution == 'Laplace':
+        X = np.random.laplace(size=(n_samples, 1), scale=scale)
+    elif distribution == 'Gaussian':
+        X = scale * np.random.normal(size=(n_samples, 1))
+
+    # Standard rounding / histogram / entropy
+    X_rnd, hist, entropy_real = quantize_real(X, codebook)
+    
+    # Soft approximations
+    X_soft, X_hard, histogram, entropy, weights = quantize(X, codebook, v=v, sigma=sigma)
+
+    axes[0, i].plot(X, X_soft, '.')
+    axes[0, i].plot(X, X_rnd, '.')
+    axes[0, i].set_title('Soft quantization vs input')
+    axes[0, i].legend(['soft estimate', 'real quantization'])
+    axes[0, i].set_title('{} dist. s={}; Kernel: {}, $\sigma$={}'.format(distribution, scale, 'Gaussian' if v == 0 else 't-Student({})'.format(v), sigma))
+    if i == 0:
+        axes[0, i].set_ylabel('Quantized values')
+
+    axes[1, i].plot(codebook, histogram, '.-')
+    axes[1, i].plot(codebook, hist, '.-')
+    # axes[1, i].set_title('Histograms: real vs estimated')
+    axes[1, i].legend(['soft (H={:.2f})'.format(entropy), 'real (H={:.2f})'.format(entropy_real)])
+    if i == 0:
+        axes[1, i].set_ylabel('Histograms')
+
+fig.savefig('fig_quantization_n_hist_{}.pdf'.format(distribution), bbox_inches='tight')
+
 #%%
 
 def estimate_errors(X, codebook, v=100, sigma=5):
     # Standard rounding / histogram / entropy
-    x_rnd = np.round(X).clip(-5, 5)
-    histogram = np.zeros_like(codebook)
-    unique, counts = np.unique(x_rnd.astype(np.int), return_counts=True)
-    indices = np.where(np.abs(codebook.reshape((-1,1)) - unique.reshape((1,-1))) == 0)[0]
-    histogram[indices] = counts
-    histogram = histogram.clip(1)
-    histogram = histogram / histogram.sum()
-    hard_entropy = - np.sum(histogram * np.log2(histogram))
+    _, _, hard_entropy = quantize_real(X, codebook)
     
     # Soft approximations
     _, _, _, soft_entropy, _ = quantize(X, codebook, v, sigma)
@@ -156,7 +179,7 @@ def estimate_errors(X, codebook, v=100, sigma=5):
 
 #%% Large synthetic data experiment
 
-v = 25
+v = 0
 sigma = 5
 n_scales = 500
 n_samples = 1000
@@ -180,11 +203,11 @@ data[-1] = 100 * data[3] / data[1]
 fig, axes = plt.subplots(1, 3, squeeze=False, figsize=(15,4))
 axes[0, 0].plot(data[0], data[3], '.', alpha=0.5, markersize=3)
 axes[0, 0].set_xlabel('{} distribution scale'.format(distribution))
-axes[0, 0].set_ylabel('Absolute error')
+axes[0, 0].set_ylabel('Absolute entropy error')
 
 axes[0, 1].plot(data[0], data[4], '.', alpha=0.5, markersize=3)
 axes[0, 1].set_xlabel('{} distribution scale'.format(distribution))
-axes[0, 1].set_ylabel('Relative error [%]')
+axes[0, 1].set_ylabel('Relative entropy error [\\%]')
 
 axes[0, 2].plot(data[1], data[2], '.', alpha=0.5, markersize=5)
 axes[0, 2].plot([0, 5], [0, 5], ':')
@@ -193,7 +216,59 @@ axes[0, 2].set_ylim([-0.05, 1.05*max(data[1])])
 axes[0, 2].set_xlabel('Real entropy')
 axes[0, 2].set_ylabel('Soft estimate')
 
-fig.suptitle('Kernel: {}, $\sigma$={}'.format('Gaussian' if v == 0 else 't-Student({})'.format(v), sigma))
+fig.suptitle('{} dist.; Kernel: {}, $\sigma$={}'.format(distribution, 'Gaussian' if v == 0 else 't-Student({})'.format(v), sigma))
+
+fig.savefig('fig_errors_{}.pdf'.format('Gaussian' if v == 0 else 't-Student({})'.format(v)), bbox_inches='tight')
+
+#%% Large synthetic data experiment (Alternative)
+
+v = 0
+sigma = 5
+n_scales = 500
+n_samples = 1000
+distribution = 'Laplace'
+codebook = np.arange(-c_max, c_max+1, 1)
+
+data = np.zeros((5, n_scales))
+data[0] = np.linspace(0.01, 10, n_scales)
+
+fig, axes = plt.subplots(1, 4, squeeze=False, figsize=(18, 3))
+
+for v, color in zip([0, 25], ['r', 'g']):
+
+    data = np.zeros((5, n_scales))
+    data[0] = np.linspace(0.01, 10, n_scales)
+
+    for i, scale in enumerate(data[0]):
+
+        if distribution == 'Laplace':
+            X = np.random.laplace(size=(n_samples, 1), scale=scale)
+        elif distribution == 'Gaussian':
+            X = scale * np.random.normal(size=(n_samples, 1))
+            
+        data[1:-1, i] = estimate_errors(X, codebook, v, sigma)
+        data[-1] = 100 * data[3] / data[1]
+
+    axes[0, 0].plot(data[0], data[3], 'o', alpha=0.25, markersize=3, color=color)
+    axes[0, 0].set_xlabel('{} distribution scale'.format(distribution))
+    axes[0, 0].set_ylabel('Absolute entropy error')
+
+    axes[0, 1].plot(data[0], data[4], 'o', alpha=0.25, markersize=3,color=color)
+    axes[0, 1].set_xlabel('{} distribution scale'.format(distribution))
+    axes[0, 1].set_ylabel('Relative entropy error [\\%]')
+
+    axes[0, 2 + np.sign(v)].plot(data[1], data[2], '.', alpha=0.5, markersize=5, color=color)
+    axes[0, 2 + np.sign(v)].plot([0, 5], [0, 5], ':')
+    axes[0, 2 + np.sign(v)].set_xlim([-0.05, 1.05*max(data[1])])
+    axes[0, 2 + np.sign(v)].set_ylim([-0.05, 1.05*max(data[1])])
+    axes[0, 2 + np.sign(v)].set_xlabel('Real entropy')
+    axes[0, 2 + np.sign(v)].set_ylabel('Soft estimate')
+
+axes[0, 0].legend(['Gaussian', 't-Student({})'.format(25)])
+
+fig.suptitle('{} dist.; Kernel: {}, $\sigma$={}'.format(distribution, 'Gaussian' if v == 0 else 't-Student({})'.format(v), sigma))
+
+fig.savefig('fig_errors.pdf', bbox_inches='tight')
 
 # %% Hyper-parameter search
 
