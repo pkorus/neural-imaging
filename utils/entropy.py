@@ -266,7 +266,7 @@ for v, color in zip([0, 25], ['r', 'g']):
 
 axes[0, 0].legend(['Gaussian', 't-Student({})'.format(25)])
 
-fig.suptitle('{} dist.; Kernel: {}, $\sigma$={}'.format(distribution, 'Gaussian' if v == 0 else 't-Student({})'.format(v), sigma))
+fig.suptitle('{} dist.; Kernel: {}, $\sigma$={}'.format(distribution, 'Gaussian + t-Student(25)', sigma))
 
 fig.savefig('fig_errors.pdf', bbox_inches='tight')
 
