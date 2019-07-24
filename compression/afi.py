@@ -73,7 +73,7 @@ def afi_compress(model, batch_x, verbose=False):
     - Latent shape H x W x N = 3 x 1 byte (uint8)
     - Length of coded layer sizes = 2 bytes (uint16)
     - Coded layer sizes:
-        - FSE encoded uint16 array of size N = 2 * N bytes (if possible to compress)
+        - FSE encoded uint16 array of size 2 * N bytes (if possible to compress)
         - ...or RAW bytes
     - Coded layers:
         - FSE encoded uint8 array of latent vector size

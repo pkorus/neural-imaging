@@ -16,7 +16,9 @@ import matplotlib.pyplot as plt
 from helpers import plotting, summaries, utils
 
 
-def visualize_distribution(dcn, data, ax=None):
+def visualize_distribution(dcn, data, ax=None, title=None):
+
+    title = '' if title is None else title+' '
 
     if type(data) is not np.ndarray:
         sample_batch_size = np.min((100, data.count_validation))
@@ -69,8 +71,8 @@ def visualize_distribution(dcn, data, ax=None):
     ax.set_xticks(ticks)
     ax.stem(bin_centers, hist, linefmt='r:', markerfmt='r.')  # width=bin_centers[1] - bin_centers[0]
     ax.bar(codebook, histogram, width=(codebook[1] - codebook[0]) / 2, color='b', alpha=0.5)
-    ax.set_title('QLR histogram (H={:.1f})'.format(entropy))
-    ax.legend(['Quantized values', 'Soft estimate'])
+    ax.set_title('{}QLR histogram (H={:.1f})'.format(title, entropy))
+    ax.legend(['Quantized values', 'Soft estimate'], loc='upper right')
 
     # Render the plot as a PNG image and return a bitmap array
     return ax.figure
