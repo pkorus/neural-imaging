@@ -101,7 +101,7 @@ fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('regularized'), bbox_inches='tight'
 
 # %% Load sample data
 
-dataset = './data/clic256/'
+dataset = './data/clic128/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -208,6 +208,8 @@ models = []
 model_directory = './data/raw/dcn/entropy/'
 models = [str(mp.parent.parent) for mp in list(Path(model_directory).glob('**/progress.json'))]
 
+models = [x for x in models if '5.0bpf' in x and 'H+250' in x]
+
 # %%
 
 df = pd.DataFrame(columns=['model', 'image_id', 'entropy', 'entropy_min', 'entropy_max', 'global', 'layered'])
@@ -245,3 +247,15 @@ df = df.infer_objects()
 df['ratio'] = df['layered'] / df['global']
 
 print(df.groupby('model').mean().to_string())
+
+# %%
+
+from test_dcn import match_jpeg
+
+image_id = 0
+model = '4k'
+
+dcn = afi.restore_model(model, patch_size=batch_x.shape[1])
+fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1])
+
+fig.savefig('fig_jpeg_match_model_{}_image_{}.pdf'.format(model, images[image_id]), bbox_inches='tight')

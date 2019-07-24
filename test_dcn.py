@@ -12,13 +12,10 @@ from compression.afi import dcn_simulate_compression
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-from pathlib import Path
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage.measure import compare_ssim, compare_psnr
+from skimage.measure import compare_ssim
 
-from models import compression
 from helpers import plotting, dataset, coreutils, loading, utils
 from compression import jpeg_helpers, afi, ratedistortion
 
@@ -89,8 +86,7 @@ def match_jpeg(model, batch_x):
     plotting.quickshow(utils.crop_middle(batch_j, crop_size), 'JPEG crop {}', axes=axes[5])
 
     fig.tight_layout()
-    plt.show()
-    plt.close()
+    return fig
 
 
 def show_example(model, batch_x):
@@ -140,12 +136,11 @@ def show_example(model, batch_x):
     plotting.quickshow(thumbs_few, 'Sample reconstructions, ssim={:.3f}'.format(np.mean(ssim_values)), axes=axes[1])
 
     fig.tight_layout()
-    plt.show()
-    plt.close()
+    return fig
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
+    parser = argparse.ArgumentParser(description='Test a neural imaging pipeline')
     parser.add_argument('plot', help='Plot type ({})'.format(', '.join(supported_plots)))
     # Parameters related to the training data
     parser.add_argument('--data', dest='data', action='store', default='./data/clic/',
@@ -182,7 +177,9 @@ def main():
         data = dataset.IPDataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
         batch_x = data.next_validation_batch(0, args.images)
 
-        show_example(model, batch_x)
+        fig = show_example(model, batch_x)
+        plt.show()
+        plt.close()
 
     elif args.plot == 'jpeg-match':
 
@@ -193,7 +190,9 @@ def main():
 
         model = afi.restore_model(args.dir, batch_x.shape[1])
 
-        match_jpeg(model, batch_x)
+        fig = match_jpeg(model, batch_x)
+        plt.show()
+        plt.close()
 
     elif args.plot == 'jpg-trade-off':
 

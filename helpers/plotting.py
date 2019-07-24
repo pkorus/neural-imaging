@@ -160,7 +160,7 @@ def quickshow(x, label=None, *, axes=None, cmap='gray'):
     x = x.squeeze()
     
     if '{}' in label:
-        label = label.replace('{}', '({}x{}) -> [{:.2f} - {:.2f}]'.format(*x.shape[0:2], np.min(x), np.max(x)))
+        label = label.replace('{}', '({}x{}) / [{:.2f} - {:.2f}]'.format(*x.shape[0:2], np.min(x), np.max(x)))
         
     if axes is None:
         plt.imshow(x, cmap=cmap)
