@@ -8,21 +8,20 @@ Created on Thu Jul 11 12:19:20 2019
 import os
 import numpy as np
 import pandas as pd
+from pathlib import Path
+
+import seaborn as sns
+from matplotlib import rc
+
+rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+rc('text', usetex=True)
+sns.set()
+sns.set_context("paper")
+
+from test_dcn import match_jpeg
 from helpers import plotting, loading, utils
 from compression import ratedistortion, afi
 from training import compression
-import seaborn as sns
-
-from pathlib import Path
-
-from matplotlib import rc, rcParams
-rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
-rc('text', usetex=True)
-# rcParams['font.sans-serif'] = "dejavuserif"
-# rcParams['font.family'] = "sans-serif"
-# rcParams['mathtext.fontset'] = 'dejavuserif'
-
-sns.set()
 
 # %% Binary representations
 
@@ -101,7 +100,7 @@ fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('regularized'), bbox_inches='tight'
 
 # %% Load sample data
 
-dataset = './data/clic128/'
+dataset = './data/clic512/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -248,9 +247,7 @@ df['ratio'] = df['layered'] / df['global']
 
 print(df.groupby('model').mean().to_string())
 
-# %%
-
-from test_dcn import match_jpeg
+# %% Show DCN and JPEG images at a matching SSIM quality level
 
 image_id = 0
 model = '4k'
@@ -259,3 +256,45 @@ dcn = afi.restore_model(model, patch_size=batch_x.shape[1])
 fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1])
 
 fig.savefig('fig_jpeg_match_model_{}_image_{}.pdf'.format(model, images[image_id]), bbox_inches='tight')
+
+# %% Compare peformance of forensics models
+
+latent_bpf = 5
+
+plots = [
+        ('dcn-forensics.csv', {}),
+        ('jpeg.csv', {}),
+        ('jpeg2000.csv', {})
+]
+
+images = [0, 11, 13, 21, 30, 36]
+
+fig, axes = plotting.sub(len(images), ncols=3)
+fig.set_size_inches((15, 8))
+# ratedistortion.plot_curve(plots, axes[0], dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='ensemble')
+
+for i, im in enumerate(images):
+    ratedistortion.plot_curve(plots, axes[i], dataset, title='Example {}'.format(im), images=[im], plot='none')
+
+# fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('regularized'), bbox_inches='tight')
+
+# %% Compare many DCN models
+
+model_directory = './data/raw/dcn/forensics/'
+models = [str(mp.parent.parent) for mp in list(Path(model_directory).glob('**/progress.json'))]
+models = sorted(models)
+
+print(models)
+
+image_id = 3
+
+fig, axes = plotting.sub(6 * len(models), ncols=6)
+
+for model_id, model in enumerate(models):
+
+    dcn = afi.restore_model(model, patch_size=batch_x.shape[1])
+    match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], axes[model_id*6:(model_id+1)*6])
+    
+    axes[model_id*6].set_ylabel(os.path.relpath(model, model_directory))
+
+fig.savefig('fig_compare_dcn_models_image_{}.pdf'.format(images[image_id]), bbox_inches='tight')

@@ -3,8 +3,8 @@ import sys
 import json
 import shutil
 import argparse
-from functools import reduce
 import subprocess
+from helpers import coreutils
 
 
 def shell(command, log=None):
@@ -53,7 +53,7 @@ def run_test(config, args):
     with open(os.path.join(args.root_dir, config['performance']['file'].format(args.camera))) as f:
         perf = json.load(f)
         for key, expected_value in config['performance']['values'].items():
-            obtained_value = reduce(lambda c, k: c.get(k, {}), key.split('/'), perf)[-1]
+            obtained_value = coreutils.getkey(perf, key)[-1]
             print('    {:56s} {:5.2f} > {:5.2f} [{}]'.format(key, obtained_value, expected_value, 'ok' if obtained_value > expected_value else 'failed'))
 
 

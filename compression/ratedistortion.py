@@ -149,7 +149,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
     # Create a new table for the DCN
     df = pd.DataFrame(
-        columns=['image_id', 'filename', 'codec', 'ssim', 'psnr', 'entropy', 'bytes', 'bpp', 'layers', 'quantization',
+        columns=['image_id', 'filename', 'model_dir', 'codec', 'ssim', 'psnr', 'entropy', 'bytes', 'bpp', 'layers', 'quantization',
                  'entropy_reg', 'codebook', 'latent', 'latent_shape', 'n_features'])
 
     # Discover available models
@@ -165,7 +165,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
         for model_dir in model_dirs:
             print('Processing: {}'.format(model_dir))
-            dcn, stats = afi.restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1], fetch_stats=True)
+            dcn = afi.restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1])
 
             # Dump compressed images
             for image_id, filename in enumerate(files):
@@ -189,6 +189,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
                 df = df.append({'image_id': image_id,
                                 'filename': filename,
+                                'model_dir': os.path.relpath(os.path.split(str(model_dir))[0], model_directory).replace(dcn.scoped_name, ''),
                                 'codec': dcn.model_code,
                                 'ssim': compare_ssim(batch_x[image_id], batch_y[0], multichannel=True, data_range=1),
                                 'psnr': compare_psnr(batch_x[image_id], batch_y[0], data_range=1),
@@ -304,6 +305,9 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
             y = np.median([f(x) for f in ensemble], axis=0)
             axes.plot(x, y, styles[index][0], label=labels[index])
             ssim_min = min([ssim_min, min(y)])
+
+        elif plot == 'none':
+            pass
 
         else:
             raise ValueError('Unsupported plot type!')

@@ -4,18 +4,15 @@ sys.path.append('..')
 
 import numpy as np
 
-# import matplotlib
-from matplotlib import rc
-# rc('font',family='serif')
-rc('text', usetex=True)
-# rc('xtick', labelsize='x-small')
-# rc('ytick', labelsize='x-small')
-
 import seaborn as sns
-import matplotlib.pyplot as plt
+from matplotlib import rc
 
+rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+rc('text', usetex=True)
 sns.set()
 sns.set_context("paper")
+
+import matplotlib.pyplot as plt
 
 #%%
 
