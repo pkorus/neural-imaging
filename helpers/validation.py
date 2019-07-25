@@ -22,7 +22,7 @@ def confusion(mc, data, lagel_generator, label_multiplier=1):
     for batch in range(n_batches):
         batch_x, _ = data.next_validation_batch(batch, batch_size)
 
-        if type(lagel_generator) is types.FunctionType:
+        if isinstance(lagel_generator, types.FunctionType):
             batch_y = lagel_generator(len(batch_x))
         else:
             batch_y = lagel_generator[(batch*batch_size*label_multiplier):(batch+1)*batch_size*label_multiplier]
