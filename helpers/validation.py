@@ -298,6 +298,7 @@ def save_training_progress(training_summary, model, fan, dcn, conf, root_dir):
 #         training['compression']['training']['ssim'] = dcn.performance['loss']['training']
         training['compression']['validation'] = OrderedDict() 
         training['compression']['validation']['ssim'] = dcn.performance['ssim']['validation']
+        training['compression']['validation']['psnr'] = dcn.performance['psnr']['validation']
         training['compression']['validation']['entropy'] = dcn.performance['entropy']['validation']
         training['compression']['validation']['loss'] = dcn.performance['loss']['validation']
     

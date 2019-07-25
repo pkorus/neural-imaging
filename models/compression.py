@@ -225,7 +225,7 @@ class DCN(TFModel):
         self.performance = {
             'loss': {'training': [], 'validation': []},
             'entropy': {'training': [], 'validation': []},
-            'ssim': {'training': [], 'validation': []}
+            'ssim': {'training': [], 'validation': []},
             'psnr': {'training': [], 'validation': []}
         }
 
