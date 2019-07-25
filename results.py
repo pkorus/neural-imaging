@@ -4,7 +4,6 @@ import re
 import os
 import json
 import glob
-from functools import reduce
 from pathlib import Path
 import argparse
 from collections import OrderedDict
@@ -15,7 +14,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from helpers import coreutils
 
-supported_plots = ['boxplot', 'scatter-psnr', 'scatter-ssim', 'progressplot', 'confusion', 'ssim', 'psnr', 'dataframe']
+supported_plots = ['boxplot', 'scatter-psnr', 'scatter-ssim', 'progressplot', 'confusion', 'ssim', 'psnr', 'df']
 
 ROOT_DIRNAME = './data/raw/m'
 
@@ -327,9 +326,9 @@ def display_results(args):
         plt.show()
         return
 
-    if plot == 'dataframe':
+    if plot == 'df':
 
-        print('>', args.dir)
+        print('Searching for training.json in', args.dir)
 
         df = pd.DataFrame(columns=['scenario', 'run', 'accuracy', 'nip_ssim', 'nip_psnr', 'dcn_ssim', 'dcn_entropy'])
 
@@ -356,10 +355,11 @@ def display_results(args):
                 'dcn_entropy': dcn_entr[-1]
             }, ignore_index=True, sort=False)
 
-        if False:
-            print(df.to_string())
-        else:
-            print(df.groupby('scenario').mean().to_string())
+        if len(df) > 0:
+            if False:
+                print(df.to_string())
+            else:
+                print(df.groupby('scenario').agg(['mean', 'count']).to_string())
 
         return
 
@@ -376,7 +376,7 @@ if __name__ == "__main__":
     parser.add_argument('--r', dest='regularization', action='append',
                         help='add regularization strength (repeat if needed)')
     parser.add_argument('--dir', dest='dir', action='store',
-                        default=ROOT_DIRNAME+'cvpr2019',
+                        default=os.path.join(ROOT_DIRNAME, 'cvpr2019'),
                         help='Root directory with the results')
     parser.add_argument('--df', dest='df', action='store',
                         default=None,
