@@ -328,7 +328,7 @@ def display_results(args):
 
     if plot == 'df':
 
-        print('Searching for training.json in', args.dir)
+        print('Searching for "training.json" in', args.dir)
 
         df = pd.DataFrame(columns=['scenario', 'run', 'accuracy', 'nip_ssim', 'nip_psnr', 'dcn_ssim', 'dcn_entropy'])
 
@@ -357,9 +357,11 @@ def display_results(args):
 
         if len(df) > 0:
             if False:
-                print(df.to_string())
+                print(df.groupby('scenario').mean().to_string())
             else:
-                print(df.groupby('scenario').agg(['mean', 'count']).to_string())
+                gb = df.groupby('scenario')
+                counts = gb.size().to_frame(name='reps')
+                print(counts.join(gb.agg('mean')).reset_index().to_string())
 
         return
 
