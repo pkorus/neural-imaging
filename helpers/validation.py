@@ -74,7 +74,7 @@ def validate_dcn(model, data, save_dir=False, epoch=0, show_ref=False):
         plt.close(fig)
         del fig
     
-    return ssims, losses, entropies
+    return ssims, psnrs, losses, entropies
 
 
 def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type='L2'):

@@ -226,6 +226,7 @@ class DCN(TFModel):
             'loss': {'training': [], 'validation': []},
             'entropy': {'training': [], 'validation': []},
             'ssim': {'training': [], 'validation': []}
+            'psnr': {'training': [], 'validation': []}
         }
 
     def get_tf_histogram(self, batch_x, is_training=None):
