@@ -54,7 +54,8 @@ def validate_dcn(model, data, save_dir=False, epoch=0, show_ref=False):
     codebook = model.get_codebook()
     
     ssims = [compare_ssim(batch_x[b], batch_y[b], multichannel=True, data_range=1) for b in range(data.count_validation)]
-    mses = [compare_mse(batch_x[b], batch_y[b]) for b in range(data.count_validation)]
+    psnrs = [compare_psnr(batch_x[b], batch_y[b], data_range=1) for b in range(data.count_validation)]
+    losses = [model.sess.run(model.loss, feed_dict={model.x: batch_x[b:b+1]}) for b in range(data.count_validation)]
     entropies = [utils.entropy(batch_z[b], codebook) for b in range(data.count_validation)]
     
     if save_dir is not None:
@@ -62,7 +63,7 @@ def validate_dcn(model, data, save_dir=False, epoch=0, show_ref=False):
             ax = fig.add_subplot(images_y, images_x, b + 1)
             plotting.quickshow(
                 np.concatenate((batch_x[b], batch_y[b]), axis=1) if show_ref else batch_y[b],
-                '{:.1f} / {:.2f}'.format(mses[b], ssims[b]),
+                '{:.1f} / {:.2f}'.format(psnrs[b], ssims[b]),
                 axes=ax
             )
 
@@ -73,7 +74,7 @@ def validate_dcn(model, data, save_dir=False, epoch=0, show_ref=False):
         plt.close(fig)
         del fig
     
-    return ssims, mses, entropies
+    return ssims, psnrs, losses, entropies
 
 
 def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type='L2'):
@@ -191,7 +192,7 @@ def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, c
     ax = fig.add_subplot(images_y, images_x, 3)
     ax.plot(nip.performance['ssim']['validation'], '.', alpha=0.25)
     ax.plot(utils.ma_conv(nip.performance['ssim']['validation'], 0))
-    ax.set_ylabel('{} NIP psnr'.format(type(nip).__name__))
+    ax.set_ylabel('{} NIP ssim'.format(type(nip).__name__))
     ax.set_title('SSIM')
     ax.set_ylim([0.8, 1])
     
@@ -229,7 +230,7 @@ def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, c
         ax.plot(dcn.performance['ssim']['validation'], '.', alpha=0.25)
         ax.plot(utils.ma_conv(dcn.performance['ssim']['validation'], 0))
         ax.set_ylabel('DCN ssim')
-        ax.set_ylim([0, 1])
+        ax.set_ylim([0.8, 1])
 
         ax = fig.add_subplot(images_y, images_x, 9)
         ax.plot(dcn.performance['entropy']['validation'], '.', alpha=0.25)
@@ -290,6 +291,7 @@ def save_training_progress(training_summary, model, fan, dcn, conf, root_dir):
 #         training['compression']['training']['ssim'] = dcn.performance['loss']['training']
         training['compression']['validation'] = OrderedDict() 
         training['compression']['validation']['ssim'] = dcn.performance['ssim']['validation']
+        training['compression']['validation']['psnr'] = dcn.performance['psnr']['validation']
         training['compression']['validation']['entropy'] = dcn.performance['entropy']['validation']
         training['compression']['validation']['loss'] = dcn.performance['loss']['validation']
     

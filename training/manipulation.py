@@ -415,7 +415,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
                 # Validate the DCN model
                 if joint_optimization[1]:
                     values = validation.validate_dcn(tf_ops['dcn'], data, nip_save_dir, epoch=epoch, show_ref=True)
-                    for metric, val_array in zip(['ssim', 'loss', 'entropy'], values):
+                    for metric, val_array in zip(['ssim', 'psnr', 'loss', 'entropy'], values):
                         tf_ops['dcn'].performance[metric]['validation'].append(float(np.mean(val_array)))                    
 
                 # Validate the forensics network
@@ -452,7 +452,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
                 'acc': tf_ops['fan'].performance['accuracy']['validation'][-1],
             }
             
-            if distribution['compression'] == 'dcn':
+            if distribution['compression'] == 'dcn' and joint_optimization[1]:
                 progress_stats['dcn'] = tf_ops['dcn'].performance['ssim']['validation'][-1]
                 progress_stats['H'] = tf_ops['dcn'].performance['entropy']['validation'][-1]
 
@@ -488,15 +488,15 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     print('Saving models...', end='')
 
     tf_ops['fan'].save_model(os.path.join(model_directory, tf_ops['fan'].scoped_name), epoch)
-    print('fan', end='')
+    print(' fan', end='')
     
     if joint_optimization[0]:
         tf_ops['nip'].save_model(os.path.join(model_directory, tf_ops['nip'].scoped_name), epoch)
-        print('nip', end='')
+        print(' nip', end='')
     
     if isinstance(tf_ops['dcn'], compression.DCN) and joint_optimization[1]:
         tf_ops['dcn'].save_model(os.path.join(model_directory, tf_ops['dcn'].scoped_name), epoch)
-        print('dcn', end='')
+        print(' dcn', end='')
     
     print('') # \newline
     
