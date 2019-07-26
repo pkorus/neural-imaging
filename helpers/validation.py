@@ -66,18 +66,10 @@ def validate_dcn(model, data, save_dir=False, epoch=0, show_ref=False):
                 axes=ax
             )
 
-            # if show_ref:
-            #     ax.imshow(np.concatenate( (batch_x[b], batch_y[b]), axis=1))
-            # else:
-            #     ax.imshow(batch_y[b])
-            # ax.set_xticks([])
-            # ax.set_yticks([])
-            # ax.set_title('{:.1f} / {:.2f}'.format(mses[b], ssims[b]), fontsize=6)
-
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
-        fig.savefig('{}/dcn_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=150)
+        fig.savefig('{}/dcn_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=100, quality=90)
         plt.close(fig)
         del fig
     
@@ -134,15 +126,9 @@ def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type
             )
 
     if save_dir is not None:
-        # # Save the figure
-        # if '{' in save_dir and '}' in save_dir:
-        #     dirname = save_dir.replace('{nip-model}', type(model).__name__)
-        # else:
-        # dirname = os.path.join(save_dir, type(model).__name__)
-
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
-        fig.savefig('{}/nip_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=150)
+        fig.savefig('{}/nip_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=100, quality=90)
         plt.close(fig)
         del fig
     
@@ -249,7 +235,6 @@ def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, c
         ax.plot(dcn.performance['entropy']['validation'], '.', alpha=0.25)
         ax.plot(utils.ma_conv(dcn.performance['entropy']['validation'], 0))
         ax.set_ylabel('DCN entropy')
-        # ax.set_ylim([0, 5])
 
     if save_dir is not None:
         if not os.path.exists(save_dir):
