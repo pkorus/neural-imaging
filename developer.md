@@ -32,4 +32,4 @@ python3 train_manipulation.py --nip DNet --cam "Nikon D90" --dir ./data/raw/mani
 
 # Various JPEG quality levels
 
-python3 train_manipulation.py --nip DNet --cam "Nikon D90" --dir ./data/raw/manipulation_dcn --end 1 --ds none --patch 128 --split 40:20:2
+python3 train_manipulation.py --nip DNet --cam "Nikon D90" --dir ./data/raw/m/jpeg --end 5 --ds none --patch 128 --jpeg 50

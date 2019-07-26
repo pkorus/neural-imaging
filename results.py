@@ -2,23 +2,24 @@
 # -*- coding: utf-8 -*-
 import re
 import os
-import sys
 import json
 import glob
+from pathlib import Path
 import argparse
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict
 from itertools import product
 import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from matplotlib2tikz import save as tikz_save
 from helpers import coreutils
 
-supported_plots = ['boxplot', 'scatter-psnr', 'scatter-ssim', 'progressplot', 'confusion', 'ssim', 'psnr']
+supported_plots = ['boxplot', 'scatter-psnr', 'scatter-ssim', 'progressplot', 'confusion', 'ssim', 'psnr', 'df']
+
+ROOT_DIRNAME = './data/raw/m'
 
 
-def boxplot_data(nip_model, cameras=None, field='accuracy', root_dir='./data/raw/train_manipulation'):
+def boxplot_data(nip_model, cameras=None, field='accuracy', root_dir=ROOT_DIRNAME):
     
     cameras = cameras or coreutils.listdir(root_dir, '.', dirs_only=True)
 
@@ -62,7 +63,7 @@ def boxplot_data(nip_model, cameras=None, field='accuracy', root_dir='./data/raw
     return df
 
 
-def scatterplot_data(nip_models, camera, root_dir='./data/raw/train_manipulation'):
+def scatterplot_data(nip_models, camera, root_dir=ROOT_DIRNAME):
     
     nip_models = nip_models if type(nip_models) is list else [nip_models]
 
@@ -98,7 +99,7 @@ def scatterplot_data(nip_models, camera, root_dir='./data/raw/train_manipulation
     return df
 
 
-def progressplot_data(cases, root_dir='./data/raw/train_manipulation'):
+def progressplot_data(cases, root_dir=ROOT_DIRNAME):
     
     cases = cases or [('Nikon D90', 'INet', 'lr-0.0000', 0)]
 
@@ -136,7 +137,7 @@ def progressplot_data(cases, root_dir='./data/raw/train_manipulation'):
         d_ssim = data['nip']['validation']['ssim']
         d_accuracy = data['forensics']['validation']['accuracy']
                     
-        df = df.append(pd.DataFrame({
+        df = df.append({
                 'camera': [camera] * len(d_accuracy),
                 'nip': [nip_model] * len(d_accuracy),
                 'exp': [ed] * len(d_accuracy),
@@ -145,7 +146,7 @@ def progressplot_data(cases, root_dir='./data/raw/train_manipulation'):
                 'psnr': match_length(d_accuracy, d_psnr),
                 'ssim': match_length(d_accuracy, d_ssim),
                 'accuracy': d_accuracy
-                }), ignore_index=True, sort=False)            
+                }, ignore_index=True, sort=False)
                 
         # Remember last used values for future iterations
         l_camera, l_nip_model, l_ed, l_rep = camera, nip_model, ed, rep
@@ -156,7 +157,7 @@ def progressplot_data(cases, root_dir='./data/raw/train_manipulation'):
     return df, labels
 
 
-def confusion_data(nip_model, cameras, root_dir='./data/raw/train_manipulation'):    
+def confusion_data(nip_model, cameras, root_dir=ROOT_DIRNAME):
     cameras = cameras or coreutils.listdir(root_dir, '.', dirs_only=True)
     
     confusion = OrderedDict()
@@ -324,7 +325,46 @@ def display_results(args):
         plt.tight_layout()
         plt.show()
         return
-    
+
+    if plot == 'df':
+
+        print('Searching for "training.json" in', args.dir)
+
+        df = pd.DataFrame(columns=['scenario', 'run', 'accuracy', 'nip_ssim', 'nip_psnr', 'dcn_ssim', 'dcn_entropy'])
+
+        for filename in Path(args.dir).glob('**/training.json'):
+            with open(str(filename)) as f:
+                data = json.load(f)
+
+            default = [np.nan]
+            accuracy = coreutils.getkey(data, 'forensics/validation/accuracy') or default
+            nip_ssim = coreutils.getkey(data, 'nip/validation/ssim') or default
+            nip_psnr = coreutils.getkey(data, 'nip/validation/psnr') or default
+            dcn_ssim = coreutils.getkey(data, 'compression/validation/ssim') or default
+            dcn_entr = coreutils.getkey(data, 'compression/validation/entropy') or default
+
+            path_components = os.path.relpath(str(filename), args.dir).split('/')[:-1]
+
+            df = df.append({
+                'scenario': os.path.join(*path_components[:-1]),
+                'run': int(path_components[-1]),
+                'accuracy': accuracy[-1],
+                'nip_ssim': nip_ssim[-1],
+                'nip_psnr': nip_psnr[-1],
+                'dcn_ssim': dcn_ssim[-1],
+                'dcn_entropy': dcn_entr[-1]
+            }, ignore_index=True, sort=False)
+
+        if len(df) > 0:
+            if False:
+                print(df.groupby('scenario').mean().to_string())
+            else:
+                gb = df.groupby('scenario')
+                counts = gb.size().to_frame(name='reps')
+                print(counts.join(gb.agg('mean')).reset_index().to_string())
+
+        return
+
     raise RuntimeError('No plot matched! Available plots {}'.format(', '.join(supported_plots)))
 
 
@@ -332,21 +372,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Show results from NIP & FAN optimization')
     parser.add_argument('plot', help='Plot type ({})'.format(', '.join(supported_plots)))
     parser.add_argument('--nip', dest='nips', action='append',
-                        help='the NIP model (INet, UNet, SigNet)')
+                        help='the NIP model (INet, UNet, DNet)')
     parser.add_argument('--cam', dest='cameras', action='append',
                         help='add cameras for evaluation (repeat if needed)')
     parser.add_argument('--r', dest='regularization', action='append',
                         help='add regularization strength (repeat if needed)')
     parser.add_argument('--dir', dest='dir', action='store',
-                        default='./data/raw/train_manipulation',
+                        default=os.path.join(ROOT_DIRNAME, 'cvpr2019'),
                         help='Root directory with the results')
     parser.add_argument('--df', dest='df', action='store',
                         default=None,
                         help='Path of the output directory for data frames with results')
     args = parser.parse_args()
 
+    if '/' not in args.dir:
+        args.dir = os.path.join(ROOT_DIRNAME, args.dir)
+
     if args.nips is None:
-        print('No NIP specified!')
-        sys.exit(1)
+        args.nips = ['UNet', 'DNet', 'INet']
 
     display_results(args)

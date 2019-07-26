@@ -1,5 +1,8 @@
+import numpy
+import tensorflow
 import tensorflow as tf
 import numpy as np
+from Cython.Includes import numpy
 from tensorflow.contrib import slim as slim
 
 from helpers.utils import gkern, repeat_2dfilter
@@ -132,7 +135,7 @@ def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungrou
     display(HTML(iframe))
 
 
-def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tensor=None, soft_quantization_sigma=1):
+def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tensor=None, v=50, gamma=25):
     
     with tf.name_scope(scope):
         
@@ -158,7 +161,6 @@ def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tenso
         elif rounding == 'soft-codebook':
             
             prec_dtype = tf.float64
-            v = 100
             eps = 1e-72
             
             assert(codebook_tensor.shape[0] == 1)
@@ -168,14 +170,14 @@ def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tenso
 
             if v <= 0:
                 # Gaussian soft quantization
-                weights = tf.exp(-soft_quantization_sigma * tf.pow(tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype), 2)) 
+                weights = tf.exp(-gamma * tf.pow(tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype), 2))
             else:
                 # t-Student soft quantization
                 dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype)
-                dff = soft_quantization_sigma * dff
+                dff = gamma * dff
                 weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
             
-            weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
+            weights = (weights + eps) / (tf.reduce_sum(weights + eps, axis=1, keepdims=True))
             
             assert(weights.shape[1] == np.prod(codebook_tensor.shape))
 
@@ -186,7 +188,7 @@ def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tenso
             hard = tf.gather(codebook_tensor, tf.argmax(weights, axis=1), axis=1)
             hard = tf.reshape(hard, tf.shape(x))            
 
-            x = tf.stop_gradient(hard - soft) +  soft
+            x = tf.stop_gradient(hard - soft) + soft
         
         else:
             raise ValueError('Unknown quantization! {}'.format(rounding))
@@ -223,3 +225,37 @@ def nm(x):
     w0 = tf.Variable(1.0, name='w0')
     w1 = tf.Variable(0.0, name='w1')
     return w0*x + w1*slim.batch_norm(x) # the parameter "is_training" in slim.batch_norm does not seem to help so I do not use it
+
+
+def entropy(values, codebook, v=50, gamma=25):
+
+    # t-Student degrees of freedom
+    eps = 1e-72
+    prec_dtype = tf.float64
+
+    assert (codebook.shape[0] == 1)
+    assert (codebook.shape[1] > 1)
+
+    values = tf.reshape(values, (-1, 1))
+
+    # Compute soft-quantization
+    if v <= 0:
+        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
+        weights = tf.exp(-gamma * tf.pow(dff, 2))
+    else:
+        # t-Student-like distance measure with heavy tails
+        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
+        dff = gamma * dff
+        weights = tf.pow((1 + tf.pow(dff, 2) / v), -(v + 1) / 2)
+
+    weights = (weights + eps) / (tf.reduce_sum(weights + eps, axis=1, keepdims=True))
+    assert (weights.shape[1] == np.prod(codebook.shape))
+
+    # Compute soft histogram
+    histogram = tf.reduce_mean(weights, axis=0)
+    histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
+    histogram = histogram / tf.reduce_sum(histogram)
+    entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
+    entropy = tf.cast(entropy, tf.float32)
+
+    return entropy, histogram, weights

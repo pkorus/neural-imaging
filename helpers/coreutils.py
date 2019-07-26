@@ -9,6 +9,7 @@ Lightweight Python module with commonly used helper functions.
 import sys
 import os
 import re
+from functools import reduce
 import Levenshtein
 
 
@@ -180,3 +181,10 @@ def is_interactive():
     except:
         import __main__ as main
         return not hasattr(main, '__file__')
+
+
+def getkey(data, key, default=None):
+    try:
+        return reduce(lambda c, k: c.get(k, {}), key.split('/'), data)
+    except KeyError:
+        return default

@@ -149,7 +149,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
     # Create a new table for the DCN
     df = pd.DataFrame(
-        columns=['image_id', 'filename', 'codec', 'ssim', 'psnr', 'entropy', 'bytes', 'bpp', 'layers', 'quantization',
+        columns=['image_id', 'filename', 'model_dir', 'codec', 'ssim', 'psnr', 'entropy', 'bytes', 'bpp', 'layers', 'quantization',
                  'entropy_reg', 'codebook', 'latent', 'latent_shape', 'n_features'])
 
     # Discover available models
@@ -165,7 +165,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
         for model_dir in model_dirs:
             print('Processing: {}'.format(model_dir))
-            dcn, stats = afi.restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1], fetch_stats=True)
+            dcn = afi.restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1])
 
             # Dump compressed images
             for image_id, filename in enumerate(files):
@@ -189,6 +189,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
                 df = df.append({'image_id': image_id,
                                 'filename': filename,
+                                'model_dir': os.path.relpath(os.path.split(str(model_dir))[0], model_directory).replace(dcn.scoped_name, ''),
                                 'codec': dcn.model_code,
                                 'ssim': compare_ssim(batch_x[image_id], batch_y[0], multichannel=True, data_range=1),
                                 'psnr': compare_psnr(batch_x[image_id], batch_y[0], data_range=1),
@@ -305,17 +306,30 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
             axes.plot(x, y, styles[index][0], label=labels[index])
             ssim_min = min([ssim_min, min(y)])
 
+        elif plot == 'none':
+            pass
+
         else:
             raise ValueError('Unsupported plot type!')
 
         if draw_markers:
             if 'entropy_reg' in dfc:
-                sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
-                                hue='n_features',
-                                size='entropy_reg',
-                                style='quantization',
-                                palette="Set2",
-                                ax=axes, legend='full')
+
+                style_mapping = {}
+
+                if 'n_features' in dfc and len(dfc['n_features'].unique()) > 1:
+                    style_mapping['hue'] = 'n_features'
+
+                if 'entropy_reg' in dfc and len(dfc['entropy_reg'].unique()) > 1:
+                    style_mapping['size'] = 'entropy_reg'
+
+                if 'quantization' in dfc and len(dfc['quantization'].unique()) > 1:
+                    style_mapping['style'] = 'quantization'
+
+                g = sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
+                                palette="Set2", ax=axes, legend='full',
+                                **style_mapping)
+
             else:
                 axes.plot(bpps, ssims, styles[index][1], alpha=5 / (sum(dfc['selected'])))
 
@@ -326,10 +340,14 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
         '{} images'.format(n_images) if n_images > 1 else dfc.loc[dfc['selected'], 'filename'].unique()[0]
     )
 
+    # Fixes problems with rendering using the LaTeX backend
+    for t in axes.legend().texts:
+        t.set_text(t.get_text().replace('_', '-'))
+
     axes.set_xlim([0, 4])
     axes.set_ylim([ssim_min * 0.99, 1])
     axes.set_ylim([0.75, 1])
-    axes.legend(loc='lower right')
+    # axes.legend(loc='lower right')
     axes.set_title(title)
     axes.set_xlabel('Effective bpp')
     axes.set_ylabel('SSIM')

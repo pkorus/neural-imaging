@@ -118,10 +118,9 @@ class DCN(TFModel):
 
                 # Estimate entropy of the latent representation
                 with tf.name_scope('entropy'):
-                    self.entropy, self.histogram, self.weights = self._setup_entropy(self.latent_pre, self._codebook)
+                    self.entropy, self.histogram, self.weights = tf_helpers.entropy(self.latent_pre, self._codebook)
 
                 # Loss and SSIM
-                
                 self.ssim = tf.reduce_mean(tf.image.ssim(self.x, tf.clip_by_value(self.y, 0, 1), max_val=1))
                 
                 if loss_metric == 'L2':                    
@@ -140,42 +139,6 @@ class DCN(TFModel):
                     self.adam = tf.train.AdamOptimizer(learning_rate=self.lr)
                     self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
 
-    def _setup_entropy(self, latent_pre, codebook):
-
-        v = 25  # t-Student degrees of freedom
-        eps = 1e-72
-        prec_dtype = tf.float64
-        soft_quantization_sigma = 5
-
-        assert (codebook.shape[0] == 1)
-        assert (codebook.shape[1] > 1)
-
-        values = tf.reshape(latent_pre, (-1, 1))
-
-        # Compute soft-quantization
-        if v <= 0:
-            self.log('Entropy estimation using Gaussian soft quantization')
-            dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
-            weights = tf.exp(-soft_quantization_sigma * tf.pow(dff, 2))
-        else:
-            # t-Student-like distance measure with heavy tails
-            self.log('Entropy estimation using t-Student soft quantization')
-            dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
-            dff = soft_quantization_sigma * dff
-            weights = tf.pow((1 + tf.pow(dff, 2) / v), -(v + 1) / 2)
-
-        weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
-        assert (weights.shape[1] == np.prod(codebook.shape))
-
-        # Compute soft histogram
-        histogram = tf.reduce_mean(weights, axis=0)
-        histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
-        histogram = histogram / tf.reduce_sum(histogram)
-        entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
-        entropy = tf.cast(entropy, tf.float32)
-
-        return entropy, histogram, weights
-
     def log(self, message):
         if self.verbose:
             print(' ', message)
@@ -183,7 +146,7 @@ class DCN(TFModel):
     def construct_model(self, params):
         raise NotImplementedError('Not implemented!')
 
-    def setup_latent_space(self, net):
+    def _setup_latent_space(self, net):
         latent = tf.identity(net, name='{}/encoder/latent_raw'.format(self.scoped_name))
 
         # Use GDN to Gaussianize data
@@ -266,7 +229,7 @@ class DCN(TFModel):
             y = self.sess.run(self.latent_pre, feed_dict=feed_dict)
             return y        
         
-    def decompress(self, batch_z):
+    def decompress(self, batch_z, is_training=None):
         with self.graph.as_default():
             
             feed_dict = {
@@ -274,7 +237,10 @@ class DCN(TFModel):
             }
             if hasattr(self, 'dropout'):
                 feed_dict[self.dropout] = 1.0
-                
+
+            if hasattr(self, 'is_training'):
+                feed_dict[self.is_training] = is_training if is_training is not None else self.default_val_is_train
+
             y = self.sess.run(self.y, feed_dict)
             return y.clip(0, 1)
             
@@ -480,7 +446,7 @@ class AutoencoderDCN(DCN):
         else:
             latent = tf.identity(net, name=e_prefix+'latent_raw')
 
-        latent = self.setup_latent_space(latent)
+        latent = self._setup_latent_space(latent)
 
         # If using a bottleneck layer, inverse the projection
         if self._h.n_latent > 0:
@@ -632,7 +598,7 @@ class TwitterDCN(DCN):
 
         # Latent space -------------------------------------------------------------------------------------------------
 
-        latent = self.setup_latent_space(net)
+        latent = self._setup_latent_space(net)
 
         # Decoder ------------------------------------------------------------------------------------------------------
 
@@ -766,7 +732,7 @@ class WaveOne(DCN):
 
         # Latent space -------------------------------------------------------------------------------------------------
 
-        latent = self.setup_latent_space(code)
+        latent = self._setup_latent_space(code)
 
         # Decoder ------------------------------------------------------------------------------------------------------
 

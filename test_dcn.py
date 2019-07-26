@@ -2,30 +2,21 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
-import json
 import argparse
-import tqdm
-import imageio
-from pathlib import Path
-
-from compression.afi import dcn_simulate_compression
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-from pathlib import Path
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage.measure import compare_ssim, compare_psnr
+from skimage.measure import compare_ssim
 
-from models import compression
 from helpers import plotting, dataset, coreutils, loading, utils
 from compression import jpeg_helpers, afi, ratedistortion
 
 supported_plots = ['batch', 'jpeg-match', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off']
 
 
-def match_jpeg(model, batch_x):
+def match_jpeg(model, batch_x, axes=None):
 
     # Compress using DCN and get number of bytes
     batch_y, bytes_dcn = afi.dcn_simulate_compression(model, batch_x)
@@ -74,23 +65,25 @@ def match_jpeg(model, batch_x):
     print('JPEG (Q={:2d})     : {:,} bytes ({:0.2f} bpp) --> ssim: {:.3f} // effective size disregarding JPEG headers'.format(jpeg_quality, bytes_jpeg, bpp_jpg, ssim_jpeg))
 
     # Plot results
-    fig, axes = plotting.sub(6, ncols=3)
-    fig.set_size_inches(12, 10)
+    if axes is None:
+        fig, axes = plotting.sub(6, ncols=3)
+        fig.set_size_inches(12, 10)
+        fig.tight_layout()
+    else:
+        fig = axes[0].figure
 
     # Plot full-resolution
-    plotting.quickshow(batch_x, 'Original {}', axes=axes[0])
+    plotting.quickshow(batch_x, 'Original ({0}x{0})'.format(batch_x.shape[1]), axes=axes[0])
     plotting.quickshow(batch_y, 'DCN ssim:{:.2f} bpp:{:.2f}'.format(ssim_dcn, bpp_dcn), axes=axes[1])
     plotting.quickshow(batch_j, 'JPEG {} ssim:{:.2f} bpp:{:.2f}'.format(jpeg_quality, ssim_jpeg, bpp_jpg), axes=axes[2])
 
     # Plot zoom
     crop_size = max([64, batch_x.shape[1] // 4])
-    plotting.quickshow(utils.crop_middle(batch_x, crop_size), 'Original crop {}', axes=axes[3])
-    plotting.quickshow(utils.crop_middle(batch_y, crop_size), 'DCN crop {}', axes=axes[4])
-    plotting.quickshow(utils.crop_middle(batch_j, crop_size), 'JPEG crop {}', axes=axes[5])
+    plotting.quickshow(utils.crop_middle(batch_x, crop_size), 'Original crop ({0}x{0})'.format(crop_size), axes=axes[3])
+    plotting.quickshow(utils.crop_middle(batch_y, crop_size), 'DCN crop ({0}x{0})'.format(crop_size), axes=axes[4])
+    plotting.quickshow(utils.crop_middle(batch_j, crop_size), 'JPEG crop ({0}x{0})'.format(crop_size), axes=axes[5])
 
-    fig.tight_layout()
-    plt.show()
-    plt.close()
+    return fig
 
 
 def show_example(model, batch_x):
@@ -140,12 +133,11 @@ def show_example(model, batch_x):
     plotting.quickshow(thumbs_few, 'Sample reconstructions, ssim={:.3f}'.format(np.mean(ssim_values)), axes=axes[1])
 
     fig.tight_layout()
-    plt.show()
-    plt.close()
+    return fig
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
+    parser = argparse.ArgumentParser(description='Test a neural imaging pipeline')
     parser.add_argument('plot', help='Plot type ({})'.format(', '.join(supported_plots)))
     # Parameters related to the training data
     parser.add_argument('--data', dest='data', action='store', default='./data/clic/',
@@ -182,7 +174,9 @@ def main():
         data = dataset.IPDataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
         batch_x = data.next_validation_batch(0, args.images)
 
-        show_example(model, batch_x)
+        fig = show_example(model, batch_x)
+        plt.show()
+        plt.close()
 
     elif args.plot == 'jpeg-match':
 
@@ -193,7 +187,9 @@ def main():
 
         model = afi.restore_model(args.dir, batch_x.shape[1])
 
-        match_jpeg(model, batch_x)
+        fig = match_jpeg(model, batch_x)
+        plt.show()
+        plt.close()
 
     elif args.plot == 'jpg-trade-off':
 

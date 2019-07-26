@@ -11,11 +11,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 # Helper functions
 from helpers import coreutils, dataset
 
-dcn_presets = {
-    '4k': './data/raw/dcn/entropy/TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
-    '8k': './data/raw/dcn/entropy/TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
-    '16k': './data/raw/dcn/entropy/TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
-}
 
 @coreutils.logCall
 def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', trainables=None,
@@ -182,10 +177,6 @@ def main():
 
     args = parser.parse_args()
 
-    if args.dcn_model is not None:
-        if args.dcn_model in dcn_presets:
-            args.dcn_model = dcn_presets[args.dcn_model]
-    
     batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.trainables,
                    args.jpeg_quality, args.jpeg_mode, args.dcn_model, args.downsampling, patch=args.patch // 2,
                    use_pretrained=not args.from_scratch, start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs,
