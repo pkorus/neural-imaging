@@ -23,40 +23,52 @@ markers = {
 }
 
 
-def match_ssim(image, ssim=0.95, subsampling='4:4:4'):
+def match_ssim(image, target=0.95, subsampling='4:4:4', match='ssim'):
 
     assert image.ndim == 3, 'Only RGB images supported'
 
-    def fun(q):
+    def get_ssim(q):
         image_j = compress_batch(image, q, subsampling=subsampling)[0].squeeze()
         c_ssim = compare_ssim(image, image_j, multichannel=True, data_range=1)
-        return c_ssim - ssim
+        return c_ssim - target
+
+    def get_bpp(q):
+        bytes_arr = compress_batch(image, q, subsampling=subsampling)[1]
+        bpp = 8 * np.mean(bytes_arr) / image.shape[0] / image.shape[1]
+        return bpp - target
+
+    if match == 'ssim':
+        fun = get_ssim
+    elif match == 'bpp':
+        fun = get_bpp
+    else:
+        raise ValueError('Invalid argument: match')
 
     low = 1
     high = 95
-    low_ssim = fun(low)
-    high_ssim = fun(high)
+    low_obj = fun(low)
+    high_obj = fun(high)
 
     while True:
 
         if high - low <= 1:
-            if abs(high_ssim) > abs(low_ssim):
+            if abs(high_obj) > abs(low_obj):
                 return low
             else:
                 return high
 
-        if (low_ssim) * (high_ssim) > 0:
+        if low_obj * high_obj > 0:
             raise ValueError('Same deviation for both end-points')
 
         mid = int((low + high)/2)
-        mid_ssim = fun(mid)
+        mid_obj = fun(mid)
 
-        if (mid_ssim) * (high_ssim) > 0:
+        if mid_obj * high_obj > 0:
             high = mid
-            high_ssim = mid_ssim
+            high_obj = mid_obj
         else:
             low = mid
-            low_ssim = mid_ssim
+            low_obj = mid_obj
 
 
 def compress_batch(batch_x, jpeg_quality, effective=False, subsampling='4:4:4'):
