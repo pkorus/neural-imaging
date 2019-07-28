@@ -8,7 +8,7 @@ class JpegTest(unittest.TestCase):
         pass
 
     def test_stats(self):
-        jpeg = jpeg_helpers.JPEGStats('../data/samples/watkins.jpg')
+        jpeg = jpeg_helpers.JPEGMarkerStats('../data/samples/watkins.jpg')
 
         # Test selected markers
         self.assertIn('SOI', jpeg.blocks)

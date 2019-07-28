@@ -26,7 +26,7 @@ def match_jpeg(model, batch_x, axes=None, match='ssim'):
     target = ssim_dcn if match == 'ssim' else bpp_dcn
 
     try:
-        jpeg_quality = jpeg_helpers.match_ssim(batch_x.squeeze(), target, match=match)
+        jpeg_quality = jpeg_helpers.match_quality(batch_x.squeeze(), target, match=match)
     except:
         if match == 'ssim':
             jpeg_quality = 95 if ssim_dcn > 0.8 else 10

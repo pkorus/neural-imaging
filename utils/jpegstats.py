@@ -3,7 +3,7 @@ sys.path.append('.')
 from compression import jpeg_helpers
 
 # Parse the file
-jpeg = jpeg_helpers.JPEGStats(sys.argv[-1])
+jpeg = jpeg_helpers.JPEGMarkerStats(sys.argv[-1])
 
 print('Input file       : {}'.format(sys.argv[-1]))
 print('File size        : {:,} bytes'.format(jpeg.get_bytes()))
