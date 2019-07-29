@@ -204,3 +204,10 @@ def getkey(data, key, default=None):
         return reduce(lambda c, k: c.get(k, {}), key.split('/'), data)
     except KeyError:
         return default
+
+
+def remove_commons(names):
+    names = [x for x in names]
+    prefix = os.path.commonprefix(names)
+    postfix = os.path.commonprefix([x[::-1] for x in names])[::-1]
+    return [x.replace(prefix, '').replace(postfix, '') for x in names]

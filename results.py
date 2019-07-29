@@ -7,7 +7,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from helpers import coreutils, results_data
 
-supported_plots = ['accuracy', 'scatter-psnr', 'scatter-ssim', 'progress', 'conf', 'conf-tex', 'ssim', 'psnr', 'df']
+supported_plots = ['accuracy', 'scatter-psnr', 'scatter-ssim', 'progress', 'conf', 'conf-tex', 'ssim', 'psnr', 'df', 'ai']
 
 
 def save_df(df, dirname, df_filename):
@@ -22,6 +22,8 @@ def display_results(args):
 
     sns.set('paper', font_scale=1, style="ticks")
     plot = coreutils.match_option(args.plot, supported_plots)
+
+    print('Matched plotting command: {}'.format(plot))
 
     postfix = [
         coreutils.splitall(args.dir)[-1],
@@ -129,7 +131,7 @@ def display_results(args):
     if plot == 'df':
 
         print('Searching for "training.json" in', args.dir)
-        df = results_data.manipulation_summary(args)
+        df = results_data.manipulation_summary(args.dir)
 
         if len(df) > 0:
             if False:
@@ -140,6 +142,41 @@ def display_results(args):
                 print(counts.join(gb.agg('mean')).reset_index().to_string())
 
         save_df(df, args.df, 'summary-{}.csv'.format(postfix))
+
+        return
+
+    if plot == 'ai':
+
+        print('Searching for "training.json" in', args.dir)
+        df = results_data.manipulation_summary(args.dir)
+        df = df.sort_values('scenario')
+
+        # Guess scenario
+        components = df['scenario'].str.split("/", expand=True)
+        for i in components:
+            df['scenario:{}'.format(i)] = components[i]
+
+        df['scenario'] = coreutils.remove_commons(df['scenario'])
+
+        mapping = {}
+        mapping_targets = ['col', 'col', 'hue', 'style', 'size']
+        mapping_id = 0
+
+        for i in components:
+            if i == 0:
+                continue
+
+            if len(df['scenario:{}'.format(i)].unique()) > 1:
+                mapping[mapping_targets[mapping_id]] = 'scenario:{}'.format(i)
+                mapping_id += 1
+
+        sns.catplot(x='scenario', y='accuracy', data=df, kind='box', **mapping)
+        plt.show()
+
+        if len(df) > 0:
+            gb = df.groupby('scenario')
+            counts = gb.size().to_frame(name='reps')
+            print(counts.join(gb.agg('mean')).reset_index().to_string())
 
         return
 
