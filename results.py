@@ -170,7 +170,7 @@ def display_results(args):
                 mapping[mapping_targets[mapping_id]] = 'scenario:{}'.format(i)
                 mapping_id += 1
 
-        sns.catplot(x='scenario', y='accuracy', data=df, kind='box', **mapping)
+        sns.catplot(x='scenario:0', y='accuracy', data=df, kind='box', **mapping)
         plt.show()
 
         if len(df) > 0:
