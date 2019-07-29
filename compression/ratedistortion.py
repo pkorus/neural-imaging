@@ -14,7 +14,7 @@ from scipy.optimize import curve_fit
 import uncertainties.unumpy as unp
 import uncertainties as unc
 
-from helpers import loading, utils
+from helpers import loading, utils, coreutils
 from compression import jpeg_helpers, afi
 
 
@@ -156,7 +156,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
     model_dirs = list(Path(model_directory).glob('**/progress.json'))
     print('Found {} models'.format(len(model_dirs)))
 
-    df_path = os.path.join(directory, 'dcn-{}.csv'.format([x for x in model_directory.split('/') if len(x) > 0][-1]))
+    df_path = os.path.join(directory, 'dcn-{}.csv'.format([x for x in coreutils.splitall(model_directory) if len(x) > 0][-1]))
 
     if os.path.isfile(df_path) and not force_calc:
         print('Restoring DCN stats from {}'.format(df_path))

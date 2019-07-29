@@ -1,101 +1,69 @@
 import glob
 import json
 import os
-import re
-from collections import OrderedDict, defaultdict
-from itertools import product
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from helpers import coreutils
-from summarize_nip import mean
 
 ROOT_DIRNAME = './data/raw/m'
 
 
-def boxplot_data(nip_model, cameras=None, field='accuracy', root_dir=ROOT_DIRNAME):
+def autodetect_cameras(dirname):
+    counter = 5
+    while counter > 0 and not os.path.exists(os.path.join(dirname, 'nip_model_snapshots')):
+        dirname = os.path.split(dirname)[0]
 
+    if counter == 0:
+        raise ValueError('The {} directory does not seem to be a valid results directory'.format(dirname))
+
+    return coreutils.listdir(os.path.join(dirname, 'nip_model_snapshots'), '.*', dirs_only=True)
+
+
+def manipulation_metrics(nip_models, cameras, root_dir=ROOT_DIRNAME):
+
+    nip_models = [nip_models] if type(nip_models) is str else nip_models
     cameras = cameras or coreutils.listdir(root_dir, '.', dirs_only=True)
 
-    find_dir = os.path.join(root_dir, cameras[0], nip_model)
-    experiment_dirs = coreutils.listdir(os.path.join(find_dir), 'lr-.*', dirs_only=True)
+    if any(cam not in autodetect_cameras(root_dir) for cam in cameras):
+        raise ValueError('The auto-detected camera list does not seem to make sense: {}'.format(cameras))
 
-    df = pd.DataFrame(columns=['{} ({})'.format(c, e) for c, e in product(cameras, experiment_dirs)])
+    df = pd.DataFrame(columns=['camera', 'nip', 'ln', 'source', 'psnr', 'ssim', 'accuracy'])
 
     for camera in cameras:
 
-        for ed in experiment_dirs:
+        nip_models = nip_models or coreutils.listdir(os.path.join(root_dir, camera), '.', dirs_only=True)
 
-            column = '{} ({})'.format(camera, ed)
+        for nip in nip_models:
 
-            find_dir = os.path.join(root_dir, camera, nip_model, ed)
-            jsons_files = sorted(glob.glob(os.path.join(find_dir, '**', 'training.json')))
+            find_dir = os.path.join(root_dir, camera, nip)
+            experiment_dirs = coreutils.listdir(os.path.join(find_dir), '.*', dirs_only=True)
 
-            accuracies = []
+            for ed in experiment_dirs:
 
-            for jf in jsons_files:
-                with open(jf) as f:
-                    data = json.load(f)
+                exp_dir = os.path.join(find_dir, ed)
+                jsons_files = sorted(str(f) for f in Path(exp_dir).glob('**/training.json'))
 
-                if field == 'accuracy':
-                    accuracies.append(data['forensics']['validation']['accuracy'][-1])
-                elif field == 'psnr':
-                    accuracies.append(data['nip']['validation']['psnr'][-1])
-                elif field == 'ssim':
-                    accuracies.append(data['nip']['validation']['ssim'][-1])
+                for jf in jsons_files:
+                    with open(jf) as f:
+                        data = json.load(f)
 
-            if len(jsons_files):
-
-                for _ in range(len(df) - len(accuracies)):
-                    accuracies.append(np.nan)
-
-                df[column] = accuracies
-
-            else:
-                df = df.drop(columns=column)
+                    df = df.append({'camera': camera,
+                                    'nip': nip,
+                                    'ln': ed,
+                                    'source': jf.replace(find_dir, '').replace('training.json', ''),
+                                    'psnr': data['nip']['validation']['psnr'][-1],
+                                    'ssim': data['nip']['validation']['ssim'][-1],
+                                    'accuracy': data['forensics']['validation']['accuracy'][-1]
+                        }, ignore_index=True)
 
     return df
 
 
-def scatterplot_data(nip_models, camera, root_dir=ROOT_DIRNAME):
-
-    nip_models = nip_models if type(nip_models) is list else [nip_models]
-
-    if camera is None:
-        print('! warning: camera not specified- using first available one!')
-    camera = camera or coreutils.listdir(root_dir, '.', dirs_only=True)[0]
-
-    df = pd.DataFrame(columns=['camera', 'nip', 'lr', 'source', 'psnr', 'ssim', 'accuracy'])
-
-    for nip in nip_models:
-
-        find_dir = os.path.join(root_dir, camera, nip)
-        experiment_dirs = coreutils.listdir(os.path.join(find_dir), 'lr-.*', dirs_only=True)
-
-        for ed in experiment_dirs:
-
-            exp_dir = os.path.join(find_dir, ed)
-            jsons_files = sorted(glob.glob(os.path.join(exp_dir, '**', 'training.json')))
-
-            for jf in jsons_files:
-                with open(jf) as f:
-                    data = json.load(f)
-
-                df = df.append({'camera': camera,
-                                'nip': nip,
-                                'lr': re.findall('(lr-[0-9]\.[0-9]{4})', jf.replace(find_dir, ''))[0],
-                                'source': jf.replace(find_dir, '').replace('training.json', ''),
-                                'psnr': data['nip']['validation']['psnr'][-1],
-                                'ssim': data['nip']['validation']['ssim'][-1],
-                                'accuracy': data['forensics']['validation']['accuracy'][-1]
-                    }, ignore_index=True)
-
-    return df
-
-
-def progressplot_data(cases, root_dir=ROOT_DIRNAME):
+def manipulation_progress(cases, root_dir=ROOT_DIRNAME):
 
     cases = cases or [('Nikon D90', 'INet', 'lr-0.0000', 0)]
 
@@ -133,16 +101,16 @@ def progressplot_data(cases, root_dir=ROOT_DIRNAME):
         d_ssim = data['nip']['validation']['ssim']
         d_accuracy = data['forensics']['validation']['accuracy']
 
-        df = df.append({
-                'camera': [camera] * len(d_accuracy),
-                'nip': [nip_model] * len(d_accuracy),
-                'exp': [ed] * len(d_accuracy),
-                'rep': [rep] * len(d_accuracy),
-                'step': list(range(len(d_accuracy))),
-                'psnr': match_length(d_accuracy, d_psnr),
-                'ssim': match_length(d_accuracy, d_ssim),
-                'accuracy': d_accuracy
-                }, ignore_index=True, sort=False)
+        df = df.append(pd.DataFrame({
+            'camera': [camera] * len(d_accuracy),
+            'nip': [nip_model] * len(d_accuracy),
+            'exp': [ed] * len(d_accuracy),
+            'rep': [rep] * len(d_accuracy),
+            'step': list(range(len(d_accuracy))),
+            'psnr': match_length(d_accuracy, d_psnr),
+            'ssim': match_length(d_accuracy, d_ssim),
+            'accuracy': d_accuracy
+        }), ignore_index=True, sort=False)
 
         # Remember last used values for future iterations
         l_camera, l_nip_model, l_ed, l_rep = camera, nip_model, ed, rep
@@ -153,9 +121,9 @@ def progressplot_data(cases, root_dir=ROOT_DIRNAME):
     return df, labels
 
 
-def manipulation_summary(args):
+def manipulation_summary(dirname):
     df = pd.DataFrame(columns=['scenario', 'run', 'accuracy', 'nip_ssim', 'nip_psnr', 'dcn_ssim', 'dcn_entropy'])
-    for filename in Path(args.dir).glob('**/training.json'):
+    for filename in Path(dirname).glob('**/training.json'):
         with open(str(filename)) as f:
             data = json.load(f)
 
@@ -166,7 +134,7 @@ def manipulation_summary(args):
         dcn_ssim = coreutils.getkey(data, 'compression/validation/ssim') or default
         dcn_entr = coreutils.getkey(data, 'compression/validation/entropy') or default
 
-        path_components = os.path.relpath(str(filename), args.dir).split('/')[:-1]
+        path_components = coreutils.splitall(os.path.relpath(str(filename), dirname))[:-1]
 
         df = df.append({
             'scenario': os.path.join(*path_components[:-1]),
@@ -181,35 +149,41 @@ def manipulation_summary(args):
 
 
 coreutils.logCall
-def confusion_data(nip_model, cameras, run=None, reg=None, root_dir=ROOT_DIRNAME):
+def confusion_data(nip_models, cameras, run=None, reg=None, root_dir=ROOT_DIRNAME):
+
+    nip_models = [nip_models] if type(nip_models) is str else nip_models
     cameras = cameras or coreutils.listdir(root_dir, '.', dirs_only=True)
     confusion = OrderedDict()
 
     for camera in cameras:
 
-        experiment_dirs = sorted(coreutils.listdir(os.path.join(root_dir, camera, nip_model), '.', dirs_only=True))
+        nip_models = nip_models or coreutils.listdir(os.path.join(root_dir, camera), '.', dirs_only=True)
 
-        if reg is not None:
-            experiment_dirs = experiment_dirs[reg:reg + 1]
+        for nip_model in nip_models:
 
-        for ed in experiment_dirs:
+            experiment_dirs = sorted(coreutils.listdir(os.path.join(root_dir, camera, nip_model), '.', dirs_only=True))
 
-            find_dir = os.path.join(root_dir, camera, nip_model, ed)
-            jsons_files = sorted(f for f in Path(find_dir).glob('**/training.json'))
+            if reg is not None:
+                experiment_dirs = experiment_dirs[reg:reg + 1]
 
-            if run is None:
-                print('WARNING Using the first found repetition of the experiment')
-                run = 0
+            for ed in experiment_dirs:
 
-            jf = jsons_files[run]
+                find_dir = os.path.join(root_dir, camera, nip_model, ed)
+                jsons_files = sorted(str(f) for f in Path(find_dir).glob('**/training.json'))
 
-            with open(jf) as f:
-                data = json.load(f)
+                if run is None:
+                    print('INFO Using the first found repetition of the experiment')
+                    run = 0
 
-            confusion['{}/{}'.format(camera, ed)] = {
-                'data': np.array(data['forensics']['validation']['confusion']),
-                'labels': data['summary']['Classes'] if isinstance(data['summary']['Classes'], list) else eval(data['summary']['Classes'])
-            }
+                jf = jsons_files[run]
+
+                with open(jf) as f:
+                    data = json.load(f)
+
+                confusion['{}/{}/{}'.format(camera, nip_model, ed)] = {
+                    'data': np.array(data['forensics']['validation']['confusion']),
+                    'labels': data['summary']['Classes'] if isinstance(data['summary']['Classes'], list) else eval(data['summary']['Classes'])
+                }
 
     return confusion
 
@@ -299,8 +273,8 @@ def nip_stats(dirname, n=1):
             df = df.append({
                 'pipeline': pipe,
                 'camera': cameras,
-                'psnr': np.mean(mean(data['psnr'][-n:])),
-                'ssim': np.mean(mean(data['ssim'][-n:]))
+                'psnr': np.mean(np.mean(data['psnr'][-n:])),
+                'ssim': np.mean(np.mean(data['ssim'][-n:]))
             }, ignore_index=True, sort=False)
 
     return df
