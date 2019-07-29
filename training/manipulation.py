@@ -2,7 +2,6 @@
 # coding: utf-8
 
 # Basic imports
-import gc
 import os
 import numpy as np
 import tqdm
@@ -21,7 +20,8 @@ from models import compression
 from compression import afi
 
 # Helper functions
-from helpers import coreutils, tf_helpers, validation
+from helpers import coreutils, tf_helpers
+from training import validation
 
 
 @coreutils.logCall

@@ -16,26 +16,27 @@ from compression import jpeg_helpers, afi, ratedistortion
 supported_plots = ['batch', 'jpeg-match', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off']
 
 
-def match_jpeg(model, batch_x, axes=None):
+def match_jpeg(model, batch_x, axes=None, match='ssim'):
 
     # Compress using DCN and get number of bytes
     batch_y, bytes_dcn = afi.dcn_simulate_compression(model, batch_x)
 
     ssim_dcn = compare_ssim(batch_x.squeeze(), batch_y.squeeze(), multichannel=True, data_range=1)
     bpp_dcn = 8 * bytes_dcn / np.prod(batch_x.shape[1:-1])
+    target = ssim_dcn if match == 'ssim' else bpp_dcn
 
     try:
-        jpeg_quality = jpeg_helpers.match_ssim(batch_x.squeeze(), ssim_dcn)
+        jpeg_quality = jpeg_helpers.match_quality(batch_x.squeeze(), target, match=match)
     except:
-        if ssim_dcn > 0.8:
-            jpeg_quality = 95
+        if match == 'ssim':
+            jpeg_quality = 95 if ssim_dcn > 0.8 else 10
         else:
-            jpeg_quality = 10
+            jpeg_quality = 95 if bpp_dcn > 3 else 10
         print('WARNING Could not find a matching JPEG quality factor - guessing {}'.format(jpeg_quality))
 
     # Compress using JPEG
     batch_j, bytes_jpeg = jpeg_helpers.compress_batch(batch_x[0], jpeg_quality, effective=True)
-    ssim_jpeg = compare_ssim(batch_x.squeeze(), batch_y.squeeze(), multichannel=True, data_range=1)
+    ssim_jpeg = compare_ssim(batch_x.squeeze(), batch_j.squeeze(), multichannel=True, data_range=1)
     bpp_jpg = 8 * bytes_jpeg / np.prod(batch_x.shape[1:-1])
 
     # Get stats
