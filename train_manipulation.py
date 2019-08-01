@@ -10,6 +10,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 # Helper functions
 from helpers import coreutils, dataset
+from compression import afi
 
 
 @coreutils.logCall
@@ -82,6 +83,8 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         compression_params['quality'] = jpeg_quality
         compression_params['rounding_approximation'] = jpeg_mode
     else:
+        if dcn_model in afi.dcn_presets:
+            dcn_model = afi.dcn_presets[dcn_model]
         compression_params['dirname'] = dcn_model
 
     if jpeg_quality is not None:
