@@ -8,7 +8,7 @@ fi
 
 nip="DNet"
 cam="D90"
-cmd="python3 train_manipulation.py --end 3 --patch 128 --epochs=2501 --ds none --nip $nip --cam $cam"
+cmd="python3 train_manipulation.py --end 10 --patch 128 --epochs=4001 --ds none --nip $nip --cam $cam"
 
 if [ "$2" = "dry" ]; then
     cmd="echo $cmd"
@@ -22,7 +22,7 @@ lc="--lc 1.0 --lc 0.5 --lc 0.1 --lc 0.05 --lc 0.01 --lc 0.005 --lc 0.001"
 case "$1" in
     jpeg)
         # Fixed JPEG Experiments
-        for jpeg in 10 20 30 35 40 45 50 55 60 65 70 75; do
+        for jpeg in 10 20 30 35 40 45 50 55 60 65 70 75 80 85 90 95; do
             $cmd --dir ./data/raw/m/jpeg/$jpeg --jpeg $jpeg
         done
         ;;
