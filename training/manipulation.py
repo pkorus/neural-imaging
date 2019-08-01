@@ -2,7 +2,6 @@
 # coding: utf-8
 
 # Basic imports
-import gc
 import os
 import numpy as np
 import tqdm
@@ -21,7 +20,8 @@ from models import compression
 from compression import afi
 
 # Helper functions
-from helpers import coreutils, tf_helpers, validation
+from helpers import coreutils, tf_helpers
+from training import validation
 
 
 @coreutils.logCall
@@ -179,7 +179,7 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
 
 
 # @coreutils.logCall
-def train_manipulation_nip(tf_ops, training, distribution, data, directories=None):
+def train_manipulation_nip(tf_ops, training, distribution, data, directories=None, overwrite=False):
     """
     Jointly train the NIP and the FAN models. Training progress and TF checkpoints are saved periodically to the specified directories.
     
@@ -281,6 +281,10 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
     model_directory = os.path.join(nip_save_dir, 'models')
     print('(model) ---->', model_directory)
+
+    if os.path.exists(nip_save_dir) and not overwrite:
+        print('Directory exists, skipping...')
+        return model_directory
 
     # Setup flags for trainable components
     joint_opt = ['fan']

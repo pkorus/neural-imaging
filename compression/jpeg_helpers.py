@@ -23,43 +23,71 @@ markers = {
 }
 
 
-def match_ssim(image, ssim=0.95, subsampling='4:4:4'):
+def match_quality(image, target=0.95, match='ssim', subsampling='4:4:4'):
+    """
+    Find JPEG quality level which matches a given SSIM or bpp target.
+    :param image:
+    :param target: target value of ssim / bpp
+    :param match: string 'ssim' or 'bpp'
+    :param subsampling: chrominance sub-sampling, 4:4:4, 4:2:2, 4:2:0
+    :return: jpeg quality level (integer from 1 to 95)
+    """
 
     assert image.ndim == 3, 'Only RGB images supported'
 
-    def fun(q):
+    def get_ssim(q):
         image_j = compress_batch(image, q, subsampling=subsampling)[0].squeeze()
         c_ssim = compare_ssim(image, image_j, multichannel=True, data_range=1)
-        return c_ssim - ssim
+        return c_ssim - target
+
+    def get_bpp(q):
+        bytes_arr = compress_batch(image, q, subsampling=subsampling)[1]
+        bpp = 8 * np.mean(bytes_arr) / image.shape[0] / image.shape[1]
+        return bpp - target
+
+    if match == 'ssim':
+        fun = get_ssim
+    elif match == 'bpp':
+        fun = get_bpp
+    else:
+        raise ValueError('Invalid argument: match')
 
     low = 1
     high = 95
-    low_ssim = fun(low)
-    high_ssim = fun(high)
+    low_obj = fun(low)
+    high_obj = fun(high)
 
     while True:
 
         if high - low <= 1:
-            if abs(high_ssim) > abs(low_ssim):
+            if abs(high_obj) > abs(low_obj):
                 return low
             else:
                 return high
 
-        if (low_ssim) * (high_ssim) > 0:
+        if low_obj * high_obj > 0:
             raise ValueError('Same deviation for both end-points')
 
         mid = int((low + high)/2)
-        mid_ssim = fun(mid)
+        mid_obj = fun(mid)
 
-        if (mid_ssim) * (high_ssim) > 0:
+        if mid_obj * high_obj > 0:
             high = mid
-            high_ssim = mid_ssim
+            high_obj = mid_obj
         else:
             low = mid
-            low_ssim = mid_ssim
+            low_obj = mid_obj
 
 
 def compress_batch(batch_x, jpeg_quality, effective=False, subsampling='4:4:4'):
+    """
+    Compress an image batch with the standard JPEG codec. Returns compressed images and their sizes in bytes.
+    :param batch_x: numpy array (n, h, w, 3)
+    :param jpeg_quality: quality level (integer from 1 to 95); For some reason levels 95 - 100 return the same results
+    :param effective: whether to return the entire file size or only the coded image data (w. Huffman tables)
+    :param subsampling: chrominance sub-sampling, 4:4:4, 4:2:2, 4:2:0
+    :return: tuple with a batch of compressed images, and their corresponding sizes in bytes
+    """
 
     if batch_x.max() > 1:
         batch_x = batch_x.astype(np.float32) / (2**8 - 1)
@@ -68,7 +96,7 @@ def compress_batch(batch_x, jpeg_quality, effective=False, subsampling='4:4:4'):
         s = io.BytesIO()
         imageio.imsave(s, (255 * batch_x).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality, subsampling=subsampling)
         image_compressed = imageio.imread(s.getvalue())
-        image_bytes = len(s.getvalue()) if not effective else JPEGStats(s.getvalue()).get_effective_bytes()
+        image_bytes = len(s.getvalue()) if not effective else JPEGMarkerStats(s.getvalue()).get_effective_bytes()
 
         return image_compressed / (2 ** 8 - 1), image_bytes
 
@@ -80,24 +108,16 @@ def compress_batch(batch_x, jpeg_quality, effective=False, subsampling='4:4:4'):
             imageio.imsave(s, (255 * batch_x[r]).astype(np.uint8).squeeze(), format='jpg', quality=jpeg_quality, subsampling=subsampling)
             image_compressed = imageio.imread(s.getvalue())
             batch_j[r] = image_compressed.astype(np.float32) / (2 ** 8 - 1)
-            image_bytes = len(s.getvalue()) if not effective else JPEGStats(s.getvalue()).get_effective_bytes()
+            image_bytes = len(s.getvalue()) if not effective else JPEGMarkerStats(s.getvalue()).get_effective_bytes()
             bytes_arr.append(image_bytes)
 
         return batch_j, bytes_arr
 
 
-def get_byte_array(chunk):
-    """ convert chunk of bytes to corresponding byte array"""
-    return list(unpack("B" * len(chunk), chunk))
-
-
 def jp2bytes(filename):
-    """
-    Gets JPEG 2000 payload size in bytes (using jpylyzer). Not thoroughly tested. Should sum all tiles.
-
-    """
+    """ Gets JPEG 2000 payload size in bytes (using jpylyzer). Not thoroughly tested. Should sum all tiles. """
     out = jpylyzer.checkOneFile(filename).toxml()
-    data_length = [int(x) for x in re.findall('\<psot\>([0-9]+)\</psot\>', out.decode('utf8'))]
+    data_length = [int(x) for x in re.findall(r'\<psot\>([0-9]+)\</psot\>', out.decode('utf8'))]
 
     if len(data_length) == 0:
         raise RuntimeError('Error running jpylyzer {}'.format(filename))
@@ -105,47 +125,21 @@ def jp2bytes(filename):
     return sum(data_length)
 
 
-def jp2bytes_alt(filename):
+def get_byte_array(chunk):
+    """ Convert a chunk of bytes to a corresponding array """
+    return list(unpack("B" * len(chunk), chunk))
+
+
+class JPEGMarkerStats:
     """
-    Gets JPEG 2000 payload size in bytes (using pirl - jp2info).
-
-    Not thoroughly tested. Will probably NOT work for non-standard files or custom compression settings. Seems to return reasonable results for simple 1-tile images saved using Glymur.
-
-    See also: jpylyzer (http://jpylyzer.openpreservation.org//userManual.html)
-    > jpylyzer /tmp/image.jp2
-
-    The following tag seems to contain the payload size (Length of tile part):
-    jpylyzer/properties/contiguousCodestreamBox/tileParts/tilePart/sot/psot
-
-    """
-    pc = subprocess.Popen(['jp2info', filename], stdout=subprocess.PIPE)
-
-    if pc.returncode is not None:
-        raise RuntimeError('Error running jp2info {}'.format(filename))
-
-    out = pc.stdout.read()
-
-    data_length = re.findall('Data_Length = ([0-9]+) \<bytes\>', out.decode())
-    data_length = int(data_length[-1])
-    
-    all_lengths = [int(x) for x in re.findall('Length = ([0-9]+) \<bytes\>', out.decode())]
-    dl_index = all_lengths.index(data_length)
-    
-    discounds = all_lengths[dl_index+1:]
-    
-    return data_length - sum(discounds)
-
-
-class JPEGStats:
-    """
-    Object to calculate various block starts from encoded JPEG data
-    Keyword arguments:
-        - l_decode  : length of part decoded till now
-        - len_chunk : length of the current block
-        - blocks    : dictionary of block names to their starting index
+    Provides basic statistics about the markers in the JPEG bit-stream.
     """
 
     def __init__(self, image):
+        """
+        Get JPEG marker stats for an image.
+        :param image: filename or bytes
+        """
         self.l_decode = 0
         self.len_chunk = 0
         self.blocks = OrderedDict()
@@ -159,21 +153,20 @@ class JPEGStats:
             raise ValueError('Image not supported! Supported: str, bytes')
 
         self._process(image)
-        self.image = imageio.imread(image)
+        self.shape = imageio.imread(image).shape
 
     def _process_quantization_tables(self, data):
-        """ extracts the quantization table from data and updates the JPEG object"""
+        """ Extracts the quantization tables and updates the marker stats. """
         while len(data) > 0:
             # get the ID of the table [Luma(0), Chroma(1)]
             marker, = unpack("B", data[0:1])
             # get the complete table of 64 elements in one go
-            # self.blocks['quant_{}'.format(marker & 0xf)] = self.l_decode
             self.blocks['DQT:{}'.format(marker & 0xf)] = self.l_decode
             # remove the quantization table chunk
             data = data[65:]
 
     def _process_huffman_tables(self, data):
-        """ extracts the Huffman tables from data, creates an HuffmanTable object and updates the JPEG object"""
+        """ Extracts the Huffman tables and updates the marker stats. """
         while len(data) > 0:
             id, = unpack("B", data[0: 1])
             lengths = get_byte_array(data[1: 17])
@@ -183,7 +176,7 @@ class JPEGStats:
             self.blocks['DHT:{}'.format(id)] = self.l_decode
 
     def _process(self, data):
-        """ Use in-class functions to decode the binary data and return its length on success. """
+        """ Parse the JPEG bit-stream and find the locations of markers. Returns  """
         temp_data = data
         rst_marker_index = 0
         app_marker_index = 0
@@ -203,7 +196,6 @@ class JPEGStats:
                     return self.blocks
                 else:
                     # decode the image chunk by chunk
-                    # getting the bytes denoting length
                     self.len_chunk, = unpack(">H", data[2:4])
                     # add the length of the 2 bytes marker
                     self.len_chunk += 2
@@ -229,11 +221,9 @@ class JPEGStats:
                         self.blocks['ECD'] = self.l_decode
                     elif marker in app_markers:
                         # suppose header contains two app markers then for ex, ffed -> app_13_0 and ffe0 -> app_0_1
-                        # self.blocks['app_{}_{}'.format(0xf & marker, app_marker_index)] = self.l_decode
                         self.blocks['APP:{}/{}'.format(0xf & marker, app_marker_index)] = self.l_decode
                         app_marker_index += 1
                     elif marker in (0xfffe, 0xffdd):
-                        # self.blocks['rst_{}'.format(rst_marker_index)] = self.l_decode
                         self.blocks['RST'] = self.l_decode
                         rst_marker_index += 1
                     else:
@@ -252,7 +242,7 @@ class JPEGStats:
         return self.blocks['EOI'] - self.blocks['DHT:0']
 
     def get_effective_bpp(self):
-        return 8 * self.get_effective_bytes() / self.image.shape[0] / self.image.shape[1]
+        return 8 * self.get_effective_bytes() / self.shape[0] / self.shape[1]
 
     def get_bpp(self):
-        return 8 * self.blocks['EOI'] / self.image.shape[0] / self.image.shape[1]
+        return 8 * self.blocks['EOI'] / self.shape[0] / self.shape[1]

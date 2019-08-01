@@ -5,6 +5,9 @@ Created on Thu Jul 11 12:19:20 2019
 
 @author: pkorus
 """
+import sys
+sys.path.append('..')
+
 import os
 import numpy as np
 import pandas as pd
@@ -100,7 +103,7 @@ fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('regularized'), bbox_inches='tight'
 
 # %% Load sample data
 
-dataset = './data/clic512/'
+dataset = '../data/clic512/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -108,7 +111,7 @@ files, _ = loading.discover_files(dataset, n_images=-1, v_images=0)
 batch_x = loading.load_images(files, dataset, load='y')
 batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
-plotting.imsc(batch_x, titles='')
+fig = plotting.imsc(batch_x, titles='')
 
 # %% Show latent representations
 
@@ -204,10 +207,11 @@ fig.savefig('fig_latent_dist_{}.pdf'.format('entropy'), bbox_inches='tight')
 
 models = []
 
-model_directory = './data/raw/dcn/entropy/'
+model_directory = '../data/raw/dcn/entropy/'
 models = [str(mp.parent.parent) for mp in list(Path(model_directory).glob('**/progress.json'))]
 
 models = [x for x in models if '5.0bpf' in x and 'H+250' in x]
+models = {re.findall('([0-9]{1,2})[0-9]{3}D', m)[0]+'k': m for m in models}
 
 # %%
 
@@ -252,12 +256,22 @@ print(df.groupby('model').mean().to_string())
 image_id = 0
 model = '4k'
 
-dcn = afi.restore_model(model, patch_size=batch_x.shape[1])
-fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1])
+dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], match='ssim')
 
 fig.savefig('fig_jpeg_match_model_{}_image_{}.pdf'.format(model, images[image_id]), bbox_inches='tight')
 
-# %% Compare peformance of forensics models
+# %% Show DCN and JPEG images at a matching bpp
+
+image_id = 3
+model = '4k'
+
+dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], match='bpp')
+
+fig.savefig('fig_jpeg_bpp_match_model_{}_image_{}.pdf'.format(model, images[image_id]), bbox_inches='tight')
+
+# %% Compare performance of forensics models
 
 latent_bpf = 5
 
