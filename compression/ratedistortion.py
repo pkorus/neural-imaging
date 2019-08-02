@@ -218,11 +218,25 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
     def func(x, a, b, c, d):
         return np.exp(b*x**a - c)/(1 + np.exp(b*x**a - c)) - d
 
-    for filename, selectors in plots:
-        df = pd.read_csv(os.path.join(dirname, filename), index_col=False)
-        for k, v in selectors.items():
-            df = df[df[k] == v]
-        df_all.append(df)
+
+    labels = []
+
+    if isinstance(plots, list):
+        for filename, selectors in plots:
+            labels.append(os.path.splitext(filename)[0])
+            df = pd.read_csv(os.path.join(dirname, filename), index_col=False)
+            for k, v in selectors.items():
+                df = df[df[k] == v]
+            df_all.append(df)
+    elif isinstance(plots, dict):
+        for key, (filename, selectors) in plots.items():
+            labels.append(key)
+            df = pd.read_csv(os.path.join(dirname, filename), index_col=False)
+            for k, v in selectors.items():
+                df = df[df[k] == v]
+            df_all.append(df)
+    else:
+        raise ValueError('Unsupported plot definition!')
 
     if len(images) == 0:
         images = df['image_id'].unique().tolist()
@@ -234,8 +248,8 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
         else:
             dfc['selected'] = True
 
-    labels = ['dcn', 'jpeg', 'jpeg2k']
-    styles = [['g-', 'gx'], ['r-', 'rx'], ['b-', 'b+']]
+    styles = [['r-', 'rx'], ['b-', 'b+'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
+    avg_markers = ['', '', 'o', '+', 'x', '^', '.']
 
     ssim_min = 1
     for index, dfc in enumerate(df_all):
@@ -247,11 +261,14 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
         bpps = bpps[ssims > 0.6]
         ssims = ssims[ssims > 0.6]
 
-        with open('debug-{}.txt'.format(labels[index]), 'w') as f:
-            f.write('{}_bpps = '.format(labels[index]))
-            f.write(str(bpps).replace('\n', ' '))
-            f.write('\n{}_ssims = '.format(labels[index]))
-            f.write(str(ssims).replace('\n', ' '))
+        # dfc.loc[dfc['selected']].to_csv('debug-{}.csv'.format(labels[index]))
+        # print(labels[index], len(dfc.loc[dfc['selected']]))
+
+        # with open('debug-{}.txt'.format(labels[index]), 'w') as f:
+        #     f.write('{}_bpps = '.format(labels[index]))
+        #     f.write(str(bpps).replace('\n', ' '))
+        #     f.write('\n{}_ssims = '.format(labels[index]))
+        #     f.write(str(ssims).replace('\n', ' '))
 
         x = np.linspace(bpps.min(), bpps.max(), 100)
 
@@ -305,6 +322,29 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
             y = np.median([f(x) for f in ensemble], axis=0)
             axes.plot(x, y, styles[index][0], label=labels[index])
             ssim_min = min([ssim_min, min(y)])
+
+        elif plot == 'line':
+            axes.plot(bpps, ssims, styles[index][0], label=labels[index])
+            ssim_min = min([ssim_min, min(ssims)])
+
+
+        elif plot == 'averages':
+
+            dfa = dfc.loc[dfc['selected']]
+
+            if 'n_features' in dfa:
+                dfg = dfa.groupby('n_features')
+            else:
+                dfg = dfa.groupby('quality')
+
+            bpps = dfg.mean()['bpp'].values
+            ssims = dfg.mean()[metric].values
+
+            bpps = bpps[ssims > 0.6]
+            ssims = ssims[ssims > 0.6]
+
+            axes.plot(bpps, ssims, styles[index][0], label=labels[index], marker=avg_markers[index], alpha=0.85)
+            ssim_min = min([ssim_min, min(ssims)])
 
         elif plot == 'none':
             pass

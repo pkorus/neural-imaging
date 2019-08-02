@@ -162,15 +162,22 @@ def display_results(args):
         mapping_targets = ['col', 'col', 'hue', 'style', 'size']
         mapping_id = 0
 
+        # Choose the feature with most unique values as x axis
+        uniques = [len(df['scenario:{}'.format(i)].unique()) for i in components]
+
+        x_feature = np.argmax(uniques)
+
         for i in components:
-            if i == 0:
+            if i == x_feature:
                 continue
 
             if len(df['scenario:{}'.format(i)].unique()) > 1:
                 mapping[mapping_targets[mapping_id]] = 'scenario:{}'.format(i)
                 mapping_id += 1
 
-        sns.catplot(x='scenario:0', y='accuracy', data=df, kind='box', **mapping)
+        sns.catplot(x='scenario:{}'.format(x_feature), y='accuracy', data=df, kind='box', **mapping)
+        # sns.catplot(x='scenario:0', y='dcn_ssim', data=df, kind='box', **mapping)
+        # sns.scatterplot(x='dcn_ssim', y='accuracy', data=df)
         plt.show()
 
         if len(df) > 0:

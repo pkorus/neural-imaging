@@ -26,6 +26,8 @@ from helpers import plotting, loading, utils
 from compression import ratedistortion, afi
 from training import compression
 
+dataset = './data/clic512'
+
 # %% Binary representations
 
 dataset = './data/clic512'
@@ -283,12 +285,38 @@ plots = [
 
 images = [0, 11, 13, 21, 30, 36]
 
-fig, axes = plotting.sub(len(images), ncols=3)
-fig.set_size_inches((15, 8))
+fig, axes = plotting.sub(len(images), ncols=2)
+fig.set_size_inches((10, 8))
 # ratedistortion.plot_curve(plots, axes[0], dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='ensemble')
 
 for i, im in enumerate(images):
-    ratedistortion.plot_curve(plots, axes[i], dataset, title='Example {}'.format(im), images=[im], plot='none')
+    ratedistortion.plot_curve(plots, axes[i], dataset, title='Example {}'.format(im), images=[im], plot='line')
+
+# %% Compare performance of forensics models
+
+from collections import OrderedDict
+
+latent_bpf = 5
+dcn_model = '8k'
+lcs = [1.0, 0.1, 0.01, 0.001]
+
+plots = OrderedDict()
+plots['jpg'] = ('jpeg.csv', {})
+plots['jpeg2k'] = ('jpeg2000.csv', {})
+plots['dcn (b)'] = ('dcn-forensics.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
+# plots['dcn (o)'] = ('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250})
+for lc in lcs:
+    plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
+
+images = [0, 11, 13, 21, 30, 36]
+
+fig = plt.figure()
+axes = fig.gca()
+# fig.set_size_inches((10, 8))
+ratedistortion.plot_curve(plots, axes, dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='averages')
+
+axes.set_xlim([0.5, 1])
+axes.set_ylim([0.9, 0.95])
 
 # fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('regularized'), bbox_inches='tight')
 
