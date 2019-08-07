@@ -14,7 +14,7 @@ fi
 
 nip="DNet"
 cam="D90"
-cmd="echo python3 train_manipulation.py --end $rep --patch 128 --epochs=4001 --ds none --nip $nip --cam $cam"
+cmd="python3 train_manipulation.py --end $rep --patch 128 --epochs=4001 --ds none --nip $nip --cam $cam"
 
 if [ "$2" = "dry" ]; then
     cmd="echo $cmd"
