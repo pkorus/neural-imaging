@@ -35,7 +35,7 @@ case "$1" in
    jpeg+nip)
         # Fixed JPEG + Trainable NIP
         for jpeg in 30 40 50 60 70; do
-            $cmd --dir ./data/raw/m/jpeg+nip/$jpeg --jpeg $jpeg --train nip $ln
+            $cmd --dir ./data/raw/m/jpeg-nip+/$jpeg --jpeg $jpeg --train nip $ln
         done
         ;;
     dcn)
@@ -47,7 +47,7 @@ case "$1" in
     dcn+nip)
         # DCN + Trainable NIP
         for dcn in 4k 8k 16k; do
-            $cmd --dir ./data/raw/m/dcn+nip/$dcn --dcn $dcn --train nip $ln
+            $cmd --dir ./data/raw/m/dcn-nip+/$dcn --dcn $dcn --train nip $ln
         done
        ;;
    dcn+)
