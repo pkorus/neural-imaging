@@ -6,15 +6,15 @@ if [ "$USER" = "pk91" ]; then
     source ../neural-imaging-pipeline/venv/bin/activate
 fi
 
-if [ -n "$3" ]; then
-  rep=$3
+if [ -n "$2" ]; then
+  rep=$2
 else
   rep=5
 fi
 
 nip="DNet"
 cam="D90"
-cmd="python3 train_manipulation.py --end $rep --patch 128 --epochs=4001 --ds none --nip $nip --cam $cam"
+cmd="echo python3 train_manipulation.py --end $rep --patch 128 --epochs=4001 --ds none --nip $nip --cam $cam"
 
 if [ "$2" = "dry" ]; then
     cmd="echo $cmd"
