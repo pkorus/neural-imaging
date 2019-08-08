@@ -153,7 +153,7 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
     quick_show(fig.add_subplot(3, 3, 9), fft_ab, 'FFT(A) - FFT(B)')
 
     if output_dir is not None:
-        from matplotlib2tikz import save as tikz_save
+        from tikzplotlib import save as tikz_save
         dcomp = [x for x in coreutils.splitall(model_b_dirname) if re.match('(ln-.*|[0-9]{3})', x)]
         tikz_save('{}/examples-{}-{}-{}-{}-{}.tex'.format(output_dir, camera, pipeline, image_id, dcomp[0], dcomp[1]),
                   figureheight='8cm', figurewidth='8cm', strict=False)
