@@ -4,9 +4,9 @@ import sys
 sys.path.append('..')
 
 import numpy as np
-
 import seaborn as sns
 from matplotlib import rc
+from sklearn import manifold
 
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 rc('text', usetex=False)
@@ -19,8 +19,11 @@ import matplotlib.pyplot as plt
 from helpers import plotting, dataset, utils
 from training.manipulation import construct_models, train_manipulation_nip
 
+import cooccurrences
+
 # %%
 
+use_compressed = False
 nip_model = 'DNet'
 trainable = set()
 
@@ -29,12 +32,18 @@ distribution = {
     'downsampling': 'none',
     'compression': 'dcn',
     'compression_params': {
-        'dirname': '../data/raw/dcn/forensics/8k-basic',
-        # 'dirname': '../data/raw/dcn/forensics/8k-0.0100',
+        # 'dirname': '../data/raw/dcn/forensics/8k-0.0010', # 95% accuracy
+        # 'dirname': '../data/raw/dcn/forensics/8k-0.0050', # 89% accuracy
+        # 'dirname': '../data/raw/dcn/forensics/8k-0.0100', # 85% accuracy
+        # 'dirname': '../data/raw/dcn/forensics/8k-0.0500', # 72% accuracy
+        'dirname': '../data/raw/dcn/forensics/8k-basic',  # 62% accuracy
     }
 }
 
-model_name = os.path.split(distribution['compression_params']['dirname'])[-1]
+if use_compressed:
+    model_name = os.path.split(distribution['compression_params']['dirname'])[-1]
+else:
+    model_name = 'uncompressed'
 
 # Construct the TF model
 tf_ops, distribution = construct_models(nip_model, patch_size=64, trainable=trainable, distribution=distribution, loss_metric='L2')
@@ -49,7 +58,7 @@ patch_size = 64
 
 data = dataset.IPDataset(os.path.join(root, 'nip_training_data/', camera_name),
                          n_images=0,
-                         v_images=30,
+                         v_images=64,
                          load='xy',
                          val_rgb_patch_size=2 * patch_size,
                          val_n_patches=1)
@@ -61,13 +70,16 @@ if 'dirname' in distribution['compression_params']: tf_ops['dcn'].load_model(dis
 # %% Show sample image + manipulated versions
 
 n_classes = len(distribution['forensics_classes'])
-n_batch = 16
+n_batch = 64
+show_batch = 16
 
 sample_x, sample_y = data.next_validation_batch(0, n_batch)
 
 # Run the patch through the network
-y_patches = tf_ops['sess'].run(tf_ops['operations'], feed_dict={tf_ops['nip'].x: sample_x})
-# y_patches = tf_ops['sess'].run(tf_ops['fan'].x, feed_dict={tf_ops['nip'].x: sample_x})
+if model_name == 'uncompressed':
+    y_patches = tf_ops['sess'].run(tf_ops['operations'], feed_dict={tf_ops['nip'].x: sample_x})
+else:
+    y_patches = tf_ops['sess'].run(tf_ops['fan'].x, feed_dict={tf_ops['nip'].x: sample_x})
 
 if isinstance(y_patches, np.ndarray):
     sample_c = np.zeros((n_classes * sample_y.shape[0], *sample_y.shape[1:]), np.float32)
@@ -81,9 +93,22 @@ elif isinstance(y_patches, tuple):
         for v in range(n_classes):
             sample_c[i*n_classes + v] = y_patches[v][i]
 
+
+# Select images with some interesting content
+indices = np.argsort(np.var(sample_x[:,:,:,0], axis=(1,2)))[::-1][:show_batch]
+
+c_indices = np.zeros((show_batch * n_classes), np.uint32)
+for i in range(show_batch):
+    for c in range(n_classes):
+        c_indices[i * n_classes + c] = indices[i] * n_classes + c
+
 # Plot the images
-fig = plotting.imsc(sample_c, n_batch * ['{}: ()'.format(x) for x in distribution['forensics_classes']], ncols=len(distribution['forensics_classes']), figwidth=20)
-# fig = plotting.imsc(sample_c, ncols=len(distribution['forensics_classes']), figwidth=20)
+fig = plotting.imsc(sample_c[c_indices],
+                    show_batch * ['{}: ()'.format(x) for x in distribution['forensics_classes']],
+                    ncols=2 * len(distribution['forensics_classes']),
+                    figwidth=20)
+
+fig.savefig('images_{}.pdf'.format(model_name), bbox_inches='tight', dpi=150)
 
 # %% Show residuals
 
@@ -92,7 +117,7 @@ import scipy as sp
 def nm(x):
     return (x - x.min()) / (x.max() - x.min())
 
-gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 1.0000, -0.1667], [-0.0833, -0.1667, -0.0833]])
+gk = cooccurrences.filters['f']
 
 sample_r = np.copy(sample_c)
 
@@ -100,7 +125,12 @@ for i in range(sample_r.shape[0]):
     for c in range(sample_r.shape[-1]):
         sample_r[i, :, :, c] = nm(np.abs(sp.signal.convolve2d(sample_r[i, :, :, c], gk, 'same')))
 
-fig = plotting.imsc(sample_r, n_batch * ['{}: ()'.format(x) for x in distribution['forensics_classes']], ncols=len(distribution['forensics_classes']), figwidth=20)
+fig = plotting.imsc(sample_r[c_indices],
+                    show_batch * ['{}: ()'.format(x) for x in distribution['forensics_classes']],
+                    ncols=2 * len(distribution['forensics_classes']),
+                    figwidth=20)
+
+fig.savefig('residuals_{}.pdf'.format(model_name), bbox_inches='tight', dpi=150)
 
 # %% Compute sub-band energies
 
@@ -129,7 +159,10 @@ for i in range(sample_dct.shape[0]):
 
         sample_dct[i, :, :, c] = nm(np.log(1 + dct))
 
-fig = plotting.imsc(sample_dct, n_batch * ['{}: ()'.format(x) for x in distribution['forensics_classes']], ncols=len(distribution['forensics_classes']), figwidth=20)
+fig = plotting.imsc(sample_dct[c_indices],
+                    show_batch * ['{}: ()'.format(x) for x in distribution['forensics_classes']],
+                    ncols=2 * len(distribution['forensics_classes']),
+                    figwidth=20)
 
 # %% Show energy in frequency sub-bands
 
@@ -153,20 +186,25 @@ def nm(x):
 
 gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 1.0000, -0.1667], [-0.0833, -0.1667, -0.0833]])
 
-codebook = np.linspace(0, 1, 256)
-# codebook = np.linspace(-0.5, 0.5, 256)
+# codebook = np.linspace(0, 1, 256)
+codebook = np.linspace(-0.5, 0.5, 256)
 
-filters = {
-  'h' : np.array([[-1, 1]]),
-  'v' : np.array([[-1], [1]]),
-  'd1' : np.array([[-1, 0], [0, 1]]),
-  'd2' : np.array([[0, -1], [1, 0]]),
-}
+filters = cooccurrences.filters
+
+y = np.zeros((3 * sample_c.shape[0]))
+X = np.zeros((3 * sample_c.shape[0], 2 * 81))
 
 residuals = {k: np.zeros((sample_c.shape[0] // n_classes, n_classes, len(codebook))) for k in filters.keys()}
 
 for i in range(sample_c.shape[0]):
     for c in range(sample_c.shape[-1]):
+
+        # Forensics co-occurrences features (separate for RGB channels)
+        X[i * 3 + c, :81] = cooccurrences.get_block_features(255 * sample_c[i, :, :, c], f='f')
+        X[i * 3 + c, 81:] = cooccurrences.get_block_features(255 * sample_c[i, :, :, c].T, f='f')
+        y[i * 3 + c] = i % n_classes
+
+        # Histograms of residual features (averaged over RGB channels)
         for f_label, f in filters.items():
             val = sp.signal.convolve2d(sample_c[i, :, :, c], f, 'same')
             if codebook.min() >= 0:
@@ -192,7 +230,7 @@ axes.set_ylim([1e-1, 2 * residuals[key].mean(axis=0).max()])
 
 plot_keys = ['h', 'v']
 
-fig, axes = plt.subplots(ncols=len(plot_keys) + 1, figsize=(6*len(plot_keys), 3))
+fig, axes = plt.subplots(ncols=len(plot_keys) + 2, figsize=(4*(2 + len(plot_keys)), 3))
 
 for c in range(n_classes):
     axes[0].semilogy(bands, np.mean(energy, axis=0)[c, :], '-')
@@ -201,18 +239,59 @@ axes[0].legend(distribution['forensics_classes'])
 axes[0].set_xlabel('Frequency sub-band [relative range]')
 axes[0].set_ylabel('Energy level')
 
+# t-SNE
+tsne = manifold.TSNE(n_components=2, init='random', random_state=0, perplexity=50)
+Y = tsne.fit_transform(X)
+
+for c in range(5):
+    ind = y == c
+    axes[1].scatter(Y[ind, 0], Y[ind, 1], alpha=0.25)
+axes[1].set_xticks([])
+axes[1].set_yticks([])
+axes[1].set_title('t-SNE of co-occurrence features')
+
+# Distributions of residuals
 for i, key in enumerate(plot_keys):
     for c in range(n_classes):
-        axes[1 + i].semilogy(codebook, residuals[key].mean(axis=0)[c, :], '-')
+        axes[2 + i].semilogy(codebook, residuals[key].mean(axis=0)[c, :], '-')
     # axes[1 + i].legend(distribution['forensics_classes'])
-    axes[1 + i].set_xlabel('{}-residual value'.format(key))
-    axes[1 + i].set_ylabel('Frequency')
-    axes[1 + i].set_yticks([])
+    axes[2 + i].set_xlabel('{}-residual value'.format(key))
+    axes[2 + i].set_ylabel('Frequency')
+    axes[2 + i].set_yticks([])
     if codebook.min() >= 0:
-        axes[1 + i].set_xlim([-0.0075, 0.25])
+        axes[2 + i].set_xlim([-0.0075, 0.25])
     else:
-        axes[1 + i].set_xlim([-0.25, 0.25])
-    axes[1 + i].set_ylim([1e-1, 2 * residuals[key].mean(axis=0).max()])
+        axes[2 + i].set_xlim([-0.25, 0.25])
+    axes[2 + i].set_ylim([1e-1, 2 * residuals[key].mean(axis=0).max()])
 
-    
-fig.savefig('fig_dcn_summary_{}.pdf'.format(model_name), bbox_inches='tight')
+fig.savefig('summary_{}.pdf'.format(model_name), bbox_inches='tight')
+
+# %% t-SNE of co-occurrence features
+
+import coocurrences
+
+residuals = np.zeros((n_classes, sample_c.shape[0] // n_classes, 3, 2 * 81))
+labels = np.zeros((3 * sample_c.shape[0]))
+X = np.zeros((3 * sample_c.shape[0], 2 * 81))
+
+for i in range(sample_c.shape[0]):
+    for c in range(sample_c.shape[-1]):
+        residuals[i % n_classes, i // n_classes, c, :81] = cooccurrences.get_block_features(255 * sample_c[i, :, :, c], f='f')
+        residuals[i % n_classes, i // n_classes, c:, 81:] = cooccurrences.get_block_features(255 * sample_c[i, :, :, c].T, f='f')
+        X[i * 3 + c] = residuals[i % n_classes, i // n_classes, c]
+        labels[i * 3 + c] = i % n_classes
+
+# Show the t-SNE embedding
+
+from sklearn import manifold
+
+tsne = manifold.TSNE(n_components=2, init='random', random_state=2, perplexity=50)
+Y = tsne.fit_transform(X)
+
+for c in range(5):
+    ind = labels == c
+    plt.scatter(Y[ind, 0], Y[ind, 1], alpha=0.25)
+
+# %%
+
+plt.imshow(X[labels == 0])
