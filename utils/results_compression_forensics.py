@@ -92,14 +92,14 @@ fig.savefig('dcn_forensics_tradeoff_{}.pdf'.format(dataset.split('/')[-1]), bbox
 
 # %% Compare rate-distortion profiles
 
-dataset = '../data/raw512'
+dataset = '../data/clic512'
 plot_types = ['averages', 'ensemble']
-plot_types = ['averages']
+# plot_types = ['averages']
 
 latent_bpf = 5
 lcs = [1.0, 0.01, 0.005]
 # lcs = [0.01]
-images = [2]
+images = []
 
 plots = OrderedDict()
 plots['jpg'] = ('jpeg.csv', {})
@@ -174,14 +174,15 @@ models[0.001]   = '../data/raw/dcn/forensics/8k-0.0010' # 95% accuracy
 models[0.005]   = '../data/raw/dcn/forensics/8k-0.0050' # 89% accuracy
 models[0.010]   = '../data/raw/dcn/forensics/8k-0.0100' # 85% accuracy
 models[0.050]   = '../data/raw/dcn/forensics/8k-0.0500' # 72% accuracy
-models[0.100]   = '../data/raw/dcn/forensics/8k-0.0500' # 65% accuracy
-models[1.000]   = '../data/raw/dcn/forensics/8k-0.0500' # 62% accuracy
+models[0.100]   = '../data/raw/dcn/forensics/8k-0.1000' # 65% accuracy
+models[1.000]   = '../data/raw/dcn/forensics/8k-1.0000' # 62% accuracy
+models[5.000]   = '../data/raw/dcn/forensics/8k-5.0000' # 62% accuracy
 models['basic'] = '../data/raw/dcn/forensics/8k-basic'  # 62% accuracy
 
 outputs = OrderedDict()
 stats = OrderedDict()
 
-image_id = 2
+image_id = 28
 
 for model in models.keys():
     dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
@@ -202,19 +203,21 @@ fig.savefig('debug.pdf', bbox_inches='tight')
 
 # %% Find images where
 
-dataset = '../data/raw512/'
+dataset = '../data/clic512/'
 df = pd.read_csv(os.path.join(dataset, 'dcn-forensics.csv'), index_col=False)
 
 ssim_costs = []
 bpp_costs = []
+
+transfer_model = '8k-1.0000/'
 
 print('# {}'.format(dataset))
 for filename in df['filename'].unique():
     dfc = df.loc[df['filename'] == filename]
     basic_ssim = dfc.loc[dfc['model_dir'] == '8k-basic/', 'ssim'].values[0]
     basic_bpp = dfc.loc[dfc['model_dir'] == '8k-basic/', 'bpp'].values[0]
-    transfer_ssim = dfc.loc[dfc['model_dir'] == '8k-1.0000/', 'ssim'].values[0]
-    transfer_bpp = dfc.loc[dfc['model_dir'] == '8k-1.0000/', 'bpp'].values[0]
+    transfer_ssim = dfc.loc[dfc['model_dir'] == transfer_model, 'ssim'].values[0]
+    transfer_bpp = dfc.loc[dfc['model_dir'] == transfer_model, 'bpp'].values[0]
     ssim_costs.append(transfer_ssim - basic_ssim)
     bpp_costs.append(transfer_bpp - basic_bpp)
     print('{:2d} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format(dfc['image_id'].values[0], filename, ssim_costs[-1], bpp_costs[-1]))
