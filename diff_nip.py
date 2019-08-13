@@ -26,10 +26,12 @@ def fft_log_norm(x):
     return y
 
 
-def nm(x):
+def nm(x, perc=0):
     if np.all(x == 0):
         return x
-    return (x - x.min()) / (x.max() - x.min())
+    mn = x.min() if perc == 0 else np.percentile(x, perc)
+    mx = x.max() if perc == 0 else np.percentile(x, 100 - perc)
+    return ((x - mn) / (mx - mn)).clip(0, 1)
 
 
 def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, image_id=None, root_dir='./data/raw', output_dir=None):
@@ -154,15 +156,15 @@ def compare_images_ab_ref(img_ref, img_a, img_b, labels=None):
     # Compute and plot difference images
     diff_a = np.abs(img_a - img_ref)
     diff_a_mean = diff_a.mean()
-    diff_a = nm(diff_a)
+    diff_a = nm(diff_a, 0.1)
 
     diff_b = np.abs(img_b - img_ref)
     diff_b_mean = diff_b.mean()
-    diff_b = nm(diff_b)
+    diff_b = nm(diff_b, 0.1)
 
     diff_ab = np.abs(img_b - img_a)
     diff_ab_mean = diff_ab.mean()
-    diff_ab = nm(diff_ab)
+    diff_ab = nm(diff_ab, 0.1)
 
     plotting.quickshow(diff_a, 'T - A: mean abs {:.3f}'.format(diff_a_mean), axes=axes[2])
     plotting.quickshow(diff_b, 'T - B: mean abs {:.3f}'.format(diff_b_mean), axes=axes[6])

@@ -130,7 +130,7 @@ fig.set_size_inches((5 * len(plot_types), 4))
 
 # %% Load sample data
 
-dataset = '../data/raw512/'
+dataset = '../data/clic512/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -176,13 +176,16 @@ models[0.010]   = '../data/raw/dcn/forensics/8k-0.0100' # 85% accuracy
 models[0.050]   = '../data/raw/dcn/forensics/8k-0.0500' # 72% accuracy
 models[0.100]   = '../data/raw/dcn/forensics/8k-0.1000' # 65% accuracy
 models[1.000]   = '../data/raw/dcn/forensics/8k-1.0000' # 62% accuracy
+models[1.001]   = '../data/raw/dcn/forensics/8k-1.0000b' # 62% accuracy
+models[1.002]   = '../data/raw/dcn/forensics/8k-1.0000c' # 62% accuracy
 models[5.000]   = '../data/raw/dcn/forensics/8k-5.0000' # 62% accuracy
 models['basic'] = '../data/raw/dcn/forensics/8k-basic'  # 62% accuracy
 
 outputs = OrderedDict()
 stats = OrderedDict()
 
-image_id = 32 # 28 for clic
+# Worst images for clic: 1, 28, 33, 36
+image_id = 1 # 32 # 28 for clic
 
 for model in models.keys():
     dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
@@ -197,6 +200,15 @@ fig = plotting.imsc(list(outputs.values()),
                     figwidth=24)
 fig.savefig('debug.pdf', bbox_inches='tight')
 
+# Dump to file
+for key, value in outputs.items():
+    os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
+    imageio.imwrite('debug/{}/{}/{}.png'.format(dataset.strip('/').split('/')[-1], image_id, key), value.squeeze())
+    with open('debug/{}/{}/log.txt'.format(dataset.strip('/').split('/')[-1], image_id), 'w') as f:
+        f.write('# {}\n'.format(files[image_id]))
+        for model in models.keys():
+            f.write('{:>10} : ssim = {:.3f} @ {:.3f} bpp\n'.format(model, stats[model]['ssim'][0], stats[model]['bpp'][0]))
+
 # %%
 
 fig = plotting.imsc([nm(outputs[k] - outputs['basic']) for k in outputs.keys()],
@@ -208,22 +220,22 @@ fig.savefig('diff.pdf', bbox_inches='tight')
 
 from diff_nip import compare_images_ab_ref
 
-use_pretrained_ref = True
+use_pretrained_ref = False
 
 if use_pretrained_ref:
     reference = outputs['basic']
 else:
     reference = batch_x[image_id:image_id+1]
 
-fig = compare_images_ab_ref(reference, outputs[1.000], outputs[0.010],
-                            labels=['Pre-trained DCN' if use_pretrained_ref else 'Original image', '$\lambda=1.000$', '$\lambda=0.010$'])
+fig = compare_images_ab_ref(reference, outputs[1.000], outputs['basic'],
+                            labels=['Pre-trained DCN' if use_pretrained_ref else 'Original image', '$\lambda=1.000$', 'Pre-trained'])
 
 axes_bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
 fig.savefig('diff_dcn.pdf', bbox_inches='tight', dpi=np.ceil(batch_x.shape[1] / axes_bbox.height))
 
 # %% Per-image SSIM & bpp detrioration stats
 
-dataset = '../data/raw512/'
+dataset = '../data/clic512/'
 df = pd.read_csv(os.path.join(dataset, 'dcn-forensics.csv'), index_col=False)
 
 ssim_costs = []
