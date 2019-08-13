@@ -130,7 +130,7 @@ fig.set_size_inches((5 * len(plot_types), 4))
 
 # %% Load sample data
 
-dataset = '../data/clic512/'
+dataset = '../data/raw512/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -182,7 +182,7 @@ models['basic'] = '../data/raw/dcn/forensics/8k-basic'  # 62% accuracy
 outputs = OrderedDict()
 stats = OrderedDict()
 
-image_id = 28
+image_id = 32 # 28 for clic
 
 for model in models.keys():
     dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
@@ -197,13 +197,33 @@ fig = plotting.imsc(list(outputs.values()),
                     figwidth=24)
 fig.savefig('debug.pdf', bbox_inches='tight')
 
-# fig = plotting.imsc([nm(outputs[k] - outputs['basic']) for k in outputs.keys()],
-#                     ['{}'.format(x) for x in models.keys()], figwidth=24)
-# fig.savefig('debug.pdf', bbox_inches='tight')
+# %%
 
-# %% Find images where
+fig = plotting.imsc([nm(outputs[k] - outputs['basic']) for k in outputs.keys()],
+                    ['{}'.format(x) for x in models.keys()], figwidth=24)
 
-dataset = '../data/clic512/'
+fig.savefig('diff.pdf', bbox_inches='tight')
+
+# %% Images
+
+from diff_nip import compare_images_ab_ref
+
+use_pretrained_ref = True
+
+if use_pretrained_ref:
+    reference = outputs['basic']
+else:
+    reference = batch_x[image_id:image_id+1]
+
+fig = compare_images_ab_ref(reference, outputs[1.000], outputs[0.010],
+                            labels=['Pre-trained DCN' if use_pretrained_ref else 'Original image', '$\lambda=1.000$', '$\lambda=0.010$'])
+
+axes_bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+fig.savefig('diff_dcn.pdf', bbox_inches='tight', dpi=np.ceil(batch_x.shape[1] / axes_bbox.height))
+
+# %% Per-image SSIM & bpp detrioration stats
+
+dataset = '../data/raw512/'
 df = pd.read_csv(os.path.join(dataset, 'dcn-forensics.csv'), index_col=False)
 
 ssim_costs = []
@@ -222,3 +242,11 @@ for filename in df['filename'].unique():
     bpp_costs.append(transfer_bpp - basic_bpp)
     print('{:2d} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format(dfc['image_id'].values[0], filename, ssim_costs[-1], bpp_costs[-1]))
 print('{:2} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format('Σ', '-', np.mean(ssim_costs), np.mean(bpp_costs)))
+
+# %%
+
+from models import lpips
+
+distance = lpips.lpips(outputs['basic'], batch_x[image_id:image_id+1])
+
+print(distance)

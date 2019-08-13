@@ -112,7 +112,7 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
     target_y = target_y[2*yy:2*(yy+ps), 2*xx:2*(xx+ps), :].astype(np.float32) / (2**8 - 1)
 
     # Plot images
-    fig = compare_images_ab_ref(pipeline, sample_ya, sample_yb, target_y)
+    fig = compare_images_ab_ref(target_y, sample_ya, sample_yb)
 
     if output_dir is not None:
         pass
@@ -127,34 +127,40 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
     plt.close(fig)
 
 
-def compare_images_ab_ref(label, img_a, img_b, img_ref):
+def compare_images_ab_ref(img_ref, img_a, img_b, labels=None):
     from helpers import plotting
     from skimage.measure import compare_psnr, compare_ssim
 
+    labels = labels or ['target', '', '']
+
+    img_a = img_a.squeeze()
+    img_b = img_b.squeeze()
+    img_ref = img_ref.squeeze()
+
     fig, axes = plotting.sub(9)
 
-    plotting.quickshow(img_ref, '(T)arget', axes=axes[0])
+    plotting.quickshow(img_ref, '(T) {}'.format(labels[0]), axes=axes[0])
 
-    label_a = '{}(A) {:.1f} dB / {:.3f}'.format(label,
-                                              compare_psnr(img_ref, img_a.squeeze(), data_range=1.0),
-                                              compare_ssim(img_ref, img_a.squeeze(), multichannel=True))
+    label_a = '(A) {}: {:.1f} dB / {:.3f}'.format(labels[1],
+                                              compare_psnr(img_ref, img_a, data_range=1.0),
+                                              compare_ssim(img_ref, img_a, data_range=1.0, multichannel=True))
     plotting.quickshow(img_a, label_a, axes=axes[1])
 
-    label_b = '{}(B) {:.1f} dB / {:.3f}'.format(label,
-                                              compare_psnr(img_ref, img_b.squeeze(), data_range=1.0),
-                                              compare_ssim(img_ref, img_b.squeeze(), multichannel=True))
-    plotting.quickshow(img_b.squeeze(), label_b, axes=axes[3])
+    label_b = '(B) {}: {:.1f} dB / {:.3f}'.format(labels[2],
+                                              compare_psnr(img_ref, img_b, data_range=1.0),
+                                              compare_ssim(img_ref, img_b, data_range=1.0, multichannel=True))
+    plotting.quickshow(img_b, label_b, axes=axes[3])
 
     # Compute and plot difference images
-    diff_a = np.abs(img_a.squeeze() - img_ref)
+    diff_a = np.abs(img_a - img_ref)
     diff_a_mean = diff_a.mean()
     diff_a = nm(diff_a)
 
-    diff_b = np.abs(img_b.squeeze() - img_ref)
+    diff_b = np.abs(img_b - img_ref)
     diff_b_mean = diff_b.mean()
     diff_b = nm(diff_b)
 
-    diff_ab = np.abs(img_b.squeeze() - img_a.squeeze())
+    diff_ab = np.abs(img_b - img_a)
     diff_ab_mean = diff_ab.mean()
     diff_ab = nm(diff_ab)
 
@@ -167,7 +173,7 @@ def compare_images_ab_ref(label, img_a, img_b, img_ref):
     fft_b = fft_log_norm(diff_b)
 
     # fft_ab = nm(np.abs(fft_a - fft_b))
-    fft_ab = nm(np.abs(fft_log_norm(img_b.squeeze()) - fft_log_norm(img_a.squeeze())))
+    fft_ab = nm(np.abs(fft_log_norm(img_b) - fft_log_norm(img_a)))
     plotting.quickshow(fft_a, 'FFT(T - A)', axes=axes[5])
     plotting.quickshow(fft_b, 'FFT(T - B)', axes=axes[7])
     plotting.quickshow(fft_ab, 'FFT(A) - FFT(B)', axes=axes[8])
