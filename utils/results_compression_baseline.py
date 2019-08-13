@@ -18,13 +18,15 @@ from matplotlib import rc
 
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 rc('text', usetex=True)
-sns.set()
+sns.set('paper', font_scale=1, style="ticks")
 sns.set_context("paper")
 
 from test_dcn import match_jpeg
 from helpers import plotting, loading, utils
 from compression import ratedistortion, afi
 from training import compression
+
+dataset = './data/clic512'
 
 # %% Binary representations
 
@@ -270,45 +272,3 @@ dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
 fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], match='bpp')
 
 fig.savefig('fig_jpeg_bpp_match_model_{}_image_{}.pdf'.format(model, images[image_id]), bbox_inches='tight')
-
-# %% Compare performance of forensics models
-
-latent_bpf = 5
-
-plots = [
-        ('dcn-forensics.csv', {}),
-        ('jpeg.csv', {}),
-        ('jpeg2000.csv', {})
-]
-
-images = [0, 11, 13, 21, 30, 36]
-
-fig, axes = plotting.sub(len(images), ncols=3)
-fig.set_size_inches((15, 8))
-# ratedistortion.plot_curve(plots, axes[0], dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='ensemble')
-
-for i, im in enumerate(images):
-    ratedistortion.plot_curve(plots, axes[i], dataset, title='Example {}'.format(im), images=[im], plot='none')
-
-# fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('regularized'), bbox_inches='tight')
-
-# %% Compare many DCN models
-
-model_directory = './data/raw/dcn/forensics/'
-models = [str(mp.parent.parent) for mp in list(Path(model_directory).glob('**/progress.json'))]
-models = sorted(models)
-
-print(models)
-
-image_id = 3
-
-fig, axes = plotting.sub(6 * len(models), ncols=6)
-
-for model_id, model in enumerate(models):
-
-    dcn = afi.restore_model(model, patch_size=batch_x.shape[1])
-    match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], axes[model_id*6:(model_id+1)*6])
-    
-    axes[model_id*6].set_ylabel(os.path.relpath(model, model_directory))
-
-fig.savefig('fig_compare_dcn_models_image_{}.pdf'.format(images[image_id]), bbox_inches='tight')

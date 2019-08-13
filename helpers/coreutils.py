@@ -210,4 +210,12 @@ def remove_commons(names):
     names = [x for x in names]
     prefix = os.path.commonprefix(names)
     postfix = os.path.commonprefix([x[::-1] for x in names])[::-1]
+
+    if not prefix.endswith('/'):
+        prefix = ''
+
+    if not postfix.startswith('/'):
+        postfix = ''
+
     return [x.replace(prefix, '').replace(postfix, '') for x in names]
+

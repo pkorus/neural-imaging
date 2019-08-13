@@ -210,22 +210,59 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
     return df
 
 
-def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', draw_markers=None, metric='ssim', title=None):
+def plot_curve(plots, axes,
+               dirname='./data/clic256',
+               images=[],
+               plot='fit',
+               draw_markers=None,
+               metric='ssim',
+               title=None,
+               add_legend=True,
+               marker_legend=True,
+               baseline_count=2,
+               dump_df=False):
+
+    # Parse input parameters
     draw_markers = draw_markers if draw_markers is not None else len(images) == 1
 
+    # Load all needed tables and setup legend labels
+    labels = []
     df_all = []
 
-    def func(x, a, b, c, d):
-        return np.exp(b*x**a - c)/(1 + np.exp(b*x**a - c)) - d
+    if isinstance(plots, list):
+        for filename, selectors in plots:
+            labels.append(os.path.splitext(filename)[0])
+            df = pd.read_csv(os.path.join(dirname, filename), index_col=False)
+            for k, v in selectors.items():
+                if isinstance(v, str) and '*' in v:
+                    df = df[df[k].str.match(v)]
+                else:
+                    df = df[df[k] == v]
+            if len(df) == 0:
+                raise(ValueError('No rows matched for column {}'.format(k)))
+            df_all.append(df)
 
-    for filename, selectors in plots:
-        df = pd.read_csv(os.path.join(dirname, filename), index_col=False)
-        for k, v in selectors.items():
-            df = df[df[k] == v]
-        df_all.append(df)
+    elif isinstance(plots, dict):
+        for key, (filename, selectors) in plots.items():
+            labels.append(key)
+            df = pd.read_csv(os.path.join(dirname, filename), index_col=False)
+            for k, v in selectors.items():
+                if isinstance(v, str) and '*' in v:
+                    df = df[df[k].str.match(v)]
+                else:
+                    df = df[df[k] == v]
+            if len(df) == 0:
+                raise(ValueError('No rows matched for column {}'.format(k)))
+            df_all.append(df)
+    else:
+        raise ValueError('Unsupported plot definition!')
 
     if len(images) == 0:
         images = df['image_id'].unique().tolist()
+
+    # Define a parametric model for the trade-off curve
+    def func(x, a, b, c, d):
+        return np.exp(b*x**a - c)/(1 + np.exp(b*x**a - c)) - d
 
     # Select measurements for the given images
     for dfc in df_all:
@@ -234,9 +271,15 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
         else:
             dfc['selected'] = True
 
-    labels = ['dcn', 'jpeg', 'jpeg2k']
-    styles = [['g-', 'gx'], ['r-', 'rx'], ['b-', 'b+']]
+    # Setup drawing styles
+    styles = [['r-', 'rx'], ['b-', 'b+'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
+    avg_markers = ['', '', 'o', 'o', '2', '+', 'x', '^', '.']
 
+    if baseline_count < 2:
+        styles = styles[(2 - baseline_count):]
+        avg_markers = avg_markers[(2 - baseline_count):]
+
+    # Iterate over defined plots and draw data accordingly
     ssim_min = 1
     for index, dfc in enumerate(df_all):
 
@@ -247,13 +290,11 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
         bpps = bpps[ssims > 0.6]
         ssims = ssims[ssims > 0.6]
 
-        with open('debug-{}.txt'.format(labels[index]), 'w') as f:
-            f.write('{}_bpps = '.format(labels[index]))
-            f.write(str(bpps).replace('\n', ' '))
-            f.write('\n{}_ssims = '.format(labels[index]))
-            f.write(str(ssims).replace('\n', ' '))
+        if dump_df:
+            print('{} matched {} rows -> {}'.format(labels[index], len(dfc.loc[dfc['selected']]), 'debug-{}.csv'.format(labels[index])))
+            dfc.loc[dfc['selected']].to_csv('debug-{}.csv'.format(labels[index]))
 
-        x = np.linspace(bpps.min(), bpps.max(), 100)
+        x = np.linspace(bpps.min(), bpps.max(), 256)
 
         if plot == 'kde':
             import pyqt_fit.nonparam_regression as smooth
@@ -261,15 +302,12 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
 
             k2 = smooth.NonParamRegression(bpps, ssims, method=npr_methods.LocalPolynomialKernel(q=1))
             k2.fit()
-            # x, y = utils.ma_gaussian(bpps, ssims, 0.05, 0.2)
-            # axes.plot(x, y, styles[index][0], label=labels[index])
-            # ssim_min = min([ssim_min, min(y)])
-            axes.plot(x, k2(x), styles[index][0], label=labels[index])
+            axes.plot(x, k2(x), styles[index][0], label=labels[index] if add_legend else None)
             ssim_min = min([ssim_min, min(k2(x))])
 
         elif plot == 'fit':
             popt, pcov = curve_fit(func, bpps, ssims, bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]), maxfev=10000)
-            axes.plot(x, func(x, *popt), styles[index][0], label=labels[index])
+            axes.plot(x, func(x, *popt), styles[index][0], label=labels[index] if add_legend else None)
             # print(labels[index], *popt)
 
             # If plotting many images, add confidence intervals
@@ -288,7 +326,7 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
             ssim_min = min([ssim_min, func(x[0], *popt)])
 
         elif plot == 'ensemble':
-            ensemble = []
+            Y = np.zeros((len(images), len(x)))
 
             for image_id in images:
 
@@ -298,13 +336,41 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
                 bpps = bpps[ssims > 0.6]
                 ssims = ssims[ssims > 0.6]
 
-                popt, pcov = curve_fit(func, bpps, ssims, bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]), maxfev=10000)
+                try:
+                    popt, pcov = curve_fit(func, bpps, ssims,
+                                       bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]),
+                                       maxfev=100000)
+                except RuntimeError:
+                    print('ERROR', labels[index], 'image =', image_id, 'bpp =', bpps, 'ssims =', ssims)
 
-                ensemble.append(lambda x: func(x, *popt))
+                Y[image_id] = func(x, *popt)
 
-            y = np.median([f(x) for f in ensemble], axis=0)
-            axes.plot(x, y, styles[index][0], label=labels[index])
+            y = np.mean(Y, axis=0)
+            axes.plot(x, y, styles[index][0], label=labels[index] if add_legend else None)
             ssim_min = min([ssim_min, min(y)])
+
+        elif plot == 'line':
+            axes.plot(bpps, ssims, styles[index][0], label=labels[index] if add_legend else None)
+            ssim_min = min([ssim_min, min(ssims)])
+
+
+        elif plot == 'averages':
+
+            dfa = dfc.loc[dfc['selected']]
+
+            if 'n_features' in dfa:
+                dfg = dfa.groupby('n_features')
+            else:
+                dfg = dfa.groupby('quality')
+
+            bpps = dfg.mean()['bpp'].values
+            ssims = dfg.mean()[metric].values
+
+            bpps = bpps[ssims > 0.6]
+            ssims = ssims[ssims > 0.6]
+
+            axes.plot(bpps, ssims, styles[index][0], label=labels[index] if add_legend else None, marker=avg_markers[index], alpha=0.65)
+            ssim_min = min([ssim_min, min(ssims)])
 
         elif plot == 'none':
             pass
@@ -313,7 +379,11 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
             raise ValueError('Unsupported plot type!')
 
         if draw_markers:
+
             if 'entropy_reg' in dfc:
+
+                # No need to draw legend if multiple DCNs are plotted
+                detailed_legend = 'full' if marker_legend and index == baseline_count else False
 
                 style_mapping = {}
 
@@ -327,7 +397,7 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
                     style_mapping['style'] = 'quantization'
 
                 g = sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
-                                palette="Set2", ax=axes, legend='full',
+                                palette="Set2", ax=axes, legend=detailed_legend,
                                 **style_mapping)
 
             else:
@@ -341,8 +411,9 @@ def plot_curve(plots, axes, dirname='./data/clic256', images=[], plot='fit', dra
     )
 
     # Fixes problems with rendering using the LaTeX backend
-    for t in axes.legend().texts:
-        t.set_text(t.get_text().replace('_', '-'))
+    if add_legend:
+        for t in axes.legend().texts:
+            t.set_text(t.get_text().replace('_', '-'))
 
     axes.set_xlim([0, 4])
     axes.set_ylim([ssim_min * 0.99, 1])
