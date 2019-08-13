@@ -485,7 +485,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
     if isinstance(tf_ops['dcn'], compression.DCN):
         values = validation.validate_dcn(tf_ops['dcn'], data, nip_save_dir, epoch=epoch, show_ref=True)
-        for metric, val_array in zip(['ssim', 'loss', 'entropy'], values):
+        for metric, val_array in zip(['ssim', 'psnr', 'loss', 'entropy'], values):
             tf_ops['dcn'].performance[metric]['validation'].append(float(np.mean(val_array)))
         
     # Compute confusion matrix
