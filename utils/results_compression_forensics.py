@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 
 sns.set('paper', font_scale=1, style="ticks")
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
-rc('text', usetex=True)
+rc('text', usetex=False)
 # sns.set_context("paper")
 
 from test_dcn import match_jpeg
@@ -130,7 +130,7 @@ fig.set_size_inches((5 * len(plot_types), 4))
 
 # %% Load sample data
 
-dataset = '../data/raw512/'
+dataset = '../data/clic512/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files

@@ -293,13 +293,6 @@ def plot_curve(plots, axes,
         if dump_df:
             print('{} matched {} rows -> {}'.format(labels[index], len(dfc.loc[dfc['selected']]), 'debug-{}.csv'.format(labels[index])))
             dfc.loc[dfc['selected']].to_csv('debug-{}.csv'.format(labels[index]))
-            # print(labels[index], len(dfc.loc[dfc['selected']]))
-
-        # with open('debug-{}.txt'.format(labels[index]), 'w') as f:
-        #     f.write('{}_bpps = '.format(labels[index]))
-        #     f.write(str(bpps).replace('\n', ' '))
-        #     f.write('\n{}_ssims = '.format(labels[index]))
-        #     f.write(str(ssims).replace('\n', ' '))
 
         x = np.linspace(bpps.min(), bpps.max(), 256)
 
@@ -333,7 +326,7 @@ def plot_curve(plots, axes,
             ssim_min = min([ssim_min, func(x[0], *popt)])
 
         elif plot == 'ensemble':
-            ensemble = []
+            Y = np.zeros((len(images), len(x)))
 
             for image_id in images:
 
@@ -350,9 +343,9 @@ def plot_curve(plots, axes,
                 except RuntimeError:
                     print('ERROR', labels[index], 'image =', image_id, 'bpp =', bpps, 'ssims =', ssims)
 
-                ensemble.append(lambda x: func(x, *popt))
+                Y[image_id] = func(x, *popt)
 
-            y = np.median([f(x) for f in ensemble], axis=0)
+            y = np.mean(Y, axis=0)
             axes.plot(x, y, styles[index][0], label=labels[index] if add_legend else None)
             ssim_min = min([ssim_min, min(y)])
 

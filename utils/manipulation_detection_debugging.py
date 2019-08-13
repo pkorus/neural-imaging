@@ -5,6 +5,7 @@ sys.path.append('..')
 
 import numpy as np
 import seaborn as sns
+import scipy as sp
 from matplotlib import rc
 from sklearn import manifold
 
@@ -23,7 +24,7 @@ import cooccurrences
 
 # %%
 
-use_compressed = False
+use_compressed = True
 nip_model = 'DNet'
 trainable = set()
 
@@ -36,7 +37,8 @@ distribution = {
         # 'dirname': '../data/raw/dcn/forensics/8k-0.0050', # 89% accuracy
         # 'dirname': '../data/raw/dcn/forensics/8k-0.0100', # 85% accuracy
         # 'dirname': '../data/raw/dcn/forensics/8k-0.0500', # 72% accuracy
-        'dirname': '../data/raw/dcn/forensics/8k-basic',  # 62% accuracy
+        'dirname': '../data/raw/dcn/forensics/8k-1.0000', # 62% accuracy
+        # 'dirname': '../data/raw/dcn/forensics/8k-basic',  # 62% accuracy
     }
 }
 
