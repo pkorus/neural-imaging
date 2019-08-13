@@ -15,8 +15,6 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('test')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-supported_pipelines = ['UNet', 'DNet', 'INet']
-
 
 def fft_log_norm(x):
     y = np.zeros_like(x)
@@ -29,14 +27,9 @@ def fft_log_norm(x):
 
 
 def nm(x):
+    if np.all(x == 0):
+        return x
     return (x - x.min()) / (x.max() - x.min())
-
-
-def quick_show(ax, x, l):
-    ax.imshow(x)
-    ax.set_title(l)
-    ax.set_xticks([])
-    ax.set_yticks([])
 
 
 def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, image_id=None, root_dir='./data/raw', output_dir=None):
@@ -51,8 +44,17 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
     :param root_dir: root data directory
     :param output_dir: set an output directory if the figure should be saved (matplotlib2tikz will be used)
     """
+    # Lazy imports to minimize delay for invalid command line parameters
+    import re
+    import inspect
+    import imageio as io
+    import matplotlib.pyplot as plt
+
+    import tensorflow as tf
+    from models import pipelines
 
     supported_cameras = coreutils.listdir(os.path.join(root_dir,  'nip_model_snapshots'), '.*')
+    supported_pipelines = pipelines.supported_models
 
     if ps < 4 or ps > 2048:
         raise ValueError('Patch size seems to be invalid!')
@@ -65,21 +67,12 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
 
     image_id = image_id or 0
 
-    # Lazy imports to minimize delay for invalid command line parameters
-    import re
-    import imageio as io
-    import matplotlib.pyplot as plt
-
-    import tensorflow as tf
-    from models import pipelines
-    from skimage.measure import compare_psnr, compare_ssim
-
     # Find available Bayer stacks for the camera
     dirname = os.path.join(root_dir, 'nip_training_data', camera)
     files = coreutils.listdir(dirname, '.*\.npy')
 
     if len(files) == 0:
-        print('ERROR Not training files found for the given camera model!')
+        print('ERROR No training files found for the given camera model!')
         sys.exit(2)
 
     # Get model class instance
@@ -93,11 +86,11 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
 
     model_a = nip_model(sess1, g1)
     model_a.init()
-    model_a.load_model(os.path.join(model_a_dirname))
+    model_a.load_model(os.path.join(model_a_dirname, camera) if camera not in model_a_dirname else model_a_dirname)
 
     model_b = nip_model(sess2, g2)
     model_b.init()
-    model_b.load_model(os.path.join(model_b_dirname))
+    model_b.load_model(os.path.join(model_b_dirname, camera) if camera not in model_b_dirname else model_b_dirname)
 
     log.info('Model A: {}'.format(model_a.summary()))
     log.info('Model B: {}'.format(model_b.summary()))
@@ -119,55 +112,73 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
     target_y = target_y[2*yy:2*(yy+ps), 2*xx:2*(xx+ps), :].astype(np.float32) / (2**8 - 1)
 
     # Plot images
-    fig = plt.figure(figsize=(9, 9))
+    fig = compare_images_ab_ref(pipeline, sample_ya, sample_yb, target_y)
 
-    quick_show(fig.add_subplot(3, 3, 1), target_y, '(T)arget')
-    quick_show(fig.add_subplot(3, 3, 2), sample_ya.squeeze(), '{}(A) {:.1f} dB / {:.3f}'.format(pipeline, compare_psnr(target_y, sample_ya.squeeze(), data_range=1.0), compare_ssim(target_y, sample_ya.squeeze(), multichannel=True)))
-    quick_show(fig.add_subplot(3, 3, 4), sample_yb.squeeze(), '{}(B) {:.1f} dB / {:.3f}'.format(pipeline, compare_psnr(target_y, sample_yb.squeeze(), data_range=1.0), compare_ssim(target_y, sample_yb.squeeze(), multichannel=True)))
+    if output_dir is not None:
+        pass
+    #     from tikzplotlib import save as tikz_save
+    #     dcomp = [x for x in coreutils.splitall(model_b_dirname) if re.match('(lr-.*|[0-9]{3})', x)]
+    #     tikz_save('{}/examples-{}-{}-{}-{}-{}.tex'.format(output_dir, camera, pipeline, image_id, dcomp[0], dcomp[1]), figureheight='8cm', figurewidth='8cm', strict=False)
+    # else:
+    #     fig.tight_layout()
+    #     fig.show(fig)
+
+    plt.show()
+    plt.close(fig)
+
+
+def compare_images_ab_ref(label, img_a, img_b, img_ref):
+    from helpers import plotting
+    from skimage.measure import compare_psnr, compare_ssim
+
+    fig, axes = plotting.sub(9)
+
+    plotting.quickshow(img_ref, '(T)arget', axes=axes[0])
+
+    label_a = '{}(A) {:.1f} dB / {:.3f}'.format(label,
+                                              compare_psnr(img_ref, img_a.squeeze(), data_range=1.0),
+                                              compare_ssim(img_ref, img_a.squeeze(), multichannel=True))
+    plotting.quickshow(img_a, label_a, axes=axes[1])
+
+    label_b = '{}(B) {:.1f} dB / {:.3f}'.format(label,
+                                              compare_psnr(img_ref, img_b.squeeze(), data_range=1.0),
+                                              compare_ssim(img_ref, img_b.squeeze(), multichannel=True))
+    plotting.quickshow(img_b.squeeze(), label_b, axes=axes[3])
 
     # Compute and plot difference images
-    diff_a = np.abs(sample_ya.squeeze() - target_y)
+    diff_a = np.abs(img_a.squeeze() - img_ref)
     diff_a_mean = diff_a.mean()
     diff_a = nm(diff_a)
 
-    diff_b = np.abs(sample_yb.squeeze() - target_y)
+    diff_b = np.abs(img_b.squeeze() - img_ref)
     diff_b_mean = diff_b.mean()
     diff_b = nm(diff_b)
 
-    diff_ab = np.abs(sample_yb.squeeze() - sample_ya.squeeze())
+    diff_ab = np.abs(img_b.squeeze() - img_a.squeeze())
     diff_ab_mean = diff_ab.mean()
     diff_ab = nm(diff_ab)
 
-    quick_show(fig.add_subplot(3, 3, 3), diff_a, 'T - A: mean abs {:.3f}'.format(diff_a_mean))
-    quick_show(fig.add_subplot(3, 3, 7), diff_b, 'T - B: mean abs {:.3f}'.format(diff_b_mean))
-    quick_show(fig.add_subplot(3, 3, 5), diff_ab, 'A - B: mean abs {:.3f}'.format(diff_ab_mean))
+    plotting.quickshow(diff_a, 'T - A: mean abs {:.3f}'.format(diff_a_mean), axes=axes[2])
+    plotting.quickshow(diff_b, 'T - B: mean abs {:.3f}'.format(diff_b_mean), axes=axes[6])
+    plotting.quickshow(diff_ab, 'A - B: mean abs {:.3f}'.format(diff_ab_mean), axes=axes[4])
 
     # Compute and plot spectra
     fft_a = fft_log_norm(diff_a)
     fft_b = fft_log_norm(diff_b)
+
     # fft_ab = nm(np.abs(fft_a - fft_b))
-    fft_ab = nm(np.abs(fft_log_norm(sample_yb.squeeze()) - fft_log_norm(sample_ya.squeeze())))
-    
-    quick_show(fig.add_subplot(3, 3, 6), fft_a, 'FFT(T - A)')
-    quick_show(fig.add_subplot(3, 3, 8), fft_b, 'FFT(T - B)')
-    quick_show(fig.add_subplot(3, 3, 9), fft_ab, 'FFT(A) - FFT(B)')
+    fft_ab = nm(np.abs(fft_log_norm(img_b.squeeze()) - fft_log_norm(img_a.squeeze())))
+    plotting.quickshow(fft_a, 'FFT(T - A)', axes=axes[5])
+    plotting.quickshow(fft_b, 'FFT(T - B)', axes=axes[7])
+    plotting.quickshow(fft_ab, 'FFT(A) - FFT(B)', axes=axes[8])
 
-    if output_dir is not None:
-        from matplotlib2tikz import save as tikz_save
-        dcomp = [x for x in coreutils.splitall(model_b_dirname) if re.match('(ln-.*|[0-9]{3})', x)]
-        tikz_save('{}/examples-{}-{}-{}-{}-{}.tex'.format(output_dir, camera, pipeline, image_id, dcomp[0], dcomp[1]),
-                  figureheight='8cm', figurewidth='8cm', strict=False)
-    else:
-        fig.tight_layout()
-        plt.show(fig)
-
-    plt.close(fig)
+    return fig
 
 
 def main():
     parser = argparse.ArgumentParser(description='Develops RAW images with a selected pipeline')
     parser.add_argument('--cam', dest='camera', action='store', help='camera')
-    parser.add_argument('--nip', dest='nip', action='store', help='imaging pipeline ({})'.format(supported_pipelines))
+    parser.add_argument('--nip', dest='nip', action='store', help='imaging pipeline (*Net)')
     parser.add_argument('--image', dest='image', action='store', default=0, type=int,
                         help='image id (n-th image in the camera\'s directory')
     parser.add_argument('--patch', dest='patch', action='store', default=128, type=int,
@@ -188,13 +199,8 @@ def main():
         parser.print_usage()
         sys.exit(1)
 
-    if args.camera not in args.model_a_dir:
-        args.model_a_dir = os.path.join(args.model_a_dir, args.camera)
-
-    try:
-        compare_nips(args.camera, args.nip, args.model_a_dir, args.model_b_dir, args.patch, args.image, args.dir, args.out)
-    except Exception as error:
-        log.error('Error while running the comparison function: {}'.format(error))
+    compare_nips(args.camera, args.nip, args.model_a_dir, args.model_b_dir,
+                 args.patch, args.image, args.dir, args.out)
 
 
 if __name__ == "__main__":
