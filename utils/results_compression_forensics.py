@@ -111,7 +111,7 @@ fig.set_size_inches((5 * len(plot_types), 4))
 
 # %% Load sample data
 
-dataset = '../data/raw512/'
+dataset = '../data/clic512/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -148,7 +148,7 @@ def nm(x):
     x = np.abs(x)
     return (x - x.min()) / (x.max() - x.min())
 
-dcn_model = '4k'
+dcn_model = '8k'
 
 # Define the distribution channel
 models = OrderedDict()
@@ -168,7 +168,7 @@ outputs = OrderedDict()
 stats = OrderedDict()
 
 # Worst images for clic: 1, 28, 33, 36
-image_id = 34 # 32 # 28 for clic
+image_id = 4 # 32 # 28 for clic
 
 for model in models.keys():
     dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
@@ -201,7 +201,7 @@ fig.savefig('diff.pdf', bbox_inches='tight')
 
 # %% Images
 
-from diff_nip import compare_images_ab_ref
+from diff_nip import compare_images_ab_ref, fft_log_norm
 
 use_pretrained_ref = False
 
@@ -216,9 +216,127 @@ fig = compare_images_ab_ref(reference, outputs[1.000], outputs[0.001],
 axes_bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
 fig.savefig('diff_dcn.pdf', bbox_inches='tight', dpi=np.ceil(batch_x.shape[1] / axes_bbox.height))
 
+# %% Detailed breakdown of the impact on a specific image
+
+from diff_nip import compare_images_ab_ref, fft_log_norm, nm
+from helpers.utils import dct_mask
+import scipy as sp
+
+dcn_model = '8k'
+
+# Define the distribution channel
+models = OrderedDict()
+models['basic'] = '../data/raw/dcn/forensics/{}-basic'.format(dcn_model)
+models[1.000]   = '../data/raw/dcn/forensics/{}-1.0000'.format(dcn_model)
+models[0.050]   = '../data/raw/dcn/forensics/{}-0.0500'.format(dcn_model)
+models[0.010]   = '../data/raw/dcn/forensics/{}-0.0100'.format(dcn_model)
+models[0.001]   = '../data/raw/dcn/forensics/{}-0.0010'.format(dcn_model)
+
+accuracies = OrderedDict()
+outputs = OrderedDict()
+stats = OrderedDict()
+
+df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
+
+# Worst images for clic: 1, 28, 33, 36
+image_id = 1 # 32 # 28 for clic
+
+# Get compressed images for all selected models
+for model in models.keys():
+
+    if type(model) is not str:
+            model_label = '{:.4f}'.format(model)
+
+    dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+    outputs[model], stats[model] = afi.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
+    accuracies[model] = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, model_label), 'accuracy'].mean()
+
+all_labels = ['Original']
+all_images = [batch_x[image_id:image_id+1]]
+for key, value in outputs.items():
+    all_images.append(value)
+    all_labels.append('DCN: {} -> ssim: {:.2f} acc: {:.2f}'.format(key,
+                      stats[key]['ssim'][0],
+                      accuracies[key]))
+
+fft_images = []
+# Get DFTs and frequency profiles
+for image in all_images:
+    fft_images.append(fft_log_norm(image))
+
+bands = np.linspace(0, 1, 64)
+energies = []
+
+for image in all_images:
+    dct = np.abs(sp.fftpack.dct(sp.fftpack.dct(np.mean(image.squeeze(), axis=2).T).T))
+
+    energy = np.zeros((len(bands), 1))
+
+    # Get frequency energies
+    for b in range(len(bands)):
+        m = dct_mask(dct.shape[1], bands[b], 1e-2)
+        energy[b] = np.mean(dct * m)
+
+    energies.append(energy)
+
+# %%
+
+fig, axes = plt.subplots(5, len(all_images))
+fig.set_size_inches((3 * len(all_images), 3 * 5))
+
+# The images
+for index, image in enumerate(all_images):
+    plotting.quickshow(image, all_labels[index], axes=axes[0, index])
+    if index == 0:
+        axes[0, index].set_ylabel('Original/compressed')
+
+for index, image in enumerate(all_images):
+    if index > 0:
+        plotting.quickshow((np.abs(image - all_images[0]) * 5).clip(0, 1),
+                                  '', axes=axes[1, index])
+    else:
+        axes[1, index].set_axis_off()
+
+    if index == 1:
+        axes[1, index].set_ylabel('Difference wrt. original')
+
+for index, image in enumerate(all_images):
+    if index > 1:
+        plotting.quickshow((np.abs(image - all_images[1]) * 5).clip(0, 1),
+                                   '', axes=axes[2, index])
+    else:
+        axes[2, index].set_axis_off()
+
+    if index == 2:
+        axes[2, index].set_ylabel('Difference wrt. basic DCN')
+
+# The FFTs
+for index, image in enumerate(fft_images):
+    plotting.quickshow(image, '', axes=axes[3, index])
+    if index == 0:
+        axes[3, index].set_ylabel('FFTs')
+
+# The frequency breakdown
+for index, energy in enumerate(energies):
+    axes[4, index].semilogy(bands, energy)
+    if index == 0:
+        axes[4, index].set_ylabel('Sub-band energy')
+    else:
+        axes[4, index].set_yticklabels([])
+    axes[4, index].set_xlabel('Relative frequency')
+    axes[4, index].set_ylim([np.min(energies)/2, 2*np.max(energies)])
+    axes[4, index].grid(True, linestyle=':')
+
+os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
+fig.savefig('debug/{}/{}/{}_breakdown.pdf'.format(dataset.strip('/').split('/')[-1], image_id, dcn_model), bbox_inches='tight', dpi=200)
+
+# %%
+
+fig = plotting.imsc(np.abs(sfft.fft2(batch_x[image_id:image_id+1, :, :, 0])))
+
 # %% Per-image SSIM & bpp detrioration stats
 
-dataset = '../data/raw512/'
+dataset = '../data/kodak512/'
 df = pd.read_csv(os.path.join(dataset, 'dcn-forensics.csv'), index_col=False)
 
 ssim_costs = []
@@ -302,7 +420,7 @@ for quality in sorted(df['quality'].unique()):
     }, ignore_index=True)
 
 
-# %%
+# %% Draw the summary plot
 
 fig = plt.figure()
 ax = fig.gca()
@@ -312,22 +430,25 @@ if 'raw' in dataset:
 else:
     x_limits = [0.35, 1.75]
 
-
 min_ssim = 0.85
 max_ssim = max([df_j['ssim'].max(), df_o['ssim'].max()])
 
+# Add line connecting basic DCN models ----------------------------------------
 g = sns.lineplot(x='bpp', y='accuracy', data=df_o.loc[df_o['lambda'] == 'basic'])
 
+# Add points for basic DCN models
 g = sns.scatterplot(x='bpp', y='accuracy', size='ssim', hue='ssim', edgecolor='black',
                 sizes=(20, 100), hue_norm=(min_ssim, max_ssim), size_norm=(min_ssim, max_ssim),
                 legend=False, marker='o',
                 s=50, alpha=0.7, data=df_o.loc[df_o['lambda'] == 'basic'])
 
+# Add points for transferred DCN models
 g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim', edgecolor='white',
                 sizes=(20, 100), size_norm=(min_ssim, max_ssim), hue_norm=(min_ssim, max_ssim),
                 legend='brief', marker='o',
                 s=50, alpha=0.7, data=df_o.loc[df_o['lambda'] != 'basic'])
 
+# Add annotations next to transferred DCN models
 for pid in range(0, len(df_o)):
     if df_o.bpp[pid] < x_limits[-1]:
 
@@ -357,10 +478,8 @@ for pid in range(0, len(df_o)):
         ax.text(df_o.bpp[pid] + 0.015, df_o.accuracy[pid], label,
                 horizontalalignment='left', size=7, color=label_color)
 
+# Add lines & points for JPEG -------------------------------------------------
 g = sns.lineplot(x='bpp', y='accuracy', data=df_j, dashes=True)
-
-for line in g.lines:
-    line.set_linestyle(':')
 
 g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim', edgecolor='gray',
                 sizes=(20, 100), size_norm=(min_ssim, max_ssim), hue_norm=(min_ssim, max_ssim),
@@ -371,6 +490,11 @@ for pid in range(0, len(df_j)):
         ax.text(df_j.bpp[pid] + 0.02, df_j.accuracy[pid], int(df_j.quality[pid]),
              horizontalalignment='left', size=7, color='black')
 
+# Final touches ---------------------------------------------------------------
+for line in g.lines:
+    line.set_linestyle(':')
+
+# Sometimes seaborn messes up legend entries - number of decimal places explodes
 for t in ax.legend_.texts:
     try:
         t.set_text('{:.2f}'.format(float(t.get_text())))
@@ -382,31 +506,3 @@ ax.grid(True, linestyle=':')
 ax.set_xlim(x_limits)
 ax.set_title(dataset)
 # ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
-
-# %%
-
-g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim',
-                sizes=(20, 100), size_norm=(0.8, 1.0), hue_norm=(0.75, 0.95),
-                legend='brief', marker='D', s=50, alpha=0.7, data=df_j)
-
-
-# %%
-markers = {}
-markers['basic'] = 's'
-for lbda in lambdas:
-    if type(lbda) is float:
-        markers['{:.4f}'.format(lbda)] = 'o'
-
-g = sns.scatterplot(x='bpp', y='accuracy', hue='lambda', size='ssim', style='lambda',
-                sizes=(20, 100), legend='brief', markers=markers,
-                s=50, alpha=0.7, data=df_o)
-
-g.figure.set_size_inches((10, 6))
-g.axes.grid(True, linestyle=':')
-
-
-# %%
-
-g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim',
-                sizes=(20, 100), legend='brief', marker='2',
-                s=50, alpha=0.7, data=df_j)
