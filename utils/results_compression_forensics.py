@@ -33,25 +33,6 @@ dataset = '../data/clic512'
 
 # %% Compare performance of forensics models
 
-latent_bpf = 5
-
-plots = [
-        ('dcn-forensics.csv', {}),
-        ('jpeg.csv', {}),
-        ('jpeg2000.csv', {})
-]
-
-images = [0, 11, 13, 21, 30, 36]
-
-fig, axes = plotting.sub(len(images), ncols=2)
-fig.set_size_inches((10, 8))
-# ratedistortion.plot_curve(plots, axes[0], dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='ensemble')
-
-for i, im in enumerate(images):
-    ratedistortion.plot_curve(plots, axes[i], dataset, title='Example {}'.format(im), images=[im], plot='line')
-
-# %% Compare performance of forensics models
-
 dataset = '../data/raw512'
 
 latent_bpf = 5
@@ -92,7 +73,7 @@ fig.savefig('dcn_forensics_tradeoff_{}.pdf'.format(dataset.split('/')[-1]), bbox
 
 # %% Compare rate-distortion profiles
 
-dataset = '../data/clic512'
+dataset = '../data/kodak512'
 plot_types = ['averages', 'ensemble']
 # plot_types = ['averages']
 
@@ -130,7 +111,7 @@ fig.set_size_inches((5 * len(plot_types), 4))
 
 # %% Load sample data
 
-dataset = '../data/clic512/'
+dataset = '../data/raw512/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -167,25 +148,27 @@ def nm(x):
     x = np.abs(x)
     return (x - x.min()) / (x.max() - x.min())
 
+dcn_model = '4k'
 
 # Define the distribution channel
 models = OrderedDict()
-models[0.001]   = '../data/raw/dcn/forensics/8k-0.0010' # 95% accuracy
-models[0.005]   = '../data/raw/dcn/forensics/8k-0.0050' # 89% accuracy
-models[0.010]   = '../data/raw/dcn/forensics/8k-0.0100' # 85% accuracy
-models[0.050]   = '../data/raw/dcn/forensics/8k-0.0500' # 72% accuracy
-models[0.100]   = '../data/raw/dcn/forensics/8k-0.1000' # 65% accuracy
-models[1.000]   = '../data/raw/dcn/forensics/8k-1.0000' # 62% accuracy
-models[1.001]   = '../data/raw/dcn/forensics/8k-1.0000b' # 62% accuracy
-models[1.002]   = '../data/raw/dcn/forensics/8k-1.0000c' # 62% accuracy
-models[5.000]   = '../data/raw/dcn/forensics/8k-5.0000' # 62% accuracy
-models['basic'] = '../data/raw/dcn/forensics/8k-basic'  # 62% accuracy
+models[0.001]   = '../data/raw/dcn/forensics/{}-0.0010'.format(dcn_model) # 95% accuracy
+models[0.005]   = '../data/raw/dcn/forensics/{}-0.0050'.format(dcn_model) # 89% accuracy
+models[0.010]   = '../data/raw/dcn/forensics/{}-0.0100'.format(dcn_model) # 85% accuracy
+models[0.050]   = '../data/raw/dcn/forensics/{}-0.0500'.format(dcn_model) # 72% accuracy
+models[0.100]   = '../data/raw/dcn/forensics/{}-0.1000'.format(dcn_model) # 65% accuracy
+models[1.000]   = '../data/raw/dcn/forensics/{}-1.0000'.format(dcn_model) # 62% accuracy
+# models[1.001]   = '../data/raw/dcn/forensics/{}-1.0000b'.format(dcn_model) # 62% accuracy
+# models[1.002]   = '../data/raw/dcn/forensics/{}-1.0000c'.format(dcn_model) # 62% accuracy
+models[5.000]   = '../data/raw/dcn/forensics/{}-5.0000'.format(dcn_model) # 62% accuracy
+# models[1000.0]   = '../data/raw/dcn/forensics/{}-1000.0'.format(dcn_model) # 62% accuracy
+models['basic'] = '../data/raw/dcn/forensics/{}-basic'.format(dcn_model)  # 62% accuracy
 
 outputs = OrderedDict()
 stats = OrderedDict()
 
 # Worst images for clic: 1, 28, 33, 36
-image_id = 1 # 32 # 28 for clic
+image_id = 34 # 32 # 28 for clic
 
 for model in models.keys():
     dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
@@ -200,11 +183,11 @@ fig = plotting.imsc(list(outputs.values()),
                     figwidth=24)
 fig.savefig('debug.pdf', bbox_inches='tight')
 
-# Dump to file
+# # Dump to file
 for key, value in outputs.items():
     os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
-    imageio.imwrite('debug/{}/{}/{}.png'.format(dataset.strip('/').split('/')[-1], image_id, key), value.squeeze())
-    with open('debug/{}/{}/log.txt'.format(dataset.strip('/').split('/')[-1], image_id), 'w') as f:
+    imageio.imwrite('debug/{}/{}/{}_{}.png'.format(dataset.strip('/').split('/')[-1], image_id, dcn_model, key), value.squeeze())
+    with open('debug/{}/{}/{}_log.txt'.format(dataset.strip('/').split('/')[-1], image_id, dcn_model), 'w') as f:
         f.write('# {}\n'.format(files[image_id]))
         for model in models.keys():
             f.write('{:>10} : ssim = {:.3f} @ {:.3f} bpp\n'.format(model, stats[model]['ssim'][0], stats[model]['bpp'][0]))
@@ -227,15 +210,15 @@ if use_pretrained_ref:
 else:
     reference = batch_x[image_id:image_id+1]
 
-fig = compare_images_ab_ref(reference, outputs[1.000], outputs['basic'],
-                            labels=['Pre-trained DCN' if use_pretrained_ref else 'Original image', '$\lambda=1.000$', 'Pre-trained'])
+fig = compare_images_ab_ref(reference, outputs[1.000], outputs[0.001],
+                            labels=['Pre-trained DCN' if use_pretrained_ref else 'Original image', '$\lambda=1.000$', '$\lambda=0.001$'])
 
 axes_bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
 fig.savefig('diff_dcn.pdf', bbox_inches='tight', dpi=np.ceil(batch_x.shape[1] / axes_bbox.height))
 
 # %% Per-image SSIM & bpp detrioration stats
 
-dataset = '../data/clic512/'
+dataset = '../data/raw512/'
 df = pd.read_csv(os.path.join(dataset, 'dcn-forensics.csv'), index_col=False)
 
 ssim_costs = []
@@ -255,10 +238,142 @@ for filename in df['filename'].unique():
     print('{:2d} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format(dfc['image_id'].values[0], filename, ssim_costs[-1], bpp_costs[-1]))
 print('{:2} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format('Σ', '-', np.mean(ssim_costs), np.mean(bpp_costs)))
 
-# %%
+# %% Perception Distance (AlexNet)
 
 from models import lpips
 
 distance = lpips.lpips(outputs['basic'], batch_x[image_id:image_id+1])
 
 print(distance)
+
+
+# %% Pool compression quality and classification accuracy
+
+dataset = '../data/raw512/'
+dcn_models = ['4k', '8k', '16k']
+lambdas = [0.001, 0.005, 0.010, 0.050, 0.100, 1.000, 'basic']
+
+models = OrderedDict()
+
+# --- DCNs --------------------------------------------------------------------
+df = pd.read_csv(os.path.join(dataset, 'dcn-forensics.csv'), index_col=False)
+df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
+
+df_o = pd.DataFrame(columns=['dcn_model', 'lambda', 'bpp', 'ssim', 'accuracy'])
+
+for dcn_model in dcn_models:
+    for lbda in lambdas:
+
+        if type(lbda) is not str:
+            lbda = '{:.4f}'.format(lbda)
+        models['{}-{}'.format(dcn_model, lbda)] = '../data/raw/dcn/forensics/{}-{}'.format(dcn_model, lbda)
+
+        # Find the average bpp and ssim
+        bpp = df.loc[df['model_dir'] == '{}-{}/'.format(dcn_model, lbda), 'bpp'].mean()
+        ssim = df.loc[df['model_dir'] == '{}-{}/'.format(dcn_model, lbda), 'ssim'].mean()
+        accuracy = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, lbda), 'accuracy'].mean()
+
+        df_o = df_o.append({
+                'dcn_model': '{}/{}'.format(dcn_model, lbda),
+                'lambda': lbda,
+                'bpp': bpp,
+                'ssim': ssim,
+                'accuracy': accuracy
+        }, ignore_index=True)
+
+# --- JPEG --------------------------------------------------------------------
+df = pd.read_csv(os.path.join(dataset, 'jpeg.csv'), index_col=False)
+df_acc = pd.read_csv(os.path.join('../results/', 'summary-jpeg.csv'), index_col=False)
+
+df_j = pd.DataFrame(columns=['quality', 'bpp', 'ssim', 'accuracy'])
+
+for quality in sorted(df['quality'].unique()):
+
+    # Find the average bpp and ssim
+    bpp = df.loc[df['quality'] == quality, 'bpp'].mean()
+    ssim = df.loc[df['quality'] == quality, 'ssim'].mean()
+    accuracy = df_acc.loc[df_acc['scenario'] == quality, 'accuracy'].mean()
+
+    df_j = df_j.append({
+            'quality': quality,
+            'bpp': bpp,
+            'ssim': ssim,
+            'accuracy': accuracy
+    }, ignore_index=True)
+
+
+# %%
+
+fig = plt.figure()
+ax = fig.gca()
+
+x_max = 1.0
+
+min_ssim = 0.875
+max_ssim = max([df_j['ssim'].max(), df_o['ssim'].max()])
+
+g = sns.lineplot(x='bpp', y='accuracy', data=df_o.loc[df_o['lambda'] == 'basic'])
+
+g = sns.scatterplot(x='bpp', y='accuracy', size='ssim', hue='ssim', edgecolor='black',
+                sizes=(20, 100), hue_norm=(min_ssim, max_ssim), size_norm=(min_ssim, max_ssim),
+                legend=False, marker='o',
+                s=50, alpha=0.7, data=df_o.loc[df_o['lambda'] == 'basic'])
+
+g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim', edgecolor='white',
+                sizes=(20, 100), size_norm=(min_ssim, max_ssim), hue_norm=(min_ssim, max_ssim),
+                legend='brief', marker='o',
+                s=50, alpha=0.7, data=df_o.loc[df_o['lambda'] != 'basic'])
+
+for pid in range(0, len(df_o)):
+    if df_o.bpp[pid] < x_max:
+        ax.text(df_o.bpp[pid] + 0.015, df_o.accuracy[pid], df_o.dcn_model[pid].split('/')[-1],
+             horizontalalignment='left', size=7, color='black')
+
+g = sns.lineplot(x='bpp', y='accuracy', data=df_j, dashes=True)
+
+for line in g.lines:
+    line.set_linestyle(':')
+
+g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim', edgecolor='gray',
+                sizes=(20, 100), size_norm=(min_ssim, max_ssim), hue_norm=(min_ssim, max_ssim),
+                legend=False, marker='D', s=50, alpha=0.7, data=df_j)
+
+for pid in range(0, len(df_j)):
+    if df_j.bpp[pid] < x_max and int(df_j.quality[pid]) % 10 == 0:
+        ax.text(df_j.bpp[pid] + 0.02, df_j.accuracy[pid], int(df_j.quality[pid]),
+             horizontalalignment='left', size=7, color='black')
+
+
+g.figure.set_size_inches((10, 6))
+ax.grid(True, linestyle=':')
+ax.set_xlim([0.2, x_max])
+ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
+ax.set_title(dataset)
+
+# %%
+
+g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim',
+                sizes=(20, 100), size_norm=(0.8, 1.0), hue_norm=(0.75, 0.95),
+                legend='brief', marker='D', s=50, alpha=0.7, data=df_j)
+
+
+# %%
+markers = {}
+markers['basic'] = 's'
+for lbda in lambdas:
+    if type(lbda) is float:
+        markers['{:.4f}'.format(lbda)] = 'o'
+
+g = sns.scatterplot(x='bpp', y='accuracy', hue='lambda', size='ssim', style='lambda',
+                sizes=(20, 100), legend='brief', markers=markers,
+                s=50, alpha=0.7, data=df_o)
+
+g.figure.set_size_inches((10, 6))
+g.axes.grid(True, linestyle=':')
+
+
+# %%
+
+g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim',
+                sizes=(20, 100), legend='brief', marker='2',
+                s=50, alpha=0.7, data=df_j)
