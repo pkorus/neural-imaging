@@ -249,7 +249,7 @@ print(distance)
 
 # %% Pool compression quality and classification accuracy
 
-dataset = '../data/raw512/'
+dataset = '../data/clic512/'
 dcn_models = ['4k', '8k', '16k']
 lambdas = [0.001, 0.005, 0.010, 0.050, 0.100, 1.000, 'basic']
 
@@ -307,9 +307,13 @@ for quality in sorted(df['quality'].unique()):
 fig = plt.figure()
 ax = fig.gca()
 
-x_max = 1.0
+if 'raw' in dataset:
+    x_limits = [0.25, 0.95]
+else:
+    x_limits = [0.35, 1.75]
 
-min_ssim = 0.875
+
+min_ssim = 0.85
 max_ssim = max([df_j['ssim'].max(), df_o['ssim'].max()])
 
 g = sns.lineplot(x='bpp', y='accuracy', data=df_o.loc[df_o['lambda'] == 'basic'])
@@ -325,9 +329,33 @@ g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim', edgecolor='w
                 s=50, alpha=0.7, data=df_o.loc[df_o['lambda'] != 'basic'])
 
 for pid in range(0, len(df_o)):
-    if df_o.bpp[pid] < x_max:
-        ax.text(df_o.bpp[pid] + 0.015, df_o.accuracy[pid], df_o.dcn_model[pid].split('/')[-1],
-             horizontalalignment='left', size=7, color='black')
+    if df_o.bpp[pid] < x_limits[-1]:
+
+        # Show annotations as: lambda [(ssim diff)]
+        # The ssim diff is shown if abs() > 0.005 and color depends on the
+        # sign of the difference.
+        label_color = 'black'
+        dcn = df_o.dcn_model[pid].split('/')[0]
+        lbda = df_o.dcn_model[pid].split('/')[-1]
+        if lbda != 'basic':
+            # Find base SSIM
+            base_ssim = df_o.loc[df_o['dcn_model'] == '{}/basic'.format(dcn), 'ssim'].values[0]
+            ssim_diff = df_o.ssim[pid] - base_ssim
+            if np.abs(ssim_diff) > 0.005:
+                label = '{} ({:+.3f})'.format(lbda.strip('0'), ssim_diff)
+            else:
+                label = lbda.strip('0')
+
+            if ssim_diff < 0:
+                label_color = '#990000'
+            if ssim_diff > 0:
+                label_color = '#004400'
+        else:
+            label = lbda
+
+        # Draw the actual label
+        ax.text(df_o.bpp[pid] + 0.015, df_o.accuracy[pid], label,
+                horizontalalignment='left', size=7, color=label_color)
 
 g = sns.lineplot(x='bpp', y='accuracy', data=df_j, dashes=True)
 
@@ -339,16 +367,21 @@ g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim', edgecolor='g
                 legend=False, marker='D', s=50, alpha=0.7, data=df_j)
 
 for pid in range(0, len(df_j)):
-    if df_j.bpp[pid] < x_max and int(df_j.quality[pid]) % 10 == 0:
+    if df_j.bpp[pid] < x_limits[-1] and int(df_j.quality[pid]) % 10 == 0:
         ax.text(df_j.bpp[pid] + 0.02, df_j.accuracy[pid], int(df_j.quality[pid]),
              horizontalalignment='left', size=7, color='black')
 
+for t in ax.legend_.texts:
+    try:
+        t.set_text('{:.2f}'.format(float(t.get_text())))
+    except:
+        pass
 
-g.figure.set_size_inches((10, 6))
+g.figure.set_size_inches((12, 8))
 ax.grid(True, linestyle=':')
-ax.set_xlim([0.2, x_max])
-ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
+ax.set_xlim(x_limits)
 ax.set_title(dataset)
+# ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
 
 # %%
 
