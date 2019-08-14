@@ -248,7 +248,7 @@ for model in models.keys():
             model_label = '{:.4f}'.format(model)
 
     dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
-    outputs[model], stats[model] = afi.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
+    o10utputs[model], stats[model] = afi.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
     accuracies[model] = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, model_label), 'accuracy'].mean()
 
 all_labels = ['Original']
@@ -262,7 +262,7 @@ for key, value in outputs.items():
 fft_images = []
 # Get DFTs and frequency profiles
 for image in all_images:
-    fft_images.append(fft_log_norm(image))
+    fft_images.append(fft_log_norm(image, 1))
 
 bands = np.linspace(0, 1, 64)
 energies = []
