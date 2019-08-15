@@ -191,15 +191,15 @@ def main():
         plt.close()
 
     elif args.plot == 'jpg-trade-off':
-        df = ratedistortion.get_jpeg_df(args.data, write_files=True)
+        df = ratedistortion.get_jpeg_df(args.data, write_files=False)
         print(df.to_string())
 
     elif args.plot == 'jp2-trade-off':
-        df = ratedistortion.get_jpeg2k_df(args.data, write_files=True)
+        df = ratedistortion.get_jpeg2k_df(args.data, write_files=False)
         print(df.to_string())
 
     elif args.plot == 'dcn-trade-off':
-        df = ratedistortion.get_dcn_df(args.data, args.dir, write_files=True)
+        df = ratedistortion.get_dcn_df(args.data, args.dir, write_files=False)
         print(df.to_string())
 
     elif args.plot == 'bpg-trade-off':

@@ -146,8 +146,7 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
     batch_x = loading.load_images(files, directory, load='y')
     batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
-    # Get trade-off for JPEG
-    quality_levels = np.arange(1, 51, 1)
+    quality_levels = np.arange(10, 40, 1)
     df_jpeg_path = os.path.join(directory, 'bpg.csv')
 
     if os.path.isfile(df_jpeg_path) and not force_calc:
@@ -169,12 +168,14 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
                     # Save as temporary file
                     imageio.imwrite('/tmp/image.png', (255*image).astype(np.uint8))
                     bpp_path = bpg_helpers.bpg_compress('/tmp/image.png', q, '/tmp')
-                    bpp = bpg_helpers.bpp_of_bpg_image(bpp_path)
-                    image_bytes = os.stat(bpp_path).st_size
-                    image_compressed = imageio.imread(bpg_helpers.decode_bpg_to_png(bpp_path))
-
-                    # Compress images and get effective bytes (only image data - no headers)
-                    image_compressed, image_bytes = jpeg_helpers.compress_batch(image, q, effective=effective_bytes)
+                    image_compressed = imageio.imread(bpg_helpers.decode_bpg_to_png(bpp_path)).astype(np.float) / (2**8 - 1)
+                    
+                    if effective_bytes:
+                        bpp = bpg_helpers.bpp_of_bpg_image(bpp_path)
+                        image_bytes = round(bpp * image.shape[0] * image.shape[1] / 8)
+                    else:
+                        image_bytes = os.stat(bpp_path).st_size
+                        bpp = 8 * image_bytes / image.shape[0] / image.shape[1]
 
                     if write_files:
                         image_dir = os.path.join(directory, os.path.splitext(filename)[0])
