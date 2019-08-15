@@ -36,7 +36,6 @@ dataset = '../data/clic512'
 dataset = '../data/raw512'
 
 latent_bpf = 5
-dcn_model = '16k'
 lcs = [1.0, 0.1, 0.01, 0.005]
 
 fig = plt.figure(figsize=(5, 4))
@@ -45,6 +44,7 @@ axes = fig.gca()
 plots = OrderedDict()
 plots['jpg'] = ('jpeg.csv', {})
 plots['jpeg2k'] = ('jpeg2000.csv', {})
+plots['bpg'] = ('bpg.csv', {})
 
 ratedistortion.plot_curve(plots, axes, dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='averages')
 

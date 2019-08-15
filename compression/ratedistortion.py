@@ -281,7 +281,7 @@ def plot_curve(plots, axes,
                title=None,
                add_legend=True,
                marker_legend=True,
-               baseline_count=2,
+               baseline_count=3,
                dump_df=False):
 
     # Parse input parameters
@@ -334,12 +334,12 @@ def plot_curve(plots, axes,
             dfc['selected'] = True
 
     # Setup drawing styles
-    styles = [['r-', 'rx'], ['b-', 'b+'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
-    avg_markers = ['', '', 'o', 'o', '2', '+', 'x', '^', '.']
+    styles = [['r-', 'rx'], ['b-', 'b+'], ['k-', 'k2'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
+    avg_markers = ['', '', '', 'o', 'o', '2', '+', 'x', '^', '.']
 
-    if baseline_count < 2:
-        styles = styles[(2 - baseline_count):]
-        avg_markers = avg_markers[(2 - baseline_count):]
+    if baseline_count < 3:
+        styles = styles[(3 - baseline_count):]
+        avg_markers = avg_markers[(3 - baseline_count):]
 
     # Iterate over defined plots and draw data accordingly
     ssim_min = 1
