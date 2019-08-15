@@ -111,7 +111,7 @@ fig.set_size_inches((5 * len(plot_types), 4))
 
 # %% Load sample data
 
-dataset = '../data/clic512/'
+dataset = '../data/raw512/'
 images = [0, 11, 13, 30, 36]
 
 # Discover test files
@@ -239,7 +239,7 @@ stats = OrderedDict()
 df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
 
 # Worst images for clic: 1, 28, 33, 36
-image_id = 1 # 32 # 28 for clic
+image_id = 19 # 32 # 28 for clic
 
 # Get compressed images for all selected models
 for model in models.keys():
@@ -248,7 +248,7 @@ for model in models.keys():
             model_label = '{:.4f}'.format(model)
 
     dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
-    o10utputs[model], stats[model] = afi.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
+    outputs[model], stats[model] = afi.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
     accuracies[model] = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, model_label), 'accuracy'].mean()
 
 all_labels = ['Original']
@@ -281,8 +281,8 @@ for image in all_images:
 
 # %%
 
-fig, axes = plt.subplots(5, len(all_images))
-fig.set_size_inches((3 * len(all_images), 3 * 5))
+fig, axes = plt.subplots(6, len(all_images))
+fig.set_size_inches((3 * len(all_images), 3 * 6))
 
 # The images
 for index, image in enumerate(all_images):
@@ -316,16 +316,27 @@ for index, image in enumerate(fft_images):
     if index == 0:
         axes[3, index].set_ylabel('FFTs')
 
+for index, image in enumerate(fft_images):
+    if index > 1:
+        plotting.quickshow(nm(np.abs(image - fft_images[1])),
+                                   '', axes=axes[4, index])
+    else:
+        axes[4, index].set_axis_off()
+
+    if index == 2:
+        axes[4, index].set_ylabel('FFT diff wrt. basic DCN')
+
+
 # The frequency breakdown
 for index, energy in enumerate(energies):
-    axes[4, index].semilogy(bands, energy)
+    axes[5, index].semilogy(bands, energy)
     if index == 0:
-        axes[4, index].set_ylabel('Sub-band energy')
+        axes[5, index].set_ylabel('Sub-band energy')
     else:
-        axes[4, index].set_yticklabels([])
-    axes[4, index].set_xlabel('Relative frequency')
-    axes[4, index].set_ylim([np.min(energies)/2, 2*np.max(energies)])
-    axes[4, index].grid(True, linestyle=':')
+        axes[5, index].set_yticklabels([])
+    axes[5, index].set_xlabel('Relative frequency')
+    axes[5, index].set_ylim([np.min(energies)/2, 2*np.max(energies)])
+    axes[5, index].grid(True, linestyle=':')
 
 os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
 fig.savefig('debug/{}/{}/{}_breakdown.pdf'.format(dataset.strip('/').split('/')[-1], image_id, dcn_model), bbox_inches='tight', dpi=200)
