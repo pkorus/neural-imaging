@@ -1,3 +1,5 @@
+import sys
+import inspect
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -284,3 +286,6 @@ class DNet(NIPModel):
                 print('Y: {}'.format(self.yy.shape))
 
             self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))
+
+
+supported_models = [name for name, obj in inspect.getmembers(sys.modules[__name__]) if type(obj) is type and issubclass(obj, NIPModel) and name != 'NIPModel']

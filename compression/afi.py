@@ -6,9 +6,11 @@ from collections import Counter
 from pathlib import Path
 
 from scipy.cluster.vq import vq
+from skimage.measure import compare_ssim, compare_psnr
 
 from pyfse import pyfse
 from models import compression
+from helpers import utils
 
 
 dcn_presets = {
@@ -16,7 +18,6 @@ dcn_presets = {
     '8k': './data/raw/dcn/entropy/TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
     '16k': './data/raw/dcn/entropy/TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
 }
-
 
 class AFIError(Exception):
     pass
@@ -32,6 +33,29 @@ def dcn_simulate_compression(dcn, batch_x):
     batch_y = afi_decompress(dcn, compressed_image)
 
     return batch_y, len(compressed_image)
+
+
+def dcn_compress_n_stats(dcn, batch_x):
+
+    batch_y = np.zeros_like(batch_x)
+    stats = {
+        'ssim': np.zeros((batch_x.shape[0])),
+        'psnr': np.zeros((batch_x.shape[0])),
+        'entropy': np.zeros((batch_x.shape[0])),
+        'bytes': np.zeros((batch_x.shape[0])),
+        'bpp': np.zeros((batch_x.shape[0]))
+    }
+
+    for image_id in range(batch_x.shape[0]):
+        batch_y[image_id], image_bytes = dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
+        batch_z = dcn.compress(batch_x[image_id:image_id + 1])
+        stats['bytes'][image_id] = image_bytes
+        stats['entropy'][image_id] = utils.entropy(batch_z, dcn.get_codebook())
+        stats['ssim'][image_id] = compare_ssim(batch_x[image_id], batch_y[image_id], multichannel=True, data_range=1)
+        stats['psnr'][image_id] = compare_psnr(batch_x[image_id], batch_y[image_id], data_range=1)
+        stats['bpp'][image_id] = 8 * image_bytes / batch_x[image_id].shape[0] / batch_x[image_id].shape[1]
+
+    return batch_y, stats
 
 
 def dcn_compare(dcn, batch_x):

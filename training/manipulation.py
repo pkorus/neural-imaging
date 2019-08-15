@@ -436,6 +436,15 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
                 # Save progress stats
                 validation.save_training_progress(training_summary, tf_ops['nip'], tf_ops['fan'], tf_ops['dcn'], conf, nip_save_dir)
 
+                # Save models
+                tf_ops['fan'].save_model(os.path.join(model_directory, tf_ops['fan'].scoped_name), epoch)
+
+                if joint_optimization[0]:
+                    tf_ops['nip'].save_model(os.path.join(model_directory, tf_ops['nip'].scoped_name), epoch)
+
+                if isinstance(tf_ops['dcn'], compression.DCN) and joint_optimization[1]:
+                    tf_ops['dcn'].save_model(os.path.join(model_directory, tf_ops['dcn'].scoped_name), epoch)
+
                 # Monitor memory usage
                 # gc.collect()
                 if collect_memory_stats['tf']:
@@ -476,7 +485,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
 
     if isinstance(tf_ops['dcn'], compression.DCN):
         values = validation.validate_dcn(tf_ops['dcn'], data, nip_save_dir, epoch=epoch, show_ref=True)
-        for metric, val_array in zip(['ssim', 'loss', 'entropy'], values):
+        for metric, val_array in zip(['ssim', 'psnr', 'loss', 'entropy'], values):
             tf_ops['dcn'].performance[metric]['validation'].append(float(np.mean(val_array)))
         
     # Compute confusion matrix
@@ -502,6 +511,6 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
         tf_ops['dcn'].save_model(os.path.join(model_directory, tf_ops['dcn'].scoped_name), epoch)
         print(' dcn', end='')
     
-    print('') # \newline
+    print('')  # \newline
     
     return model_directory
