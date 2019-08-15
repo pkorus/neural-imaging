@@ -16,13 +16,16 @@ log = logging.getLogger('test')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
-def fft_log_norm(x):
+def fft_log_norm(x, boost=10, perc=0):
+    x = x.squeeze()
+    if x.ndim != 3:
+        raise ValueError('Only single images can be accepted as input.')
     y = np.zeros_like(x)
-    for i in range(3):
+    for i in range(x.shape[-1]):
         y[:, :, i] = np.abs(sfft.fft2(x[:, :, i]))
         y[:, :, i] = sfft.fftshift(y[:, :, i])
-        y[:, :, i] = np.log(10 + y[:, :, i])
-        y[:, :, i] = nm(y[:, :, i])
+        y[:, :, i] = np.log(boost + y[:, :, i])
+        y[:, :, i] = nm(y[:, :, i], perc)
     return y
 
 
