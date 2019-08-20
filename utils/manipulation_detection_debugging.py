@@ -137,14 +137,7 @@ fig.savefig('residuals_{}.pdf'.format(model_name), bbox_inches='tight', dpi=150)
 # %% Compute sub-band energies
 
 from scipy.fftpack import dct
-
-def mask(size=128, band=0.1, sigma=1):
-    x = np.arange(size).reshape((-1, 1)).repeat(size, axis=1)
-    y = np.arange(size).reshape((1, -1)).repeat(size, axis=0)
-    m = np.exp(-sigma * np.abs(np.power(x + y - band * (size*2 - 1), 2)))
-    m[0, 0] = 0
-    m = m / m.sum()
-    return m
+from helpers.utils import dct_mask
 
 bands = np.linspace(0, 1, 256)
 sample_dct = np.copy(sample_c)
@@ -156,7 +149,7 @@ for i in range(sample_dct.shape[0]):
         dct = np.abs(sp.fftpack.dct(sp.fftpack.dct(sample_dct[i, :, :, c].T).T))
 
         for b in range(len(bands)):
-            m = mask(sample_dct.shape[1], bands[b], 1e-2)
+            m = dct_mask(sample_dct.shape[1], bands[b], 1e-2)
             energy[i // n_classes, i % n_classes, b] += np.mean(dct * m) / sample_dct.shape[-1]
 
         sample_dct[i, :, :, c] = nm(np.log(1 + dct))

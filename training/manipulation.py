@@ -24,8 +24,11 @@ from helpers import coreutils, tf_helpers
 from training import validation
 
 
+SUPPORTED_MANIPULATIONS = ['sharpen', 'gaussian', 'jpeg', 'resample', 'awgn', 'gamma', 'median']
+
+
 @coreutils.logCall
-def construct_models(nip_model, patch_size=128, trainable=None, distribution=None, loss_metric='L2'):
+def construct_models(nip_model, patch_size=128, trainable=None, distribution=None, manipulations=None, loss_metric='L2'):
     """
     Setup the TF model of the entire acquisition and distribution workflow.
     :param nip_model: name of the NIP class
@@ -74,25 +77,60 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
     # Several paths for post-processing --------------------------------------------------------------------------------
     with tf.name_scope('distribution'):
 
-        # Sharpen    
-        im_shr = tf_helpers.tf_sharpen(model.y, 0, hsv=True)
+        manipulations = manipulations or ['sharpen', 'resample', 'gaussian', 'jpeg']
+
+        if any(x not in SUPPORTED_MANIPULATIONS for x in manipulations):
+            raise ValueError('Unsupported manipulation requested! Available: {}'.format(SUPPORTED_MANIPULATIONS))
+
+        operations = [model.y]
+        forensics_classes = ['native']
+        # Sharpen
+        if 'sharpen' in manipulations:
+            im_shr = tf_helpers.tf_sharpen(model.y, 0, hsv=True)
+            operations.append(im_shr)
+            forensics_classes.append('sharpen')
 
         # Bilinear resampling
-        im_res = tf.image.resize_images(model.y, [tf.shape(model.y)[1] // 2, tf.shape(model.y)[1] // 2])
-        im_res = tf.image.resize_images(im_res, [tf.shape(model.y)[1], tf.shape(model.y)[1]])
+        if 'resample' in manipulations:
+            im_res = tf.image.resize_images(model.y, [tf.shape(model.y)[1] // 2, tf.shape(model.y)[1] // 2])
+            im_res = tf.image.resize_images(im_res, [tf.shape(model.y)[1], tf.shape(model.y)[1]])
+            operations.append(im_res)
+            forensics_classes.append('resample')
 
         # Gaussian filter
-        im_gauss = tf_helpers.tf_gaussian(model.y, 5, 4)
+        if 'gaussian' in manipulations:
+            im_gauss = tf_helpers.tf_gaussian(model.y, 5, 5)
+            operations.append(im_gauss)
+            forensics_classes.append('gaussian')
 
         # Mild JPEG
-        tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=90, rounding_approximation='soft')
-        im_jpg = tf_jpg.y
+        if 'jpeg' in manipulations:
+            tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=90, rounding_approximation='soft')
+            im_jpg = tf_jpg.y
+            operations.append(im_jpg)
+            forensics_classes.append('jpeg')
 
-        # Setup operations for detection
-        operations = (model.y, im_shr, im_gauss, im_jpg, im_res)
-        forensics_classes = ['native', 'sharpen', 'gaussian', 'jpg', 'resample']
+        # AWGN
+        if 'awgn' in manipulations:
+            im_awgn = model.y + 0.025 * tf.random.normal(tf.shape(model.y))
+            operations.append(im_awgn)
+            forensics_classes.append('awgn')
+
+        # Gamma + inverse
+        if 'gamma' in manipulations:
+            im_gamma = tf_helpers.quantization(255 * tf.pow(model.y, 2.0), 'gamma', 'intermediate', 'soft')
+            im_gamma = tf.pow(im_gamma / 255.0, 0.5)
+            operations.append(im_gamma)
+            forensics_classes.append('gamma')
+
+        # Median
+        if 'median' in manipulations:
+            im_median = tf_helpers.tf_median(model.y, 3)
+            operations.append(im_median)
+            forensics_classes.append('median')
 
         n_classes = len(operations)
+        assert len(forensics_classes) == n_classes
 
         # Concatenate outputs from multiple post-processing paths ------------------------------------------------------
         y_concat = tf.concat(operations, axis=0)

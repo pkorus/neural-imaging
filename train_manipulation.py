@@ -15,7 +15,7 @@ from compression import afi
 
 @coreutils.logCall
 def batch_training(nip_model, camera_names=None, root_directory=None, loss_metric='L2', trainables=None,
-                   jpeg_quality=None, jpeg_mode='soft', dcn_model=None, downsampling='pool',
+                   jpeg_quality=None, jpeg_mode='soft', manipulations=None, dcn_model=None, downsampling='pool',
                    end_repetition=10, start_repetition=0, n_epochs=1001, patch=128,
                    use_pretrained=True, lambdas_nip=None, lambdas_dcn=None, nip_directory=None, split='120:30:4'):
     """
@@ -94,6 +94,9 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     else:
         compression = 'none'
 
+    # Parse manipulations
+    manipulations = manipulations or ['sharpen', 'resample', 'gaussian', 'jpeg']
+
     distribution_spec = {
         'downsampling': downsampling,
         'compression': compression,
@@ -101,7 +104,7 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
     }
 
     # Construct the TF model
-    tf_ops, distribution = construct_models(nip_model, patch_size=training['patch_size'], trainable=trainables, distribution=distribution_spec, loss_metric=loss_metric)
+    tf_ops, distribution = construct_models(nip_model, patch_size=training['patch_size'], trainable=trainables, distribution=distribution_spec, manipulations=manipulations, loss_metric=loss_metric)
 
     for camera_name in camera_names:
         
@@ -133,6 +136,8 @@ def main():
                         help='the NIP model (INet, UNet, DNet)')
     group.add_argument('--cam', dest='cameras', action='append',
                         help='add cameras for evaluation (repeat if needed)')
+    group.add_argument('--manip', dest='manipulations', action='store', default='sharpen,resample,gaussian,jpeg',
+                       help='Included manipulations, e.g., : {}'.format('sharpen,jpeg,resample,gaussian'))
 
     # Directories
     group = parser.add_argument_group('directories')
@@ -180,8 +185,11 @@ def main():
 
     args = parser.parse_args()
 
+    # Split manipulations
+    args.manipulations = args.manipulations.strip().split(',')
+
     batch_training(args.nip_model, args.cameras, args.root_dir, args.loss_metric, args.trainables,
-                   args.jpeg_quality, args.jpeg_mode, args.dcn_model, args.downsampling, patch=args.patch // 2,
+                   args.jpeg_quality, args.jpeg_mode, args.manipulations, args.dcn_model, args.downsampling, patch=args.patch // 2,
                    use_pretrained=not args.from_scratch, start_repetition=args.start, end_repetition=args.end, n_epochs=args.epochs,
                    nip_directory=args.nip_directory, split=args.split, lambdas_nip=args.lambdas_nip, lambdas_dcn=args.lambdas_dcn)
 

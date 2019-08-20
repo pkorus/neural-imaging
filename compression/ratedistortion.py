@@ -15,7 +15,7 @@ import uncertainties.unumpy as unp
 import uncertainties as unc
 
 from helpers import loading, utils, coreutils
-from compression import jpeg_helpers, afi
+from compression import jpeg_helpers, afi, bpg_helpers
 
 
 def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=False):
@@ -135,10 +135,72 @@ def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc
                         pbar.set_postfix(image_id=image_id, quality=q)
                         pbar.update(1)
 
-            df.to_csv(os.path.join(directory, 'jpeg2000.csv'), index=False)
+            df.to_csv(df_jpeg_path, index=False)
 
         return df
 
+
+def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=False):
+
+    files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
+    batch_x = loading.load_images(files, directory, load='y')
+    batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
+
+    quality_levels = np.arange(10, 40, 1)
+    df_jpeg_path = os.path.join(directory, 'bpg.csv')
+
+    if os.path.isfile(df_jpeg_path) and not force_calc:
+        print('Restoring BPG stats from {}'.format(df_jpeg_path))
+        df = pd.read_csv(df_jpeg_path, index_col=False)
+    else:
+        df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'bytes', 'bpp'])
+
+        with tqdm.tqdm(total=len(files) * len(quality_levels), ncols=120, desc='BPG') as pbar:
+
+            for image_id, filename in enumerate(files):
+
+                # Read the original image
+                image = batch_x[image_id]
+
+                for qi, q in enumerate(quality_levels):
+
+                    # Compress to BPG
+                    # Save as temporary file
+                    imageio.imwrite('/tmp/image.png', (255*image).astype(np.uint8))
+                    bpp_path = bpg_helpers.bpg_compress('/tmp/image.png', q, '/tmp')
+                    image_compressed = imageio.imread(bpg_helpers.decode_bpg_to_png(bpp_path)).astype(np.float) / (2**8 - 1)
+                    
+                    if effective_bytes:
+                        bpp = bpg_helpers.bpp_of_bpg_image(bpp_path)
+                        image_bytes = round(bpp * image.shape[0] * image.shape[1] / 8)
+                    else:
+                        image_bytes = os.stat(bpp_path).st_size
+                        bpp = 8 * image_bytes / image.shape[0] / image.shape[1]
+
+                    if write_files:
+                        image_dir = os.path.join(directory, os.path.splitext(filename)[0])
+                        if not os.path.isdir(image_dir):
+                            os.makedirs(image_dir)
+
+                        image_path = os.path.join(image_dir, 'bpg_q{:03d}.png'.format(q))
+                        imageio.imwrite(image_path, (255 * image_compressed).astype(np.uint8))
+
+                    df = df.append({'image_id': image_id,
+                                    'filename': filename,
+                                    'codec': 'bpg',
+                                    'quality': q,
+                                    'ssim': compare_ssim(image, image_compressed, multichannel=True, data_range=1),
+                                    'psnr': compare_psnr(image, image_compressed, data_range=1),
+                                    'bytes': image_bytes,
+                                    'bpp': bpp
+                                    }, ignore_index=True)
+
+                    pbar.set_postfix(image_id=image_id, quality=q)
+                    pbar.update(1)
+
+        df.to_csv(df_jpeg_path, index=False)
+
+    return df
 
 def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
@@ -219,7 +281,7 @@ def plot_curve(plots, axes,
                title=None,
                add_legend=True,
                marker_legend=True,
-               baseline_count=2,
+               baseline_count=3,
                dump_df=False):
 
     # Parse input parameters
@@ -272,12 +334,12 @@ def plot_curve(plots, axes,
             dfc['selected'] = True
 
     # Setup drawing styles
-    styles = [['r-', 'rx'], ['b-', 'b+'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
-    avg_markers = ['', '', 'o', 'o', '2', '+', 'x', '^', '.']
+    styles = [['r-', 'rx'], ['b-', 'b+'], ['k-', 'k2'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
+    avg_markers = ['', '', '', 'o', 'o', '2', '+', 'x', '^', '.']
 
-    if baseline_count < 2:
-        styles = styles[(2 - baseline_count):]
-        avg_markers = avg_markers[(2 - baseline_count):]
+    if baseline_count < 3:
+        styles = styles[(3 - baseline_count):]
+        avg_markers = avg_markers[(3 - baseline_count):]
 
     # Iterate over defined plots and draw data accordingly
     ssim_min = 1

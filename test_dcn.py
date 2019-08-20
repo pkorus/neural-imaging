@@ -13,7 +13,7 @@ from skimage.measure import compare_ssim
 from helpers import plotting, dataset, coreutils, loading, utils
 from compression import jpeg_helpers, afi, ratedistortion
 
-supported_plots = ['batch', 'jpeg-match', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off']
+supported_plots = ['batch', 'jpeg-match', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off', 'bpg-trade-off']
 
 
 def match_jpeg(model, batch_x, axes=None, match='ssim'):
@@ -168,7 +168,6 @@ def main():
     args.plot = coreutils.match_option(args.plot, supported_plots)
 
     if args.plot == 'batch':
-
         model, stats = afi.restore_model(args.dir, args.patch_size, fetch_stats=True)
         print('Training stats:', stats)
 
@@ -180,7 +179,6 @@ def main():
         plt.close()
 
     elif args.plot == 'jpeg-match':
-
         files, _ = loading.discover_files(args.data, n_images=-1, v_images=0)
         files = files[args.image_id:args.image_id+1]
         batch_x = loading.load_images(files, args.data, load='y')
@@ -193,19 +191,21 @@ def main():
         plt.close()
 
     elif args.plot == 'jpg-trade-off':
-
-        df = ratedistortion.get_jpeg_df(args.data, write_files=True)
+        df = ratedistortion.get_jpeg_df(args.data, write_files=False)
         print(df.to_string())
 
     elif args.plot == 'jp2-trade-off':
-
-        df = ratedistortion.get_jpeg2k_df(args.data, write_files=True)
+        df = ratedistortion.get_jpeg2k_df(args.data, write_files=False)
         print(df.to_string())
 
     elif args.plot == 'dcn-trade-off':
-
-        df = ratedistortion.get_dcn_df(args.data, args.dir, write_files=True)
+        df = ratedistortion.get_dcn_df(args.data, args.dir, write_files=False)
         print(df.to_string())
+
+    elif args.plot == 'bpg-trade-off':
+        df = ratedistortion.get_bpg_df(args.data, write_files=False)
+        print(df.to_string())
+
     else:
         print('Error: Unknown plot!')
 

@@ -365,3 +365,12 @@ def crop_middle(image, patch=128):
         return image[xx:(xx + patch), yy:(yy + patch), :]
     else:
         raise ValueError('Invalid image size!')
+
+
+def dct_mask(size=128, band=0.1, sigma=1):
+    x = np.arange(size).reshape((-1, 1)).repeat(size, axis=1)
+    y = np.arange(size).reshape((1, -1)).repeat(size, axis=0)
+    m = np.exp(-sigma * np.abs(np.power(x + y - band * (size*2 - 1), 2)))
+    m[0, 0] = 0
+    m = m / m.sum()
+    return m

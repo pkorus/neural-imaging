@@ -9,7 +9,7 @@ exifread
 tqdm
 imageio
 matplotlib
-matplotlib2tikz
+tikzplotlib
 sewar
 dahuffman
 python-Levenshtein

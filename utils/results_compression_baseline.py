@@ -26,7 +26,7 @@ from helpers import plotting, loading, utils
 from compression import ratedistortion, afi
 from training import compression
 
-dataset = './data/clic512'
+dataset = '../data/clic512'
 
 # %% Binary representations
 
@@ -86,9 +86,10 @@ for i, im in enumerate(images):
 latent_bpf = 5
 
 plots = [
-        ('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250}),
         ('jpeg.csv', {}),
-        ('jpeg2000.csv', {})
+        ('jpeg2000.csv', {}),
+        ('bpg.csv', {}),
+        ('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250}),
 ]
 
 images = [0, 11, 13, 30, 36]
