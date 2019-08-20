@@ -118,8 +118,9 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
 
         # Gamma + inverse
         if 'gamma' in manipulations:
-            im_gamma = tf_helpers.quantization(255 * tf.pow(model.y, 2.0), 'gamma', 'intermediate', 'soft')
-            im_gamma = tf.pow(im_gamma / 255.0, 0.5)
+            codebook = tf.constant(np.linspace(0, 1, 256), shape=(1, 256), dtype=tf.float32)
+            im_gamma = tf_helpers.quantization(tf.pow(model.y, 2.0), 'gamma', 'intermediate', 'soft-codebook', codebook_tensor=codebook)
+            im_gamma = tf.pow(im_gamma, 0.5)
             operations.append(im_gamma)
             forensics_classes.append('gamma')
 
