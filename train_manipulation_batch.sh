@@ -23,7 +23,7 @@ fi
 # Scope of parameters for exploration
 # ln="--ln 0.2 --ln 0.1 --ln 0.05 --ln 0.01 --ln 0.005 --ln 0.001"
 ln="--ln 0.5 --ln 0.4 --ln 0.3 --ln 0.2 --ln 0.1 --ln 0.075 --ln 0.05 --ln 0.01"
-lc="--lc 10.0 --lc 5.0 --lc 1.0 --lc 0.5 --lc 0.1 --lc 0.05 --lc 0.01 --lc 0.005 --lc 0.001"
+lc="--lc 1.0 --lc 0.5 --lc 0.1 --lc 0.05 --lc 0.01 --lc 0.005 --lc 0.001"
 
 case "$1" in
     jpeg)
