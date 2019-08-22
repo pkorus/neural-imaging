@@ -17,7 +17,7 @@ activation_mapping = {
 def manipulation_resample(x, factor=2):
     with tf.name_scope('resample'):
         im_res = tf.image.resize_images(x, [tf.shape(x)[1] // factor, tf.shape(x)[1] // factor])
-        return tf.image.resize_images(im_res, [tf.shape()[1], tf.shape(x)[1]])
+        return tf.image.resize_images(im_res, [tf.shape(x)[1], tf.shape(x)[1]])
 
 
 def manipulation_awgn(x, strength=0.025):
