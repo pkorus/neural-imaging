@@ -1,8 +1,5 @@
-import numpy
-import tensorflow
 import tensorflow as tf
 import numpy as np
-from Cython.Includes import numpy
 from tensorflow.contrib import slim as slim
 
 from helpers.utils import gkern, repeat_2dfilter
@@ -17,7 +14,25 @@ activation_mapping = {
 }
 
 
-def tf_median(x, kernel):
+def manipulation_resample(x, factor=2):
+    with tf.name_scope('resample'):
+        im_res = tf.image.resize_images(x, [tf.shape(x)[1] // factor, tf.shape(x)[1] // factor])
+        return tf.image.resize_images(im_res, [tf.shape()[1], tf.shape(x)[1]])
+
+
+def manipulation_awgn(x, strength=0.025):
+    with tf.name_scope('awgn'):
+        return x + strength * tf.random.normal(tf.shape(x))
+
+
+def manipulation_gamma(x, strength=2.0):
+    with tf.name_scope('gamma'):
+        im_gamma = tf.pow(x, strength, name='squared')
+        im_gamma = quantization(255.0 * im_gamma, 'quantization', 'quantized', 'soft')
+        return tf.pow(tf.clip_by_value(im_gamma, 1, 255) / 255.0, 1/strength, name='sqrt')
+
+
+def manipulation_median(x, kernel):
     with tf.name_scope('median_filter'):
         xp = tf.pad(x, [[0, 0], 2*[kernel//2], 2*[kernel//2], [0, 0]], 'REFLECT')
         patches = tf.extract_image_patches(xp, [1, kernel, kernel, 1], [1, 1, 1, 1], 4*[1], 'VALID')
@@ -25,12 +40,12 @@ def tf_median(x, kernel):
         return tf.contrib.distributions.percentile(patches, 50, axis=3)
 
     
-def tf_gaussian(x, kernel, sigma, skip_clip=False):
+def manipulation_gaussian(x, kernel, sigma, skip_clip=False):
     with tf.name_scope('gaussian_filter'):
         gk = gkern(kernel, sigma)
         gfilter = np.zeros((kernel, kernel, 3, 3))
         for r in range(3):
-            gfilter[:,:,r,r] = gk
+            gfilter[:, :, r, r] = gk
         gkk = tf.constant(gfilter, tf.float32)
         xp = tf.pad(x, [[0, 0], 2*[kernel//2], 2*[kernel//2], [0, 0]], 'REFLECT')
         y = tf.nn.conv2d(xp, gkk, [1, 1, 1, 1], 'VALID')
@@ -40,12 +55,12 @@ def tf_gaussian(x, kernel, sigma, skip_clip=False):
             return tf.clip_by_value(y, 0, 1)
 
 
-def tf_sharpen(x, filter=None, hsv=True):
+def manipulation_sharpen(x, filter=None, hsv=True):
     with tf.name_scope('sharpen_filter'):
 
-        if filter == 0: # weak
+        if filter == 0:  # weak
             gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 2.0000, -0.1667], [-0.0833, -0.1667, -0.0833]])
-        elif filter == 1: # strong
+        elif filter == 1:  # strong
             gk = np.array([[-0.1667, -0.6667, -0.1667], [-0.6667, 4.3333, -0.6667], [-0.1667, -0.6667, -0.1667]])
         else:
             gk = None
@@ -135,7 +150,7 @@ def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungrou
     display(HTML(iframe))
 
 
-def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tensor=None, v=50, gamma=25):
+def quantization(x, scope, name, rounding='soft', approx_steps=1, codebook_tensor=None, v=50, gamma=25):
     
     with tf.name_scope(scope):
         
@@ -153,7 +168,7 @@ def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tenso
             xa = x - tf.sin(2 * np.pi * x) / np.pi
             for k in range(2, approx_steps):
                 xa += tf.pow(-1.0, k) * tf.sin(2 * np.pi * k * x) / (k * np.pi)
-            x = xa
+            x = tf.identity(xa, name=name)
             
         elif rounding == 'identity':
             x = x
@@ -189,6 +204,7 @@ def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tenso
             hard = tf.reshape(hard, tf.shape(x))            
 
             x = tf.stop_gradient(hard - soft) + soft
+            x = tf.identity(x, name=name)
         
         else:
             raise ValueError('Unknown quantization! {}'.format(rounding))
