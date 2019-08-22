@@ -86,47 +86,43 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
         forensics_classes = ['native']
         # Sharpen
         if 'sharpen' in manipulations:
-            im_shr = tf_helpers.tf_sharpen(model.y, 0, hsv=True)
+            im_shr = tf_helpers.manipulation_sharpen(model.y, 0, hsv=True)
             operations.append(im_shr)
             forensics_classes.append('sharpen')
 
         # Bilinear resampling
         if 'resample' in manipulations:
-            im_res = tf.image.resize_images(model.y, [tf.shape(model.y)[1] // 2, tf.shape(model.y)[1] // 2])
-            im_res = tf.image.resize_images(im_res, [tf.shape(model.y)[1], tf.shape(model.y)[1]])
+            im_res = tf_helpers.manipulation_resample(model.y)
             operations.append(im_res)
             forensics_classes.append('resample')
 
         # Gaussian filter
         if 'gaussian' in manipulations:
-            im_gauss = tf_helpers.tf_gaussian(model.y, 5, 5)
+            im_gauss = tf_helpers.manipulation_gaussian(model.y, 5, 5)
             operations.append(im_gauss)
             forensics_classes.append('gaussian')
 
         # Mild JPEG
         if 'jpeg' in manipulations:
             tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=90, rounding_approximation='soft')
-            im_jpg = tf_jpg.y
-            operations.append(im_jpg)
+            operations.append(tf_jpg.y)
             forensics_classes.append('jpeg')
 
         # AWGN
         if 'awgn' in manipulations:
-            im_awgn = model.y + 0.025 * tf.random.normal(tf.shape(model.y))
+            im_awgn = tf_helpers.manipulation_awgn(model.y)
             operations.append(im_awgn)
             forensics_classes.append('awgn')
 
         # Gamma + inverse
         if 'gamma' in manipulations:
-            codebook = tf.constant(np.linspace(0, 1, 256), shape=(1, 256), dtype=tf.float32)
-            im_gamma = tf_helpers.quantization(tf.pow(model.y, 2.0), 'gamma', 'intermediate', 'soft-codebook', codebook_tensor=codebook)
-            im_gamma = tf.pow(im_gamma, 0.5)
+            im_gamma = tf_helpers.manipulation_gamma(model.y)
             operations.append(im_gamma)
             forensics_classes.append('gamma')
 
         # Median
         if 'median' in manipulations:
-            im_median = tf_helpers.tf_median(model.y, 3)
+            im_median = tf_helpers.manipulation_median(model.y, 3)
             operations.append(im_median)
             forensics_classes.append('median')
 
