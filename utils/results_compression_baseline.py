@@ -8,18 +8,28 @@ Created on Thu Jul 11 12:19:20 2019
 import sys
 sys.path.append('..')
 
+import re
 import os
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from collections import OrderedDict
 
 import seaborn as sns
 from matplotlib import rc
+import matplotlib.pyplot as plt
 
+sns.set('paper', font_scale=2, style="darkgrid")
+sns.set_context("paper")
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 rc('text', usetex=True)
-sns.set('paper', font_scale=1, style="ticks")
-sns.set_context("paper")
+
+rc('axes', titlesize=14)
+rc('axes', labelsize=14)
+rc('xtick', labelsize=8)
+rc('ytick', labelsize=8)
+rc('legend', fontsize=10)
+rc('figure', titlesize=14)
 
 from test_dcn import match_jpeg
 from helpers import plotting, loading, utils
@@ -28,107 +38,76 @@ from training import compression
 
 dataset = '../data/clic512'
 
-# %% Binary representations
+def get_sample_images(dataset):
 
-dataset = './data/clic512'
-
-# plots = [('dcn.csv', {'quantization': 'soft-codebook-1bpf', 'entropy_reg': 100}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-# plots = [('dcn.csv', {'quantization': 'soft-8bpf', 'entropy_reg': 1}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-
-plots = [('dcn-binary.csv', {}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-
-images = [0, 11, 13, 30, 36]
-
-fig, axes = plotting.sub(len(images)+1, ncols=3)
-fig.set_size_inches((15, 8))
-ratedistortion.plot_curve(plots, axes[0], dataset, title='DCN with binary repr.', images=[])
-for i, im in enumerate(images):
-    ratedistortion.plot_curve(plots, axes[i+1], dataset, title='Example', images=[im])
-
-# %% Performance for M-ary representations
-
-codebooks = [1, 2, 3, 4, 5] # bpfs of latent representations
-images = [0, 11, 13, 30, 36]
-
-n_images = len(images)
-
-fig, axes = plotting.sub((n_images + 1)*len(codebooks), ncols=n_images+1)
-fig.set_size_inches((5 * (n_images+1), 4 * len(codebooks)))
-
-for j, bpf in enumerate(codebooks):
-
-    plots = [('dcn-m-ary.csv', {'quantization': 'soft-codebook-{:d}bpf'.format(bpf)}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-
-    ratedistortion.plot_curve(plots, axes[j * (n_images+1)], dataset, title='{}-bit repr.'.format(bpf), images=[], plot='ensemble')
-    for i, im in enumerate(images):
-        ratedistortion.plot_curve(plots, axes[j * (n_images+1) + i + 1], dataset, title='Example {}'.format(im), images=[im])
-
-# %% Entropy-regularization
-# I. Fix codebook and see impact of regularization and #features
-
-latent_bpf = 5
-
-plots = [('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf)}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-# plots = [('dcn-entropy.csv', {'quantization': 'soft-codebook-3bpf', 'entropy_reg': 250}), ('jpeg.csv', {}), ('jpeg2000.csv', {})]
-
-images = [0, 11, 13, 30, 36]
-# images = []
-
-fig, axes = plotting.sub(len(images)+1, ncols=3)
-fig.set_size_inches((18, 10))
-ratedistortion.plot_curve(plots, axes[0], dataset, title='{}-bpf codebook w. var reg/#features'.format(latent_bpf), images=[], plot='ensemble')
-for i, im in enumerate(images):
-    ratedistortion.plot_curve(plots, axes[i+1], dataset, title='Example {}'.format(im), images=[im])
+    if 'clic' in dataset:
+        return [0, 13, 33, 36]
+    
+    if 'kodak' in dataset:
+        return [4, 14, 20, 22]
+    
+    if 'raw' in dataset:
+        return [11, 19, 34, 35]
 
 # %% Entropy-regularization
 # II. Fix codebook and regularization
 
 latent_bpf = 5
 
-plots = [
-        ('jpeg.csv', {}),
-        ('jpeg2000.csv', {}),
-        ('bpg.csv', {}),
-        ('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250}),
-]
+plots = OrderedDict()
+plots['jpeg'] = ('jpeg.csv', {})
+plots['jpeg2000'] = ('jpeg2000.csv', {})
+plots['bpg'] = ('bpg.csv', {})
+plots['dcn'] = ('dcn-entropy.csv', {
+                  'quantization': 'soft-codebook-{}bpf'.format(latent_bpf),
+                  'entropy_reg': 250
+                })
 
-images = [0, 11, 13, 30, 36]
+dataset = '../data/kodak512/'
+images = get_sample_images(dataset)
 
-fig, axes = plotting.sub(len(images)+1, ncols=3)
-fig.set_size_inches((15, 8))
-ratedistortion.plot_curve(plots, axes[0], dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='ensemble')
+fig, axes = plt.subplots(ncols=len(images)+1, nrows=1, sharey=True)
+fig.set_size_inches((20, 3))
+
+ratedistortion.plot_curve(plots, axes[0], dataset, title=os.path.split(dataset.strip('/'))[-1], images=[], plot='ensemble')
 for i, im in enumerate(images):
-    ratedistortion.plot_curve(plots, axes[i+1], dataset, title='Example {}'.format(im), images=[im])
+    ratedistortion.plot_curve(plots, axes[i+1], dataset,
+                              title='Example {}'.format(im),
+                              images=[im], plot='ensemble',
+                              add_legend=False, marker_legend=False)
 
-fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('regularized'), bbox_inches='tight')
-
-# %% Tabularized SSIM for various settings
+fig.savefig('fig_dcn_tradeoff_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1]),
+            bbox_inches='tight')
 
 # %% Load sample data
 
-dataset = '../data/clic512/'
-images = [0, 11, 13, 30, 36]
+dataset = '../data/clic256/'
+images = get_sample_images(dataset)
 
 # Discover test files
 files, _ = loading.discover_files(dataset, n_images=-1, v_images=0)
 batch_x = loading.load_images(files, dataset, load='y')
 batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
-fig = plotting.imsc(batch_x, titles='')
+fig = plotting.imsc(batch_x[images], titles='')
+
+fig.savefig('fig_samples_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1]),
+            bbox_inches='tight',
+            dpi=72)
 
 # %% Show latent representations
 
 latent_bpf = 5
-image_id = 3
+image_id = 2
 model_id = 4
 
-dirname = './data/raw/dcn/entropy/TwitterDCN-8192D/'
+dirname = '../data/raw/dcn/entropy/TwitterDCN-4096D/'
 
-models = ['16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+1.00'.format(latent_bpf),
-          '16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+10.00'.format(latent_bpf),
-          '16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+50.00'.format(latent_bpf),
-          '16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+100.00'.format(latent_bpf),
-          '16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+250.00'.format(latent_bpf)
+models = ['16x16x16-r:soft-codebook-Q-{:.1f}bpf-S+-H+1.00'.format(latent_bpf),
+          '16x16x16-r:soft-codebook-Q-{:.1f}bpf-S+-H+10.00'.format(latent_bpf),
+          '16x16x16-r:soft-codebook-Q-{:.1f}bpf-S+-H+50.00'.format(latent_bpf),
+          '16x16x16-r:soft-codebook-Q-{:.1f}bpf-S+-H+100.00'.format(latent_bpf),
+          '16x16x16-r:soft-codebook-Q-{:.1f}bpf-S+-H+250.00'.format(latent_bpf)
           ]
 
 dcn = afi.restore_model(os.path.join(dirname, models[model_id]), patch_size=512)
@@ -143,7 +122,7 @@ for im in images[image_id:image_id+1]:
         lengths_pf.append(np.nan)
 
     batch_f = np.expand_dims(np.moveaxis(batch_z[:,:,:,:].squeeze(), 2, 0), axis=3)
-    fig = plotting.imsc(batch_f, figwidth=20, ncols=8,
+    fig = plotting.imsc(batch_f, figwidth=10, ncols=4,
                         titles=['Channel {}: H={:.2f}'.format(x, e) for x, e in enumerate(entropies)])
 
 fig.savefig('fig_latent_model_{}_image_{}.pdf'.format(model_id, images[image_id]), bbox_inches='tight')
@@ -151,29 +130,30 @@ fig.savefig('fig_latent_model_{}_image_{}.pdf'.format(model_id, images[image_id]
 # %% Show latent distributions
 # I. No entropy regularization
 
-dirname = './data/raw/dcn/m-ary/TwitterDCN-8192D/'
+dirname = '../data/raw/dcn/m-ary/TwitterDCN-8192D/'
 
-models = ['16x16x32-r:identity-Q-8.0bpf-S-',
-          '16x16x32-r:soft-Q-8.0bpf-S-',
+models = [
+          # '16x16x32-r:identity-Q-8.0bpf-S-',
+           '16x16x32-r:soft-Q-8.0bpf-S-',
           '16x16x32-r:soft-codebook-Q-1.0bpf-S+',
           '16x16x32-r:soft-codebook-Q-2.0bpf-S+',
-          '16x16x32-r:soft-codebook-Q-3.0bpf-S+',
-          '16x16x32-r:soft-codebook-Q-4.0bpf-S+',
+           '16x16x32-r:soft-codebook-Q-3.0bpf-S+',
+          # '16x16x32-r:soft-codebook-Q-4.0bpf-S+',
           '16x16x32-r:soft-codebook-Q-5.0bpf-S+'
 ]
 
 titles = [
-        'real-valued',
+        # 'real-valued',
         'integer',
         'binary',
-        '2 bits per feature',
-        '3 bits per feature',
-        '4 bits per feature',
-        '5 bits per feature'
+        '2 bpf',
+        # '3 bits per feature',
+        '4 bpf',
+        '5 bpf'
 ]
 
-fig, axes = plotting.sub(len(models), ncols=4)
-fig.set_size_inches((len(models)*4, 3*2))
+fig, axes = plotting.sub(len(models), ncols=5)
+fig.set_size_inches((len(models)*4, 3*1))
 
 for i, model in enumerate(models):
     dcn = afi.restore_model(os.path.join(dirname, model), patch_size=256)
@@ -187,7 +167,7 @@ fig.savefig('fig_latent_dist_{}.pdf'.format('m-ary'), bbox_inches='tight')
 
 latent_bpf = 5
 
-dirname = './data/raw/dcn/entropy/TwitterDCN-8192D/'
+dirname = '../data/raw/dcn/entropy/TwitterDCN-8192D/'
 
 models = ['16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+1.00'.format(latent_bpf),
           '16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+10.00'.format(latent_bpf),
@@ -197,7 +177,7 @@ models = ['16x16x32-r:soft-codebook-Q-{:.1f}bpf-S+-H+1.00'.format(latent_bpf),
           ]
 
 fig, axes = plotting.sub(len(models), ncols=len(models))
-fig.set_size_inches((len(models)*4, 3))
+fig.set_size_inches((len(models)*5, 3))
 
 for i, model in enumerate(models):
     dcn = afi.restore_model(os.path.join(dirname, model), patch_size=256)
@@ -256,7 +236,7 @@ print(df.groupby('model').mean().to_string())
 
 # %% Show DCN and JPEG images at a matching SSIM quality level
 
-image_id = 0
+image_id = 1
 model = '4k'
 
 dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
@@ -266,7 +246,7 @@ fig.savefig('fig_jpeg_match_model_{}_image_{}.pdf'.format(model, images[image_id
 
 # %% Show DCN and JPEG images at a matching bpp
 
-image_id = 3
+image_id = 1
 model = '4k'
 
 dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])

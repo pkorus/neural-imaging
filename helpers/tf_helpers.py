@@ -245,6 +245,9 @@ def nm(x):
 
 def entropy(values, codebook, v=50, gamma=25):
 
+    # For Gaussian, the best parameters are v=0 and gamma=5
+    # for t-Student, the best parameters are v=50 and gamma=25
+
     # t-Student degrees of freedom
     eps = 1e-72
     prec_dtype = tf.float64

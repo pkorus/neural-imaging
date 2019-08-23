@@ -7,10 +7,17 @@ import numpy as np
 import seaborn as sns
 from matplotlib import rc
 
+sns.set('paper', font_scale=2, style="darkgrid")
+sns.set_context("paper")
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 rc('text', usetex=True)
-sns.set()
-sns.set_context("paper")
+
+rc('axes', titlesize=14)
+rc('axes', labelsize=14)
+rc('xtick', labelsize=8)
+rc('ytick', labelsize=8)
+rc('legend', fontsize=10)
+rc('figure', titlesize=14)
 
 import matplotlib.pyplot as plt
 
@@ -154,7 +161,7 @@ for i, scale in enumerate([0.15, 0.5, 1, 2, 4]):
             axes[0, i].plot(X[indices], X_rnd[indices], '--', markersize=1)
         axes[0, i].plot(X[indices], X_soft[indices], '-', markersize=1)
         axes[0, i].set_title('Soft quantization vs input')
-        axes[0, i].set_title('Random sample: {} dist. $\\lambda$={};'.format(distribution, scale))
+        axes[0, i].set_title('Random sample: {} $\\lambda$={};'.format(distribution, scale))
         if i == 0:
             axes[0, i].set_ylabel('Quantized values')
     
@@ -227,6 +234,7 @@ fig.savefig('fig_errors_{}.pdf'.format('Gaussian' if v == 0 else 't-Student({})'
 
 #%% Large synthetic data experiment (both kernels)
 
+c_max = 5
 n_scales = 500
 n_samples = 1000
 distribution = 'Laplace'
@@ -235,7 +243,7 @@ codebook = np.arange(-c_max, c_max+1, 1)
 data = np.zeros((5, n_scales))
 data[0] = np.linspace(0.01, 10, n_scales)
 
-fig, axes = plt.subplots(1, 4, squeeze=False, figsize=(18, 3))
+fig, axes = plt.subplots(1, 3, squeeze=False, figsize=(12, 3))
 
 for v, gamma, color in zip([0, 50], [5, 25], ['r', 'g']):
 
@@ -252,7 +260,7 @@ for v, gamma, color in zip([0, 50], [5, 25], ['r', 'g']):
         data[1:-1, i] = estimate_errors(X, codebook, v, gamma)
         data[-1] = 100 * data[3] / data[1]
 
-    axes[0, 0].plot(data[0], data[3], 'o', alpha=0.25, markersize=3, color=color, label='Gaussian' if v == 0 else 't-Student({})'.format(v))
+    axes[0, 0].plot(data[0], data[3], 'o', alpha=0.25, markersize=3, color=color, label='Gaussian $\cdotp$ $\gamma$={}'.format(gamma) if v == 0 else 't-Student({}) $\cdotp$ $\gamma$={}'.format(v, gamma))
     axes[0, 0].set_xlabel('{} distribution scale'.format(distribution))
     axes[0, 0].set_ylabel('Absolute entropy error')
 
@@ -260,20 +268,23 @@ for v, gamma, color in zip([0, 50], [5, 25], ['r', 'g']):
     axes[0, 1].set_xlabel('{} distribution scale'.format(distribution))
     axes[0, 1].set_ylabel('Relative entropy error [\\%]')
 
-    axes[0, 2 + np.sign(v)].plot(data[1], data[2], '.', alpha=0.5, markersize=5, color=color)
-    axes[0, 2 + np.sign(v)].plot([0, 5], [0, 5], ':')
-    axes[0, 2 + np.sign(v)].set_xlim([-0.05, 1.05*max(data[1])])
-    axes[0, 2 + np.sign(v)].set_ylim([-0.05, 1.05*max(data[1])])
-    axes[0, 2 + np.sign(v)].set_xlabel('Real entropy')
-    axes[0, 2 + np.sign(v)].set_ylabel('Soft estimate / {}'.format('Gaussian' if v == 0 else 't-Student({})'.format(v)))
+    #  + np.sign(v)
+    axes[0, 2].plot(data[1], data[2], '.', alpha=0.5, markersize=5, color=color)
+    axes[0, 2].plot([0, 5], [0, 5], ':')
+    axes[0, 2].set_xlim([-0.05, 1.05*max(data[1])])
+    axes[0, 2].set_ylim([-0.05, 1.05*max(data[1])])
+    axes[0, 2].set_xlabel('Real entropy')
+    axes[0, 2].set_ylabel('Soft estimate')
+    # 'Gaussian' if v == 0 else 't-Student({})'.format(v)
 
 # axes[0, 0].legend(['Gaussian', 't-Student({})'.format(gamma)])
 
 axes[0, 0].legend()
 
-fig.suptitle('Random sample: {} dist.; Kernel: {}'.format(distribution, 'Gaussian / t-Student'))
+# fig.suptitle('Random sample: {} dist.; Kernel: {}'.format(distribution, 'Gaussian / t-Student'))
 
-fig.savefig('fig_entropy_errors.pdf', bbox_inches='tight')
+plt.tight_layout()
+fig.savefig('fig_entropy_errors.pdf')
 
 # %% Hyper-parameter search
 
@@ -348,28 +359,104 @@ dcn = afi.restore_model(dcn_presets['8k'])
 
 n_epochs = data.count_training * 10
 
-results = np.zeros((2, n_epochs))
+results = {
+    't-Student': np.zeros((2, n_epochs)),
+    'Gaussian': np.zeros((2, n_epochs))
+}
+
+# %%
+
+# TODO Currently this needs to be done by changing hard-coded values in the background
+kernel = 'Gaussian'
 
 for epoch in range(n_epochs):
 
     batch_x = data.next_training_batch(epoch % data.count_training, 1, 128)
     batch_z = dcn.compress(batch_x)
-    results[0, epoch] = utils.entropy(batch_z, dcn.get_codebook())
-    results[1, epoch] = dcn.sess.run(dcn.entropy, feed_dict={dcn.x: batch_x})
+    results[kernel][0, epoch] = utils.entropy(batch_z, dcn.get_codebook())
+    results[kernel][1, epoch] = dcn.sess.run(dcn.entropy, feed_dict={dcn.x: batch_x})
 
 # %%
 
-fig = plt.figure()
+fig = plt.figure(figsize=(4, 3))
 ax = fig.gca()
-kernel = 't-Student'
 
-ax.plot(results[0], results[1], '.', alpha=0.25, markersize=5)
+for kernel, color in zip(['Gaussian', 't-Student'], ['r', 'g']):
+    ax.plot(results[kernel][0], results[kernel][1], '.', alpha=0.25, markersize=5, label=kernel, color=color)
 ax.plot([0, 5], [0, 5], ':')
-ax.set_xlim([-0.05, 1.05*max(results[1])])
-ax.set_ylim([-0.05, 1.05*max(results[1])])
-ax.set_xlabel('Real entropy of latent space ({0}x{0} px images)'.format(128))
-ax.set_ylabel('Soft estimate ({})'.format(kernel))
-ax.set_title(dcn.model_code)
+ax.set_xlim([0, 1.05*max(results[kernel][1])])
+ax.set_ylim([0, 1.05*max(results[kernel][1])])
+ax.set_xlabel('Real entropy of latent space')
+ax.set_ylabel('Soft estimate')
+# ax.set_title(dcn.model_code)
+# ax.set_title('DCN with {} channels'.format(dcn._h.n_features))
 
 # fig.savefig('fig_entropy_real-images_{}.pdf'.format('t-Student'), bbox_inches='tight')
-fig.savefig('fig_entropy_real-images_{}.pdf'.format(kernel), bbox_inches='tight')
+plt.tight_layout()
+fig.savefig('fig_entropy_real-images_{}.pdf'.format('both'))
+
+# %%
+
+#%% Large synthetic data experiment (both kernels)
+
+c_max = 5
+n_scales = 500
+n_samples = 1000
+distribution = 'Laplace'
+codebook = np.arange(-c_max, c_max+1, 1)
+
+data = np.zeros((5, n_scales))
+data[0] = np.linspace(0.01, 10, n_scales)
+
+fig, axes = plt.subplots(1, 4, squeeze=False, figsize=(16, 3))
+
+for v, gamma, color in zip([0, 50], [5, 25], ['r', 'g']):
+
+    data = np.zeros((5, n_scales))
+    data[0] = np.linspace(0.01, 10, n_scales)
+
+    for i, scale in enumerate(data[0]):
+
+        if distribution == 'Laplace':
+            X = np.random.laplace(size=(n_samples, 1), scale=scale)
+        elif distribution == 'Gaussian':
+            X = scale * np.random.normal(size=(n_samples, 1))
+            
+        data[1:-1, i] = estimate_errors(X, codebook, v, gamma)
+        data[-1] = 100 * data[3] / data[1]
+
+    axes[0, 0].plot(data[0], data[3], 'o', alpha=0.25, markersize=3, color=color, label='Gaussian $\cdotp$ $\gamma$={}'.format(gamma) if v == 0 else 't-Student({}) $\cdotp$ $\gamma$={}'.format(v, gamma))
+    axes[0, 0].set_xlabel('{} distribution scale'.format(distribution))
+    axes[0, 0].set_ylabel('Absolute entropy error')
+
+    axes[0, 1].plot(data[0], data[4], 'o', alpha=0.25, markersize=3,color=color)
+    axes[0, 1].set_xlabel('{} distribution scale'.format(distribution))
+    axes[0, 1].set_ylabel('Relative entropy error [\\%]')
+
+    #  + np.sign(v)
+    axes[0, 2].plot(data[1], data[2], '.', alpha=0.5, markersize=5, color=color)
+    axes[0, 2].plot([0, 5], [0, 5], ':')
+    axes[0, 2].set_xlim([-0.05, 1.05*max(data[1])])
+    axes[0, 2].set_ylim([-0.05, 1.05*max(data[1])])
+    axes[0, 2].set_xlabel('Real entropy')
+    axes[0, 2].set_ylabel('Soft estimate')
+    axes[0, 2].set_title('Synthetic data (Laplacian dist)')
+    # 'Gaussian' if v == 0 else 't-Student({})'.format(v)
+
+# axes[0, 0].legend(['Gaussian', 't-Student({})'.format(gamma)])
+
+axes[0, 0].legend()
+
+for kernel, color in zip(['Gaussian', 't-Student'], ['r', 'g']):
+    axes[0, 3].plot(results[kernel][0], results[kernel][1], '.', alpha=0.25, markersize=5, label=kernel, color=color)
+axes[0, 3].plot([0, 5], [0, 5], ':')
+axes[0, 3].set_xlim([0, 1.05*max(results[kernel][1])])
+axes[0, 3].set_ylim([0, 1.05*max(results[kernel][1])])
+axes[0, 3].set_xlabel('Real entropy')
+axes[0, 3].set_ylabel('Soft estimate')
+axes[0, 3].set_title('Latent space of 128$\\times$128 px images')
+
+# fig.suptitle('Random sample: {} dist.; Kernel: {}'.format(distribution, 'Gaussian / t-Student'))
+
+plt.tight_layout()
+fig.savefig('fig_entropy_errors.pdf')

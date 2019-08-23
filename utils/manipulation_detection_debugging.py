@@ -48,7 +48,7 @@ else:
     model_name = 'uncompressed'
 
 # Construct the TF model
-tf_ops, distribution = construct_models(nip_model, patch_size=64, trainable=trainable, distribution=distribution, loss_metric='L2')
+tf_ops, distribution = construct_models(nip_model, patch_size=64, trainable=trainable, distribution=distribution, manipulations=None, loss_metric='L2')
 
 # %%
 
