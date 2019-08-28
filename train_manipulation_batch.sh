@@ -62,6 +62,6 @@ case "$1" in
         done
         ;;
    *)
-        echo $"Usage: $0 {jpeg|dcn|dcn+nip|dcn+|jpeg+nip}"
+        echo $"Usage: $0 {jpeg|dcn|dcn+nip|dcn+|jpeg+nip} rep [down]"
         exit 1
 esac

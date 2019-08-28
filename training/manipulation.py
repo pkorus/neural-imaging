@@ -98,25 +98,25 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
 
         # Gaussian filter
         if 'gaussian' in manipulations:
-            im_gauss = tf_helpers.manipulation_gaussian(model.y, 5, 5)
+            im_gauss = tf_helpers.manipulation_gaussian(model.y, 5, 4)
             operations.append(im_gauss)
             forensics_classes.append('gaussian')
 
         # Mild JPEG
         if 'jpeg' in manipulations:
-            tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=90, rounding_approximation='soft')
+            tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=80, rounding_approximation='soft')
             operations.append(tf_jpg.y)
             forensics_classes.append('jpeg')
 
         # AWGN
         if 'awgn' in manipulations:
-            im_awgn = tf_helpers.manipulation_awgn(model.y)
+            im_awgn = tf_helpers.manipulation_awgn(model.y, 0.02)
             operations.append(im_awgn)
             forensics_classes.append('awgn')
 
         # Gamma + inverse
         if 'gamma' in manipulations:
-            im_gamma = tf_helpers.manipulation_gamma(model.y)
+            im_gamma = tf_helpers.manipulation_gamma(model.y, 3)
             operations.append(im_gamma)
             forensics_classes.append('gamma')
 

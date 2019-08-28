@@ -17,12 +17,14 @@ activation_mapping = {
 def manipulation_resample(x, factor=2):
     with tf.name_scope('resample'):
         im_res = tf.image.resize_images(x, [tf.shape(x)[1] // factor, tf.shape(x)[1] // factor])
-        return tf.image.resize_images(im_res, [tf.shape()[1], tf.shape(x)[1]])
+        return tf.image.resize_images(im_res, [tf.shape(x)[1], tf.shape(x)[1]])
 
 
 def manipulation_awgn(x, strength=0.025):
     with tf.name_scope('awgn'):
-        return x + strength * tf.random.normal(tf.shape(x))
+        im_awgn = x + strength * tf.random.normal(tf.shape(x))
+        im_awgn = quantization(255.0 * im_awgn, 'quantization', 'quantized', 'soft')
+        return im_awgn / 255.0
 
 
 def manipulation_gamma(x, strength=2.0):
@@ -244,6 +246,9 @@ def nm(x):
 
 
 def entropy(values, codebook, v=50, gamma=25):
+
+    # For Gaussian, the best parameters are v=0 and gamma=5
+    # for t-Student, the best parameters are v=50 and gamma=25
 
     # t-Student degrees of freedom
     eps = 1e-72

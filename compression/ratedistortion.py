@@ -390,7 +390,7 @@ def plot_curve(plots, axes,
         elif plot == 'ensemble':
             Y = np.zeros((len(images), len(x)))
 
-            for image_id in images:
+            for image_no, image_id in enumerate(images):
 
                 bpps = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), 'bpp'].values
                 ssims = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), metric].values
@@ -405,7 +405,7 @@ def plot_curve(plots, axes,
                 except RuntimeError:
                     print('ERROR', labels[index], 'image =', image_id, 'bpp =', bpps, 'ssims =', ssims)
 
-                Y[image_id] = func(x, *popt)
+                Y[image_no] = func(x, *popt)
 
             y = np.mean(Y, axis=0)
             axes.plot(x, y, styles[index][0], label=labels[index] if add_legend else None)
@@ -469,7 +469,7 @@ def plot_curve(plots, axes,
 
     title = '{} : {}'.format(
         title if title is not None else os.path.split(dirname)[-1],
-        '{} images'.format(n_images) if n_images > 1 else dfc.loc[dfc['selected'], 'filename'].unique()[0]
+        '{} images'.format(n_images) if n_images > 1 else dfc.loc[dfc['selected'], 'filename'].unique()[0].replace('.png', '')
     )
 
     # Fixes problems with rendering using the LaTeX backend
@@ -477,7 +477,7 @@ def plot_curve(plots, axes,
         for t in axes.legend().texts:
             t.set_text(t.get_text().replace('_', '-'))
 
-    axes.set_xlim([0, 4])
+    axes.set_xlim([-0.1, 3.1])
     axes.set_ylim([ssim_min * 0.99, 1])
     axes.set_ylim([0.75, 1])
     # axes.legend(loc='lower right')
