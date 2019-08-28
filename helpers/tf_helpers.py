@@ -22,7 +22,9 @@ def manipulation_resample(x, factor=2):
 
 def manipulation_awgn(x, strength=0.025):
     with tf.name_scope('awgn'):
-        return x + strength * tf.random.normal(tf.shape(x))
+        im_awgn = x + strength * tf.random.normal(tf.shape(x))
+        im_awgn = quantization(255.0 * im_awgn, 'quantization', 'quantized', 'soft')
+        return im_awgn / 255.0
 
 
 def manipulation_gamma(x, strength=2.0):

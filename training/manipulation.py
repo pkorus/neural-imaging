@@ -110,13 +110,13 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
 
         # AWGN
         if 'awgn' in manipulations:
-            im_awgn = tf_helpers.manipulation_awgn(model.y, 0.035)
+            im_awgn = tf_helpers.manipulation_awgn(model.y, 0.02)
             operations.append(im_awgn)
             forensics_classes.append('awgn')
 
         # Gamma + inverse
         if 'gamma' in manipulations:
-            im_gamma = tf_helpers.manipulation_gamma(model.y)
+            im_gamma = tf_helpers.manipulation_gamma(model.y, 3)
             operations.append(im_gamma)
             forensics_classes.append('gamma')
 
