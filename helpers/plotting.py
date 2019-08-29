@@ -68,14 +68,14 @@ def imarray(image, n_images, fetch_hook, titles, figwidth=16, cmap='gray', ncols
         
     if titles is not None and len(titles) != n_images:
         raise RuntimeError('Provided titles ({}) do not match the number of images ({})!'.format(len(titles), n_images))
-            
-    fig = plot.figure(tight_layout=True, figsize=(figwidth, figwidth * (subplot_y / subplot_x)))
+
+    fig = plot.figure(figsize=(figwidth, figwidth * (subplot_y / subplot_x)))
     plot.ioff()
             
     for n in range(n_images):
         ax = fig.add_subplot(subplot_y, subplot_x, n + 1)
         quickshow(fetch_hook(image, n), titles[n] if titles is not None else None, axes=ax, cmap=cmap)
-        
+
     return fig
     
 

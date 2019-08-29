@@ -11,34 +11,37 @@ sys.path.append('..')
 import os
 import numpy as np
 import pandas as pd
+import imageio
 from pathlib import Path
 
 import seaborn as sns
 from matplotlib import rc
 import matplotlib.pyplot as plt
 
-sns.set('paper', font_scale=1, style="ticks")
+sns.set('paper', font_scale=2, style="darkgrid")
+sns.set_context("paper")
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
-rc('text', usetex=False)
-# sns.set_context("paper")
+rc('text', usetex=True)
 
 from test_dcn import match_jpeg
 from helpers import plotting, loading, utils
 from compression import ratedistortion, afi
 from training import compression
 
+from misc import get_sample_images
+
 from collections import OrderedDict
 
 dataset = '../data/clic512'
 
-# %% Compare performance of forensics models
+# %% Show changes in rate distortion (averages)
 
 dataset = '../data/raw512'
 
 latent_bpf = 5
 lcs = [1.0, 0.1, 0.01, 0.005]
 
-fig = plt.figure(figsize=(5, 4))
+fig = plt.figure(figsize=(8, 6))
 axes = fig.gca()
 
 plots = OrderedDict()
@@ -62,7 +65,7 @@ for dcn_model in ['4k', '8k', '16k']:
                               baseline_count=0)
 
 if 'raw' in dataset:
-    axes.set_xlim([0.2, 0.90])
+    axes.set_xlim([0.25, 0.95])
     axes.set_ylim([0.875, 0.95])
 else:
     axes.set_xlim([0.1, 1.55])
@@ -71,9 +74,9 @@ axes.grid(True, linestyle=':')
 
 fig.savefig('dcn_forensics_tradeoff_{}.pdf'.format(dataset.split('/')[-1]), bbox_inches='tight')
 
-# %% Compare rate-distortion profiles
+# %% Show rate distortion curves
 
-dataset = '../data/kodak512'
+dataset = '../data/raw512'
 plot_types = ['averages', 'ensemble']
 # plot_types = ['averages']
 
@@ -85,6 +88,8 @@ images = []
 plots = OrderedDict()
 plots['jpg'] = ('jpeg.csv', {})
 plots['jpeg2k'] = ('jpeg2000.csv', {})
+plots['bpg'] = ('bpg.csv', {})
+
 plots['dcn (b)'] = ('dcn-forensics.csv', {'model_dir': '.*basic'.format(dcn_model)})
 for lc in lcs:
     plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics.csv', {'model_dir': '{}{:.4f}'.format('.*', lc)})
@@ -100,7 +105,7 @@ for plot_type, ax in zip(plot_types, axes):
     ratedistortion.plot_curve(plots, ax, dataset,
                               title='{}-bpf repr.'.format(latent_bpf), images=images,
                               plot=plot_type, add_legend=True, marker_legend=False,
-                              baseline_count=2,
+                              baseline_count=3,
                               dump_df=False)
 
     ax.set_xlim([0.1, 1.55])
@@ -112,117 +117,32 @@ fig.set_size_inches((5 * len(plot_types), 4))
 # %% Load sample data
 
 dataset = '../data/raw512/'
-images = [0, 11, 13, 30, 36]
+images = get_sample_images(dataset)
 
 # Discover test files
 files, _ = loading.discover_files(dataset, n_images=-1, v_images=0)
 batch_x = loading.load_images(files, dataset, load='y')
 batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
-fig = plotting.imsc(batch_x, titles='')
-
-# %% Compare many DCN models
-
-model_directory = '../data/raw/dcn/forensics/'
-models = [str(mp.parent.parent) for mp in list(Path(model_directory).glob('**/progress.json'))]
-models = sorted(models)
-
-print(models)
-
-image_id = 3
-
-fig, axes = plotting.sub(6 * len(models), ncols=6)
-
-for model_id, model in enumerate(models):
-
-    dcn = afi.restore_model(model, patch_size=batch_x.shape[1])
-    match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], axes[model_id*6:(model_id+1)*6])
-    
-    axes[model_id*6].set_ylabel(os.path.relpath(model, model_directory))
-
-# fig.savefig('fig_compare_dcn_models_image_{}.pdf'.format(images[image_id]), bbox_inches='tight')
-
-# %% Compare outputs of the basic compression with optimized ones
-
-def nm(x):
-    x = np.abs(x)
-    return (x - x.min()) / (x.max() - x.min())
-
-dcn_model = '8k'
-
-# Define the distribution channel
-models = OrderedDict()
-models[0.001]   = '../data/raw/dcn/forensics/{}-0.0010'.format(dcn_model) # 95% accuracy
-models[0.005]   = '../data/raw/dcn/forensics/{}-0.0050'.format(dcn_model) # 89% accuracy
-models[0.010]   = '../data/raw/dcn/forensics/{}-0.0100'.format(dcn_model) # 85% accuracy
-models[0.050]   = '../data/raw/dcn/forensics/{}-0.0500'.format(dcn_model) # 72% accuracy
-models[0.100]   = '../data/raw/dcn/forensics/{}-0.1000'.format(dcn_model) # 65% accuracy
-models[1.000]   = '../data/raw/dcn/forensics/{}-1.0000'.format(dcn_model) # 62% accuracy
-# models[1.001]   = '../data/raw/dcn/forensics/{}-1.0000b'.format(dcn_model) # 62% accuracy
-# models[1.002]   = '../data/raw/dcn/forensics/{}-1.0000c'.format(dcn_model) # 62% accuracy
-models[5.000]   = '../data/raw/dcn/forensics/{}-5.0000'.format(dcn_model) # 62% accuracy
-# models[1000.0]   = '../data/raw/dcn/forensics/{}-1000.0'.format(dcn_model) # 62% accuracy
-models['basic'] = '../data/raw/dcn/forensics/{}-basic'.format(dcn_model)  # 62% accuracy
-
-outputs = OrderedDict()
-stats = OrderedDict()
-
-# Worst images for clic: 1, 28, 33, 36
-image_id = 4 # 32 # 28 for clic
-
-for model in models.keys():
-    dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
-    outputs[model], stats[model] = afi.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
-
-print('# {}'.format(files[image_id]))
-for model in models.keys():
-    print('{:>10} : ssim = {:.3f} @ {:.3f} bpp'.format(model, stats[model]['ssim'][0], stats[model]['bpp'][0]))
-
-fig = plotting.imsc(list(outputs.values()),
-                    ['{} : ssim = {:.3f} @ {:.3f} bpp'.format(x, stats[x]['ssim'][0], stats[x]['bpp'][0]) for x in models.keys()],
-                    figwidth=24)
-fig.savefig('debug.pdf', bbox_inches='tight')
-
-# # Dump to file
-for key, value in outputs.items():
-    os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
-    imageio.imwrite('debug/{}/{}/{}_{}.png'.format(dataset.strip('/').split('/')[-1], image_id, dcn_model, key), value.squeeze())
-    with open('debug/{}/{}/{}_log.txt'.format(dataset.strip('/').split('/')[-1], image_id, dcn_model), 'w') as f:
-        f.write('# {}\n'.format(files[image_id]))
-        for model in models.keys():
-            f.write('{:>10} : ssim = {:.3f} @ {:.3f} bpp\n'.format(model, stats[model]['ssim'][0], stats[model]['bpp'][0]))
-
-# %%
-
-fig = plotting.imsc([nm(outputs[k] - outputs['basic']) for k in outputs.keys()],
-                    ['{}'.format(x) for x in models.keys()], figwidth=24)
-
-fig.savefig('diff.pdf', bbox_inches='tight')
-
-# %% Images
-
-from diff_nip import compare_images_ab_ref, fft_log_norm
-
-use_pretrained_ref = False
-
-if use_pretrained_ref:
-    reference = outputs['basic']
-else:
-    reference = batch_x[image_id:image_id+1]
-
-fig = compare_images_ab_ref(reference, outputs[1.000], outputs[0.001],
-                            labels=['Pre-trained DCN' if use_pretrained_ref else 'Original image', '$\lambda=1.000$', '$\lambda=0.001$'])
-
-axes_bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-fig.savefig('diff_dcn.pdf', bbox_inches='tight', dpi=np.ceil(batch_x.shape[1] / axes_bbox.height))
+fig = plotting.imsc(batch_x[images], titles='')
 
 # %% Detailed breakdown of the impact on a specific image
+
+# Accuracy information will be collected from:
+#  - ../results/summary-dcn-all.csv
+#
+# > ./results.py ./data/raw/m/dcn+ --df ./results df
+# I typically shorten the scenario name, e.g.:
+# 8k/D90/DNet/fixed-nip/lc-0.0010 -> 8k/0.0010
 
 from diff_nip import compare_images_ab_ref, fft_log_norm, nm
 from helpers.utils import dct_mask
 import scipy as sp
 
 dcn_model = '8k'
+# Worst images for clic: 1, 28, 33, 36
+image_id = 8 #images[0] # 32 # 28 for clic
+compact = True
 
 # Define the distribution channel
 models = OrderedDict()
@@ -232,37 +152,309 @@ models[0.050]   = '../data/raw/dcn/forensics/{}-0.0500'.format(dcn_model)
 models[0.010]   = '../data/raw/dcn/forensics/{}-0.0100'.format(dcn_model)
 models[0.001]   = '../data/raw/dcn/forensics/{}-0.0010'.format(dcn_model)
 
-accuracies = OrderedDict()
+dcns = OrderedDict()
+for model in models.keys():
+    dcns[model] = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+
+for image_id in [34]:
+
+    out_filename = 'debug/{}/{}_{:02d}_{}.pdf'.format(
+            dataset.strip('/').split('/')[-1],
+            dcn_model, image_id, 'c' if compact else 'f')
+
+    accuracies = OrderedDict()
+    outputs = OrderedDict()
+    stats = OrderedDict()
+    
+    df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
+    
+    # Get compressed images for all selected models
+    for model in models.keys():
+    
+        if type(model) is not str:
+                model_label = '{:.4f}'.format(model)
+        else:
+            model_label = model
+    
+        # dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+        outputs[model], stats[model] = afi.dcn_compress_n_stats(dcns[model], batch_x[image_id:image_id+1])
+        accuracies[model] = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, model_label), 'accuracy'].mean()
+    
+    all_labels = ['Original']
+    all_images = [batch_x[image_id:image_id+1]]
+    for key, value in outputs.items():
+
+        if type(key) is not str:
+                model_label = '$\\lambda_c$ = {:.3f}'.format(key)
+        else:
+            model_label = key
+
+        all_images.append(value)
+        all_labels.append('{} $\\rightarrow$ H: {:.2f}, ssim: {:.2f}'.format(model_label,
+                          stats[key]['entropy'][0],
+                          stats[key]['ssim'][0],
+                          )) # accuracies[key]
+    
+    fft_images = []
+    # Get DFTs and frequency profiles
+    for image in all_images:
+        fft_images.append(fft_log_norm(image, 0.1))
+    
+    # FFTs of diffs
+    fft_diffs = []
+    # Get DFTs and frequency profiles
+    for image in all_images:
+        fft_diffs.append(fft_log_norm((image - all_images[0]), 1))
+    
+    bands = np.linspace(0, 1, 64)
+    energies = []
+    
+    for image in all_images:
+        dct = np.abs(sp.fftpack.dct(sp.fftpack.dct(np.mean(image.squeeze(), axis=2).T).T))
+    
+        energy = np.zeros((len(bands), 1))
+    
+        # Get frequency energies
+        for b in range(len(bands)):
+            m = dct_mask(dct.shape[1], bands[b], 1e-2)
+            energy[b] = np.mean(dct * m)
+    
+        energies.append(energy)
+    
+    # % Plot the breakdown
+    
+    n_plots = 2 if compact else 6
+    
+    fig, axes = plt.subplots(n_plots, len(all_images))
+    fig.set_size_inches((2.75 * len(all_images), 2.75 * n_plots))
+    
+    # The images
+    for index, image in enumerate(all_images):
+        plotting.quickshow(image, all_labels[index], axes=axes[0, index])
+        if index == 0:
+            axes[0, index].set_ylabel('Original/compressed')
+    
+    if not compact:
+        for index, image in enumerate(all_images):
+            if index > 0:
+                plotting.quickshow((np.abs(image - all_images[0]) * 10).clip(0, 1),
+                                          '', axes=axes[1, index])
+            else:
+                axes[1, index].set_axis_off()
+        
+            if index == 1:
+                axes[1, index].set_ylabel('Difference wrt. original')
+        
+        for index, image in enumerate(all_images):
+            if index > 1:
+                plotting.quickshow((np.abs(image - all_images[1]) * 10).clip(0, 1),
+                                           '', axes=axes[2, index])
+            else:
+                axes[2, index].set_axis_off()
+        
+            if index == 2:
+                axes[2, index].set_ylabel('Difference wrt. basic DCN')
+    
+    # The FFTs
+    for index, image in enumerate(fft_images):
+        plotting.quickshow(image, '', axes=axes[1 if compact else 3, index])
+        if index == 0:
+            axes[1 if compact else 3, index].set_ylabel('FFTs')
+    
+    if not compact:
+        # for index, image in enumerate(fft_images):
+        #     if index > 1:
+        #         plotting.quickshow(nm(np.abs(image - fft_images[1])),
+        #                                    '', axes=axes[4, index])
+        #     else:
+        #         axes[4, index].set_axis_off()
+        
+        #     if index == 2:
+        #         axes[4, index].set_ylabel('FFT diff wrt. basic DCN')
+    
+        for index, image in enumerate(fft_diffs):
+            if index > 0:
+                plotting.quickshow(image, '', axes=axes[4, index])
+            else:
+                axes[4, index].set_axis_off()
+        
+            if index == 1:
+                axes[4, index].set_ylabel('FFT of diff wrt. originals')
+    
+        # The frequency breakdown
+        for index, energy in enumerate(energies):
+            axes[5, index].semilogy(bands, energy)
+            if index == 0:
+                axes[5, index].set_ylabel('Sub-band energy')
+            else:
+                axes[5, index].set_yticklabels([])
+            axes[5, index].set_xlabel('Relative frequency')
+            axes[5, index].set_ylim([np.min(energies)/2, 2*np.max(energies)])
+            axes[5, index].grid(True, linestyle=':')
+
+    fig.subplots_adjust(wspace=0, hspace=0.05)
+    os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
+    fig.savefig(out_filename, bbox_inches='tight', dpi=100)
+    
+    print('Written to: {}'.format(out_filename))
+
+# %% Plot aggregated spectrum statistics
+
+dcn_model = '16k'
+
+# Define the distribution channel
+models = OrderedDict()
+models['basic'] = '../data/raw/dcn/forensics/{}-basic'.format(dcn_model)
+models[1.000]   = '../data/raw/dcn/forensics/{}-1.0000'.format(dcn_model)
+models[0.050]   = '../data/raw/dcn/forensics/{}-0.0500'.format(dcn_model)
+models[0.010]   = '../data/raw/dcn/forensics/{}-0.0100'.format(dcn_model)
+models[0.005]   = '../data/raw/dcn/forensics/{}-0.0050'.format(dcn_model)
+models[0.001]   = '../data/raw/dcn/forensics/{}-0.0010'.format(dcn_model)
+
+dcns = OrderedDict()
+for model in models.keys():
+    dcns[model] = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+
 outputs = OrderedDict()
-stats = OrderedDict()
 
+for image_id in range(batch_x.shape[0]):
+
+    outputs[image_id] = OrderedDict()
+
+    # Get compressed images for all selected models
+    for model in models.keys():
+        outputs[image_id][model] = dcns[model].process(batch_x[image_id:image_id+1])
+
+# %% Construct labels ------------------------------------------------------------
+
+model_mapping = {'4k': '16-C', '8k': '32-C', '16k': '64-C'}
+
+accuracies = OrderedDict()
 df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
-
-# Worst images for clic: 1, 28, 33, 36
-image_id = 19 # 32 # 28 for clic
 
 # Get compressed images for all selected models
 for model in models.keys():
 
     if type(model) is not str:
             model_label = '{:.4f}'.format(model)
+    else:
+        model_label = model
 
-    dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
-    outputs[model], stats[model] = afi.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
     accuracies[model] = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, model_label), 'accuracy'].mean()
+
+all_labels = []
+for key, value in accuracies.items():
+
+    if type(key) is not str:
+            model_label = '$\\lambda_c$ = {:.3f}'.format(key)
+    else:
+        model_label = key
+
+    all_labels.append('{} $\\rightarrow$ acc: {:.2f}'.format(model_label, accuracies[key]))
+
+# The actual plotting ---------------------------------------------------------
+
+from misc import spectrum
+
+spectrums = []
+for mid, model in enumerate(models.keys()):
+    y = np.zeros(batch_x.shape)
+    
+    for image_id in range(batch_x.shape[0]):
+        y[image_id] = spectrum((outputs[image_id][model]).squeeze()) / spectrum((batch_x[image_id]).squeeze())
+
+    yv = y.mean(axis=(0))
+    yv = sp.ndimage.median_filter(yv, 7)
+    yv = np.log(yv)
+    yv = yv / np.abs(yv).max()
+    yv = (yv + 1) / 2
+    spectrums.append(yv)
+
+    print(model, yv.min(), yv.max())
+
+fig = plotting.imsc(spectrums, all_labels, ncols=len(models))
+fig.set_size_inches((2.25 * len(models), 2.25))
+fig.subplots_adjust(wspace=0, hspace=0)
+# fig.tight_layout()
+out_filename = 'fig_spectral_{}.pdf'.format(dcn_model)
+fig.savefig(out_filename, bbox_inches='tight',  dpi=100)
+
+# %% JPEG Output
+
+# TODO Temporary code to collect aggregated JPEG output
+models = OrderedDict()
+for v in [95, 85, 75, 50, 30]:
+    models[v] = None
+
+outputs = OrderedDict()
+all_labels = []
+
+for image_id in range(batch_x.shape[0]):
+
+    outputs[image_id] = OrderedDict()
+
+    # Get compressed images for all selected models
+    for model in models.keys():
+        outputs[image_id][model], _ = jpeg_helpers.compress_batch(batch_x[image_id:image_id+1], model)
+        all_labels.append('JPEG Q={}'.format(model))
+
+# %% Detailed breakdown of the impact on a specific image
+
+# Accuracy information will be collected from:
+#  - ../results/summary-dcn-all.csv
+#
+# > ./results.py ./data/raw/m/dcn+ --df ./results df
+# I typically shorten the scenario name, e.g.:
+# 8k/D90/DNet/fixed-nip/lc-0.0010 -> 8k/0.0010
+
+from diff_nip import compare_images_ab_ref, fft_log_norm, nm
+from helpers.utils import dct_mask
+import scipy as sp
+
+dcn_model = '8k'
+# Worst images for clic: 1, 28, 33, 36
+image_id = 0 #images[0] # 32 # 28 for clic
+compact = False
+
+out_filename = 'debug/{}/{}_{:02d}_{}.pdf'.format(
+        dataset.strip('/').split('/')[-1],
+        'jpeg', image_id, 'c' if compact else 'f')
+
+
+# accuracies = OrderedDict()
+outputs = OrderedDict()
+# stats = OrderedDict()
+
+# df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
+
+# Get compressed images for all selected models
+for model in [95, 90, 75, 50, 30]:
+
+    if type(model) is not str:
+            model_label = '{:.4f}'.format(model)
+    else:
+        model_label = model
+
+    # dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+    outputs[model], _ = jpeg_helpers.compress_batch(batch_x[image_id:image_id+1], model)
+    # accuracies[model] = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, model_label), 'accuracy'].mean()
 
 all_labels = ['Original']
 all_images = [batch_x[image_id:image_id+1]]
 for key, value in outputs.items():
     all_images.append(value)
-    all_labels.append('DCN: {} -> ssim: {:.2f} acc: {:.2f}'.format(key,
-                      stats[key]['ssim'][0],
-                      accuracies[key]))
+    all_labels.append('JPEG: {}'.format(key))
 
 fft_images = []
 # Get DFTs and frequency profiles
 for image in all_images:
-    fft_images.append(fft_log_norm(image, 1))
+    fft_images.append(fft_log_norm(image, 0.1))
+
+# FFTs of diffs
+fft_diffs = []
+# Get DFTs and frequency profiles
+for image in all_images:
+    fft_diffs.append(fft_log_norm((image - all_images[0]), 1))
 
 bands = np.linspace(0, 1, 64)
 energies = []
@@ -279,10 +471,12 @@ for image in all_images:
 
     energies.append(energy)
 
-# %%
+# % Plot the breakdown
 
-fig, axes = plt.subplots(6, len(all_images))
-fig.set_size_inches((3 * len(all_images), 3 * 6))
+n_plots = 2 if compact else 6
+
+fig, axes = plt.subplots(n_plots, len(all_images))
+fig.set_size_inches((3 * len(all_images), 3 * n_plots))
 
 # The images
 for index, image in enumerate(all_images):
@@ -290,60 +484,72 @@ for index, image in enumerate(all_images):
     if index == 0:
         axes[0, index].set_ylabel('Original/compressed')
 
-for index, image in enumerate(all_images):
-    if index > 0:
-        plotting.quickshow((np.abs(image - all_images[0]) * 5).clip(0, 1),
-                                  '', axes=axes[1, index])
-    else:
-        axes[1, index].set_axis_off()
-
-    if index == 1:
-        axes[1, index].set_ylabel('Difference wrt. original')
-
-for index, image in enumerate(all_images):
-    if index > 1:
-        plotting.quickshow((np.abs(image - all_images[1]) * 5).clip(0, 1),
-                                   '', axes=axes[2, index])
-    else:
-        axes[2, index].set_axis_off()
-
-    if index == 2:
-        axes[2, index].set_ylabel('Difference wrt. basic DCN')
+if not compact:
+    for index, image in enumerate(all_images):
+        if index > 0:
+            plotting.quickshow((np.abs(image - all_images[0]) * 10).clip(0, 1),
+                                      '', axes=axes[1, index])
+        else:
+            axes[1, index].set_axis_off()
+    
+        if index == 1:
+            axes[1, index].set_ylabel('Difference wrt. original')
+    
+    for index, image in enumerate(all_images):
+        if index > 1:
+            plotting.quickshow((np.abs(image - all_images[1]) * 10).clip(0, 1),
+                                       '', axes=axes[2, index])
+        else:
+            axes[2, index].set_axis_off()
+    
+        if index == 2:
+            axes[2, index].set_ylabel('Difference wrt. basic DCN')
 
 # The FFTs
 for index, image in enumerate(fft_images):
-    plotting.quickshow(image, '', axes=axes[3, index])
+    plotting.quickshow(image, '', axes=axes[1 if compact else 3, index])
     if index == 0:
-        axes[3, index].set_ylabel('FFTs')
+        axes[1 if compact else 3, index].set_ylabel('FFTs')
 
-for index, image in enumerate(fft_images):
-    if index > 1:
-        plotting.quickshow(nm(np.abs(image - fft_images[1])),
-                                   '', axes=axes[4, index])
-    else:
-        axes[4, index].set_axis_off()
+if not compact:
+    # for index, image in enumerate(fft_images):
+    #     if index > 1:
+    #         plotting.quickshow(nm(np.abs(image - fft_images[1])),
+    #                                    '', axes=axes[4, index])
+    #     else:
+    #         axes[4, index].set_axis_off()
+    
+    #     if index == 2:
+    #         axes[4, index].set_ylabel('FFT diff wrt. basic DCN')
 
-    if index == 2:
-        axes[4, index].set_ylabel('FFT diff wrt. basic DCN')
+    for index, image in enumerate(fft_diffs):
+        if index > 0:
+            plotting.quickshow(image, '', axes=axes[4, index])
+        else:
+            axes[4, index].set_axis_off()
+    
+        if index == 1:
+            axes[4, index].set_ylabel('FFT of diff wrt. originals')
+
+    # The frequency breakdown
+    for index, energy in enumerate(energies):
+        axes[5, index].semilogy(bands, energy)
+        if index == 0:
+            axes[5, index].set_ylabel('Sub-band energy')
+        else:
+            axes[5, index].set_yticklabels([])
+        axes[5, index].set_xlabel('Relative frequency')
+        axes[5, index].set_ylim([np.min(energies)/2, 2*np.max(energies)])
+        axes[5, index].grid(True, linestyle=':')
 
 
-# The frequency breakdown
-for index, energy in enumerate(energies):
-    axes[5, index].semilogy(bands, energy)
-    if index == 0:
-        axes[5, index].set_ylabel('Sub-band energy')
-    else:
-        axes[5, index].set_yticklabels([])
-    axes[5, index].set_xlabel('Relative frequency')
-    axes[5, index].set_ylim([np.min(energies)/2, 2*np.max(energies)])
-    axes[5, index].grid(True, linestyle=':')
 
+fig.tight_layout()
 os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
-fig.savefig('debug/{}/{}/{}_breakdown.pdf'.format(dataset.strip('/').split('/')[-1], image_id, dcn_model), bbox_inches='tight', dpi=200)
+fig.savefig(out_filename, bbox_inches='tight', dpi=200)
 
-# %%
+print('Written to: {}'.format(out_filename))
 
-fig = plotting.imsc(np.abs(sfft.fft2(batch_x[image_id:image_id+1, :, :, 0])))
 
 # %% Per-image SSIM & bpp detrioration stats
 
@@ -367,18 +573,21 @@ for filename in df['filename'].unique():
     print('{:2d} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format(dfc['image_id'].values[0], filename, ssim_costs[-1], bpp_costs[-1]))
 print('{:2} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format('Σ', '-', np.mean(ssim_costs), np.mean(bpp_costs)))
 
-# %% Perception Distance (AlexNet)
-
-from models import lpips
-
-distance = lpips.lpips(outputs['basic'], batch_x[image_id:image_id+1])
-
-print(distance)
-
-
 # %% Pool compression quality and classification accuracy
 
-dataset = '../data/clic512/'
+# Accuracy information will be collected from:
+#  - ../data/{}/dcn-forensics.csv       # image quality stats (ssim, bpp)
+#  - ../data/{}/jpeg.csv                # image quality stats (ssim, bpp)
+#  - ../results/summary-dcn-all.csv     # accuracy
+#  - ../results/summary-jpeg.csv        # accuracy
+#
+# > ./results.py ./data/raw/m/dcn+ --df ./results df
+# I typically shorten the scenario name, e.g.:
+# 8k/D90/DNet/fixed-nip/lc-0.0010 -> 8k/0.0010
+#
+# > ./results.py ./data/raw/m/jpeg --df ./results df
+
+dataset = '../data/raw512/'
 dcn_models = ['4k', '8k', '16k']
 lambdas = [0.001, 0.005, 0.010, 0.050, 0.100, 1.000, 'basic']
 
@@ -433,8 +642,16 @@ for quality in sorted(df['quality'].unique()):
 
 # %% Draw the summary plot
 
+sns.set('paper', font_scale=2, style="darkgrid")
+sns.set_context("paper")
+rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+rc('text', usetex=True)
+
 fig = plt.figure()
 ax = fig.gca()
+
+x_axis = 'bpp'
+y_axis = 'accuracy'
 
 if 'raw' in dataset:
     x_limits = [0.25, 0.95]
@@ -445,16 +662,16 @@ min_ssim = 0.85
 max_ssim = max([df_j['ssim'].max(), df_o['ssim'].max()])
 
 # Add line connecting basic DCN models ----------------------------------------
-g = sns.lineplot(x='bpp', y='accuracy', data=df_o.loc[df_o['lambda'] == 'basic'])
+g = sns.lineplot(x=x_axis, y=y_axis, data=df_o.loc[df_o['lambda'] == 'basic'])
 
 # Add points for basic DCN models
-g = sns.scatterplot(x='bpp', y='accuracy', size='ssim', hue='ssim', edgecolor='black',
+g = sns.scatterplot(x=x_axis, y=y_axis, size='ssim', hue='ssim', edgecolor='black',
                 sizes=(20, 100), hue_norm=(min_ssim, max_ssim), size_norm=(min_ssim, max_ssim),
                 legend=False, marker='o',
                 s=50, alpha=0.7, data=df_o.loc[df_o['lambda'] == 'basic'])
 
 # Add points for transferred DCN models
-g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim', edgecolor='white',
+g = sns.scatterplot(x=x_axis, y=y_axis, hue='ssim', size='ssim', edgecolor='gray',
                 sizes=(20, 100), size_norm=(min_ssim, max_ssim), hue_norm=(min_ssim, max_ssim),
                 legend='brief', marker='o',
                 s=50, alpha=0.7, data=df_o.loc[df_o['lambda'] != 'basic'])
@@ -483,16 +700,16 @@ for pid in range(0, len(df_o)):
             if ssim_diff > 0:
                 label_color = '#004400'
         else:
-            label = lbda
+            label = '{} ({:.2f})'.format(lbda, base_ssim)
 
         # Draw the actual label
         ax.text(df_o.bpp[pid] + 0.015, df_o.accuracy[pid], label,
                 horizontalalignment='left', size=7, color=label_color)
 
 # Add lines & points for JPEG -------------------------------------------------
-g = sns.lineplot(x='bpp', y='accuracy', data=df_j, dashes=True)
+g = sns.lineplot(x=x_axis, y=y_axis, data=df_j, dashes=True)
 
-g = sns.scatterplot(x='bpp', y='accuracy', hue='ssim', size='ssim', edgecolor='gray',
+g = sns.scatterplot(x=x_axis, y=y_axis, hue='ssim', size='ssim', edgecolor='gray',
                 sizes=(20, 100), size_norm=(min_ssim, max_ssim), hue_norm=(min_ssim, max_ssim),
                 legend=False, marker='D', s=50, alpha=0.7, data=df_j)
 
@@ -512,8 +729,145 @@ for t in ax.legend_.texts:
     except:
         pass
 
-g.figure.set_size_inches((12, 8))
+g.figure.set_size_inches((8, 6))
 ax.grid(True, linestyle=':')
 ax.set_xlim(x_limits)
-ax.set_title(dataset)
+# ax.set_title('{} dataset'.format(dataset.strip('/').split('/')[-1]))
+ax.set_xlabel('Effective bpp')
+ax.set_ylabel('FAN accuracy')
 # ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
+
+fig.tight_layout()
+fig.savefig('fig_{}_vs_{}_{}.pdf'.format(y_axis, x_axis, dataset.strip('/').split('/')[-1], image_id, dcn_model),
+            dpi=100)
+
+# %% Accuracy vs SSIM
+
+sns.set('paper', font_scale=2, style="darkgrid")
+sns.set_context("paper")
+rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+rc('text', usetex=True)
+
+rc('axes', titlesize=14)
+rc('axes', labelsize=14)
+rc('xtick', labelsize=8)
+rc('ytick', labelsize=8)
+rc('legend', fontsize=10)
+rc('figure', titlesize=14)
+
+fig = plt.figure()
+ax = fig.gca()
+
+axis_labels = {'bpp': 'Effective bpp', 'accuracy': 'FAN accuracy', 'ssim': 'SSIM'}
+
+x_axis = 'bpp'
+z_axis = 'accuracy'
+y_axis = 'ssim'
+
+if 'raw' in dataset:
+    x_limits = [0.25, 0.95]
+else:
+    x_limits = [0.75, 1.00]
+
+if y_axis == 'ssim':
+    x_shift, y_shift = 0, 0.005
+    y_limits = [0.875, 0.942]
+
+if y_axis == 'accuracy':
+    x_shift, y_shift = 0.015, 0.0
+    y_limits = [0.39, 1.01]
+
+
+min_z = min([df_j[z_axis].min(), df_o[z_axis].min()])
+max_z = max([df_j[z_axis].max(), df_o[z_axis].max()])
+
+# Add line connecting basic DCN models ----------------------------------------
+g = sns.lineplot(x=x_axis, y=y_axis, data=df_o.loc[df_o['lambda'] == 'basic'])
+
+# Add points for basic DCN models
+g = sns.scatterplot(x=x_axis, y=y_axis, size=z_axis, hue=z_axis, edgecolor='black',
+                sizes=(10, 100), hue_norm=(min_z, max_z), size_norm=(min_z, max_z),
+                legend=False, marker='o',
+                s=50, alpha=0.7, data=df_o.loc[df_o['lambda'] == 'basic'])
+
+# Add points for transferred DCN models
+g = sns.scatterplot(x=x_axis, y=y_axis, hue=z_axis, size=z_axis, edgecolor='gray',
+                sizes=(10, 100), size_norm=(min_z, max_z), hue_norm=(min_z, max_z),
+                legend='brief', marker='o',
+                s=50, alpha=0.5, data=df_o.loc[df_o['lambda'] != 'basic'])
+
+# Add annotations next to transferred DCN models
+for pid in range(0, len(df_o)):
+    if df_o.loc[pid, x_axis] < x_limits[-1]:
+
+        # Show annotations as: lambda [(ssim diff)]
+        # The ssim diff is shown if abs() > 0.005 and color depends on the
+        # sign of the difference.
+        label_color = 'black'
+        dcn = df_o.dcn_model[pid].split('/')[0]
+        lbda = df_o.dcn_model[pid].split('/')[-1]
+        if lbda != 'basic':
+            # Find base SSIM
+            base_ssim = df_o.loc[df_o['dcn_model'] == '{}/basic'.format(dcn), z_axis].values[0]
+            ssim_diff = df_o.loc[pid, z_axis] - base_ssim
+            if np.abs(ssim_diff) > 0.005:
+                label = '{}\n ({:+.3f})'.format(lbda.strip('0'), ssim_diff)
+            else:
+                label = lbda.strip('0')
+
+            if ssim_diff < 0:
+                label_color = '#990000'
+            if ssim_diff > 0:
+                label_color = '#004400'
+
+            if y_axis == 'ssim' and lbda != '0.0010':
+                continue
+        else:
+            label = '{}\n ({:.2f})'.format(lbda, base_ssim)
+
+        if y_axis == 'accuracy':
+            label = label.replace('\n', '')
+            ha = 'left'
+        else:
+            ha = 'center'
+
+        # Draw the actual label
+        ax.text(df_o.loc[pid, x_axis] + x_shift, df_o.loc[pid, y_axis] - y_shift, label,
+                horizontalalignment='left', size=7, color=label_color,
+                ha=ha)
+
+# Add lines & points for JPEG -------------------------------------------------
+g = sns.lineplot(x=x_axis, y=y_axis, data=df_j, dashes=True)
+
+g = sns.scatterplot(x=x_axis, y=y_axis, hue=z_axis, size=z_axis, edgecolor='gray',
+                sizes=(10, 100), size_norm=(min_z, max_z), hue_norm=(min_z, max_z),
+                legend=False, marker='D', s=50, alpha=0.7, data=df_j)
+
+for pid in range(0, len(df_j)):
+    if df_j.loc[pid, x_axis] < x_limits[-1] and df_j.loc[pid, y_axis] > y_limits[0] and int(df_j.quality[pid]) % 10 == 0:
+        ax.text(df_j.loc[pid, x_axis] + 0.015, df_j.loc[pid, y_axis], 'JPG({})'.format(int(df_j.quality[pid])),
+             horizontalalignment='left', size=7, color='black', va='center')
+
+# Final touches ---------------------------------------------------------------
+for line in g.lines:
+    line.set_linestyle(':')
+
+# Sometimes seaborn messes up legend entries - number of decimal places explodes
+for t in ax.legend_.texts:
+    try:
+        t.set_text('{:.2f}'.format(float(t.get_text())))
+    except:
+        pass
+
+g.figure.set_size_inches((7, 5))
+ax.grid(True, linestyle=':')
+ax.set_xlim(x_limits)
+ax.set_ylim(y_limits)
+# ax.set_title('{} dataset'.format(dataset.strip('/').split('/')[-1]))
+ax.set_xlabel(axis_labels[x_axis])
+ax.set_ylabel(axis_labels[y_axis])
+# ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
+
+fig.tight_layout()
+fig.savefig('fig_summary_{}_vs_{}_{}.pdf'.format(y_axis, x_axis, dataset.strip('/').split('/')[-1], image_id, dcn_model),
+            dpi=100)

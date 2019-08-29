@@ -36,18 +36,9 @@ from helpers import plotting, loading, utils
 from compression import ratedistortion, afi
 from training import compression
 
+from misc import get_sample_images
+
 dataset = '../data/clic512'
-
-def get_sample_images(dataset):
-
-    if 'clic' in dataset:
-        return [0, 13, 33, 36]
-    
-    if 'kodak' in dataset:
-        return [4, 14, 20, 22]
-    
-    if 'raw' in dataset:
-        return [11, 19, 34, 35]
 
 # %% Entropy-regularization
 # II. Fix codebook and regularization
