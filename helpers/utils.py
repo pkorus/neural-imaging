@@ -218,7 +218,7 @@ def bilin_kernel(kernel=3):
 
 def gkern(kernlen=5, std=0.83):
     """Returns a 2D Gaussian kernel array."""
-    gkern1d = signal.gaussian(kernlen, std=std).reshape(kernlen, 1)
+    gkern1d = signal.gaussian(kernlen, std=std)
     gkern2d = np.outer(gkern1d, gkern1d)
     return gkern2d / gkern2d.sum()
 
