@@ -42,9 +42,9 @@ def manipulation_median(x, kernel):
         return tf.contrib.distributions.percentile(patches, 50, axis=3)
 
     
-def manipulation_gaussian(x, kernel, sigma, skip_clip=False):
+def manipulation_gaussian(x, kernel, std, skip_clip=False):
     with tf.name_scope('gaussian_filter'):
-        gk = gkern(kernel, sigma)
+        gk = gkern(kernel, std)
         gfilter = np.zeros((kernel, kernel, 3, 3))
         for r in range(3):
             gfilter[:, :, r, r] = gk

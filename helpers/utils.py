@@ -1,8 +1,5 @@
-import io
-import imageio
 import numpy as np
-import scipy.stats as st
-from scipy import cluster
+from scipy import signal
 
 
 _numeric_types = {int, float, bool, np.bool, np.float, np.float16, np.float32, np.float64,
@@ -219,16 +216,11 @@ def bilin_kernel(kernel=3):
     return dmf
 
 
-def gkern(kernlen=21, nsig=3):
+def gkern(kernlen=5, std=0.83):
     """Returns a 2D Gaussian kernel array."""
-
-    interval = (2*nsig + 1.) / kernlen
-    x = np.linspace(-nsig-interval/2., nsig+interval/2., kernlen+1)
-    kern1d = np.diff(st.norm.cdf(x))
-    kernel_raw = np.sqrt(np.outer(kern1d, kern1d))
-    kernel = kernel_raw/kernel_raw.sum()
-
-    return kernel
+    gkern1d = signal.gaussian(kernlen, std=std).reshape(kernlen, 1)
+    gkern2d = np.outer(gkern1d, gkern1d)
+    return gkern2d / gkern2d.sum()
 
 
 def jpeg_qtable(quality, channel=0):

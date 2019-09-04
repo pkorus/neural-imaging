@@ -98,7 +98,7 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
 
         # Gaussian filter
         if 'gaussian' in manipulations:
-            im_gauss = tf_helpers.manipulation_gaussian(model.y, 5, 4)
+            im_gauss = tf_helpers.manipulation_gaussian(model.y, 5, 0.85)
             operations.append(im_gauss)
             forensics_classes.append('gaussian')
 
