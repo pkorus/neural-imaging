@@ -139,24 +139,24 @@ from diff_nip import compare_images_ab_ref, fft_log_norm, nm
 from helpers.utils import dct_mask
 import scipy as sp
 
-dcn_model = '8k'
+dcn_model = '4k'
 # Worst images for clic: 1, 28, 33, 36
 image_id = 8 #images[0] # 32 # 28 for clic
 compact = True
 
 # Define the distribution channel
 models = OrderedDict()
-models['basic'] = '../data/raw/dcn/forensics/{}-basic'.format(dcn_model)
-models[1.000]   = '../data/raw/dcn/forensics/{}-1.0000'.format(dcn_model)
-models[0.050]   = '../data/raw/dcn/forensics/{}-0.0500'.format(dcn_model)
-models[0.010]   = '../data/raw/dcn/forensics/{}-0.0100'.format(dcn_model)
-models[0.001]   = '../data/raw/dcn/forensics/{}-0.0010'.format(dcn_model)
+models['basic'] = '../data/raw/dcn/forensics-7m/{}-basic'.format(dcn_model)
+models[1.000]   = '../data/raw/dcn/forensics-7m/{}-1.0000'.format(dcn_model)
+models[0.050]   = '../data/raw/dcn/forensics-7m/{}-0.0500'.format(dcn_model)
+models[0.010]   = '../data/raw/dcn/forensics-7m/{}-0.0100'.format(dcn_model)
+models[0.001]   = '../data/raw/dcn/forensics-7m/{}-0.0010'.format(dcn_model)
 
 dcns = OrderedDict()
 for model in models.keys():
     dcns[model] = afi.restore_model(models[model], patch_size=batch_x.shape[1])
 
-for image_id in [34]:
+for image_id in get_sample_images(dataset):
 
     out_filename = 'debug/{}/{}_{:02d}_{}.pdf'.format(
             dataset.strip('/').split('/')[-1],
@@ -166,7 +166,7 @@ for image_id in [34]:
     outputs = OrderedDict()
     stats = OrderedDict()
     
-    df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
+    df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all-7m.csv'), index_col=False)
     
     # Get compressed images for all selected models
     for model in models.keys():
@@ -226,7 +226,7 @@ for image_id in [34]:
     n_plots = 2 if compact else 6
     
     fig, axes = plt.subplots(n_plots, len(all_images))
-    fig.set_size_inches((2.75 * len(all_images), 2.75 * n_plots))
+    fig.set_size_inches((3.75 * len(all_images), 3.75 * n_plots))
     
     # The images
     for index, image in enumerate(all_images):
@@ -304,12 +304,12 @@ dcn_model = '16k'
 
 # Define the distribution channel
 models = OrderedDict()
-models['basic'] = '../data/raw/dcn/forensics/{}-basic'.format(dcn_model)
-models[1.000]   = '../data/raw/dcn/forensics/{}-1.0000'.format(dcn_model)
-models[0.050]   = '../data/raw/dcn/forensics/{}-0.0500'.format(dcn_model)
-models[0.010]   = '../data/raw/dcn/forensics/{}-0.0100'.format(dcn_model)
-models[0.005]   = '../data/raw/dcn/forensics/{}-0.0050'.format(dcn_model)
-models[0.001]   = '../data/raw/dcn/forensics/{}-0.0010'.format(dcn_model)
+models['basic'] = '../data/raw/dcn/forensics-7m/{}-basic'.format(dcn_model)
+models[1.000]   = '../data/raw/dcn/forensics-7m/{}-1.0000'.format(dcn_model)
+models[0.050]   = '../data/raw/dcn/forensics-7m/{}-0.0500'.format(dcn_model)
+models[0.010]   = '../data/raw/dcn/forensics-7m/{}-0.0100'.format(dcn_model)
+models[0.005]   = '../data/raw/dcn/forensics-7m/{}-0.0050'.format(dcn_model)
+models[0.001]   = '../data/raw/dcn/forensics-7m/{}-0.0010'.format(dcn_model)
 
 dcns = OrderedDict()
 for model in models.keys():
@@ -330,7 +330,7 @@ for image_id in range(batch_x.shape[0]):
 model_mapping = {'4k': '16-C', '8k': '32-C', '16k': '64-C'}
 
 accuracies = OrderedDict()
-df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
+df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all-7m.csv'), index_col=False)
 
 # Get compressed images for all selected models
 for model in models.keys():
@@ -373,7 +373,7 @@ for mid, model in enumerate(models.keys()):
     print(model, yv.min(), yv.max())
 
 fig = plotting.imsc(spectrums, all_labels, ncols=len(models))
-fig.set_size_inches((2.25 * len(models), 2.25))
+fig.set_size_inches((3.25 * len(models), 3.25))
 fig.subplots_adjust(wspace=0, hspace=0)
 # fig.tight_layout()
 out_filename = 'fig_spectral_{}.pdf'.format(dcn_model)
@@ -594,8 +594,8 @@ lambdas = [0.001, 0.005, 0.010, 0.050, 0.100, 1.000, 'basic']
 models = OrderedDict()
 
 # --- DCNs --------------------------------------------------------------------
-df = pd.read_csv(os.path.join(dataset, 'dcn-forensics.csv'), index_col=False)
-df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all.csv'), index_col=False)
+df = pd.read_csv(os.path.join(dataset, 'dcn-forensics-7m.csv'), index_col=False)
+df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all-7m.csv'), index_col=False)
 
 df_o = pd.DataFrame(columns=['dcn_model', 'lambda', 'bpp', 'ssim', 'accuracy'])
 
@@ -621,7 +621,7 @@ for dcn_model in dcn_models:
 
 # --- JPEG --------------------------------------------------------------------
 df = pd.read_csv(os.path.join(dataset, 'jpeg.csv'), index_col=False)
-df_acc = pd.read_csv(os.path.join('../results/', 'summary-jpeg.csv'), index_col=False)
+df_acc = pd.read_csv(os.path.join('../results/', 'summary-jpeg-7m.csv'), index_col=False)
 
 df_j = pd.DataFrame(columns=['quality', 'bpp', 'ssim', 'accuracy'])
 
@@ -738,8 +738,8 @@ ax.set_ylabel('FAN accuracy')
 # ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
 
 fig.tight_layout()
-fig.savefig('fig_{}_vs_{}_{}.pdf'.format(y_axis, x_axis, dataset.strip('/').split('/')[-1], image_id, dcn_model),
-            dpi=100)
+# fig.savefig('fig_{}_vs_{}_{}.pdf'.format(y_axis, x_axis, dataset.strip('/').split('/')[-1], image_id, dcn_model),
+            # dpi=100)
 
 # %% Accuracy vs SSIM
 
@@ -765,17 +765,17 @@ z_axis = 'accuracy'
 y_axis = 'ssim'
 
 if 'raw' in dataset:
-    x_limits = [0.25, 0.95]
+    x_limits = [0.225, 1.225]
 else:
     x_limits = [0.75, 1.00]
 
 if y_axis == 'ssim':
     x_shift, y_shift = 0, 0.005
-    y_limits = [0.875, 0.942]
+    y_limits = [0.875, 0.952]
 
 if y_axis == 'accuracy':
     x_shift, y_shift = 0.015, 0.0
-    y_limits = [0.39, 1.01]
+    y_limits = [0.25, 1.01]
 
 
 min_z = min([df_j[z_axis].min(), df_o[z_axis].min()])
@@ -869,5 +869,52 @@ ax.set_ylabel(axis_labels[y_axis])
 # ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
 
 fig.tight_layout()
-fig.savefig('fig_summary_{}_vs_{}_{}.pdf'.format(y_axis, x_axis, dataset.strip('/').split('/')[-1], image_id, dcn_model),
+fig.savefig('fig_summary_{}_vs_{}_{}.pdf'.format(y_axis, x_axis, dataset.strip('/').split('/')[-1]),
             dpi=100)
+
+# %%
+
+df = pd.read_csv(os.path.join('../results/', 'summary-dcn-all-7m-renamed.csv'), index_col=False)
+df = df.sort_values('scenario')
+
+lookup = ['codec', 'configuration']
+
+# Guess scenario
+components = df['scenario'].str.split("/", expand=True)
+for i in components:
+    df[lookup[i]] = components[i]
+
+df['scenario'] = coreutils.remove_commons(df['scenario'])
+
+mapping = {}
+mapping_targets = ['col', 'col', 'hue', 'style', 'size']
+mapping_id = 0
+
+# Choose the feature with most unique values as x axis
+uniques = [len(df[lookup[i]].unique()) for i in components]
+
+x_feature = np.argmax(uniques)
+
+for i in components:
+    if i == x_feature:
+        continue
+
+    if len(df[lookup[i]].unique()) > 1:
+        mapping[mapping_targets[mapping_id]] = lookup[i]
+        mapping_id += 1
+
+
+# %%
+g = sns.catplot(x=lookup[x_feature], y='accuracy', data=df, kind='box', sharex=False, **mapping)
+g.axes[0,0].set_xlim([-0.85, 7.85])
+g.axes[0,1].set_xlim([-0.85, 7.85])
+g.axes[0,2].set_xlim([-0.85, 7.85])
+g.axes[0,3].set_xlim([7.15, 25.85])
+
+g.fig.set_size_inches((18, 4))
+
+g.fig.savefig('fig_dcn_jpeg_accuracy.pdf', dpi=100)
+
+# sns.catplot(x='scenario:0', y='dcn_ssim', data=df, kind='box', **mapping)
+# sns.scatterplot(x='dcn_ssim', y='accuracy', data=df)
+# plt.show()
