@@ -66,7 +66,7 @@ def match_quality(image, target=0.95, match='ssim', subsampling='4:4:4'):
                 return high
 
         if low_obj * high_obj > 0:
-            raise ValueError('Same deviation for both end-points')
+            raise ValueError('Same deviation for both end-points {} - {}'.format(low, high))
 
         mid = int((low + high)/2)
         mid_obj = fun(mid)

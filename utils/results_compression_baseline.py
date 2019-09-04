@@ -72,7 +72,7 @@ fig.savefig('fig_dcn_tradeoff_{}.pdf'.format(os.path.split(dataset.strip('/'))[-
 
 # %% Load sample data
 
-dataset = '../data/clic256/'
+dataset = '../data/clic512/'
 images = get_sample_images(dataset)
 
 # Discover test files
@@ -81,6 +81,7 @@ batch_x = loading.load_images(files, dataset, load='y')
 batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
 fig = plotting.imsc(batch_x[images], titles='')
+fig.tight_layout()
 
 fig.savefig('fig_samples_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1]),
             bbox_inches='tight',
@@ -227,7 +228,7 @@ print(df.groupby('model').mean().to_string())
 
 # %% Show DCN and JPEG images at a matching SSIM quality level
 
-image_id = 1
+image_id = 0
 model = '4k'
 
 dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
@@ -237,10 +238,62 @@ fig.savefig('fig_jpeg_match_model_{}_image_{}.pdf'.format(model, images[image_id
 
 # %% Show DCN and JPEG images at a matching bpp
 
-image_id = 1
+image_id = 0
 model = '4k'
 
 dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
 fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], match='bpp')
 
 fig.savefig('fig_jpeg_bpp_match_model_{}_image_{}.pdf'.format(model, images[image_id]), bbox_inches='tight')
+
+# %% Show matching images
+
+from compression import jpeg_helpers
+from skimage.measure import compare_ssim
+
+image_id = 3
+model = '4k'
+
+dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+sample_x = batch_x[images[image_id]:images[image_id]+1]
+
+# Compress using DCN and get number of bytes
+sample_y, bytes_dcn = afi.dcn_simulate_compression(dcn, sample_x)
+
+ssim_dcn = compare_ssim(sample_x.squeeze(), sample_y.squeeze(), multichannel=True, data_range=1)
+bpp_dcn = 8 * bytes_dcn / np.prod(sample_x.shape[1:-1])
+
+try:
+    q1 = jpeg_helpers.match_quality(sample_x.squeeze(), ssim_dcn, match='ssim')
+except:
+    q1 = 95 if ssim_dcn > 0.8 else 10
+
+try:
+    q2 = jpeg_helpers.match_quality(sample_x.squeeze(), bpp_dcn, match='bpp')
+except:
+    q2 = 95 if bpp_dcn > 4 else 1
+
+# Compress using JPEG Q1
+sample_q1, bytes_jpeg = jpeg_helpers.compress_batch(sample_x[0], q1, effective=True)
+ssim_q1 = compare_ssim(sample_x.squeeze(), sample_q1.squeeze(), multichannel=True, data_range=1)
+bpp_q1 = 8 * bytes_jpeg / np.prod(sample_x.shape[1:-1])
+
+# Compress using JPEG Q1
+sample_q2, bytes_jpeg = jpeg_helpers.compress_batch(sample_x[0], q2, effective=True)
+ssim_q2 = compare_ssim(sample_x.squeeze(), sample_q2.squeeze(), multichannel=True, data_range=1)
+bpp_q2 = 8 * bytes_jpeg / np.prod(sample_x.shape[1:-1])
+
+crop_size = max([64, batch_x.shape[1] // 4])
+fig = plotting.imsc(
+        tuple(utils.crop_middle(x) for x in (sample_x, sample_y, sample_q1, sample_q2)),
+        [
+            'Crop from original ({0}$\\times${0})'.format(crop_size),
+            'DCN $\\rightarrow$ ssim:{:.2f} bpp:{:.2f}'.format(ssim_dcn, bpp_dcn),
+            'JPEG Q={} $\\rightarrow$ ssim:{:.2f} bpp:{:.2f}'.format(q1, ssim_q1, bpp_q1),
+            'JPEG Q={} $\\rightarrow$ ssim:{:.2f} bpp:{:.2f}'.format(q2, ssim_q2, bpp_q2)
+        ],
+        ncols=4
+)
+fig.tight_layout()
+
+fig.savefig('fig_jpeg_match_{}_{}_image_{}.pdf'.format(model, os.path.split(dataset.strip('/'))[-1], images[image_id]), bbox_inches='tight')
