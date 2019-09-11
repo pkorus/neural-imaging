@@ -36,7 +36,7 @@ dataset = '../data/clic512'
 
 # %% Show changes in rate distortion (averages)
 
-dataset = '../data/raw512'
+dataset = '../data/clic512'
 
 latent_bpf = 5
 lcs = [1.0, 0.1, 0.01, 0.005]
@@ -54,10 +54,10 @@ ratedistortion.plot_curve(plots, axes, dataset, title='{}-bpf repr.'.format(late
 for dcn_model in ['4k', '8k', '16k']:
     plots = OrderedDict()
     
-    plots['dcn (b)'] = ('dcn-forensics.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
+    plots['dcn (b)'] = ('dcn-forensics-7m.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
     # plots['dcn (o)'] = ('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250})
     for lc in lcs:
-        plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
+        plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics-7m.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
 
     ratedistortion.plot_curve(plots, axes, dataset,
                               title='{}-bpf repr.'.format(latent_bpf), images=[],
@@ -65,10 +65,10 @@ for dcn_model in ['4k', '8k', '16k']:
                               baseline_count=0)
 
 if 'raw' in dataset:
-    axes.set_xlim([0.25, 0.95])
-    axes.set_ylim([0.875, 0.95])
+    axes.set_xlim([0.25, 1.15])
+    axes.set_ylim([0.875, 0.97])
 else:
-    axes.set_xlim([0.1, 1.55])
+    axes.set_xlim([0.1, 1.95])
     axes.set_ylim([0.8, 1.00])
 axes.grid(True, linestyle=':')
 
@@ -116,7 +116,7 @@ fig.set_size_inches((5 * len(plot_types), 4))
 
 # %% Load sample data
 
-dataset = '../data/raw512/'
+dataset = '../data/clic512/'
 images = get_sample_images(dataset)
 
 # Discover test files
@@ -139,9 +139,7 @@ from diff_nip import compare_images_ab_ref, fft_log_norm, nm
 from helpers.utils import dct_mask
 import scipy as sp
 
-dcn_model = '4k'
-# Worst images for clic: 1, 28, 33, 36
-image_id = 8 #images[0] # 32 # 28 for clic
+dcn_model = '8k'
 compact = True
 
 # Define the distribution channel
@@ -156,7 +154,7 @@ dcns = OrderedDict()
 for model in models.keys():
     dcns[model] = afi.restore_model(models[model], patch_size=batch_x.shape[1])
 
-for image_id in get_sample_images(dataset):
+for image_id in get_sample_images(dataset) + [10]:
 
     out_filename = 'debug/{}/{}_{:02d}_{}.pdf'.format(
             dataset.strip('/').split('/')[-1],
@@ -294,7 +292,7 @@ for image_id in get_sample_images(dataset):
 
     fig.subplots_adjust(wspace=0, hspace=0.05)
     os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
-    fig.savefig(out_filename, bbox_inches='tight', dpi=100)
+    fig.savefig(out_filename, bbox_inches='tight', dpi=200)
     
     print('Written to: {}'.format(out_filename))
 
@@ -398,7 +396,7 @@ for image_id in range(batch_x.shape[0]):
         outputs[image_id][model], _ = jpeg_helpers.compress_batch(batch_x[image_id:image_id+1], model)
         all_labels.append('JPEG Q={}'.format(model))
 
-# %% Detailed breakdown of the impact on a specific image
+# %% Detailed breakdown of the impact on a specific image (JPEG)
 
 # Accuracy information will be collected from:
 #  - ../results/summary-dcn-all.csv
@@ -553,25 +551,40 @@ print('Written to: {}'.format(out_filename))
 
 # %% Per-image SSIM & bpp detrioration stats
 
-dataset = '../data/kodak512/'
-df = pd.read_csv(os.path.join(dataset, 'dcn-forensics.csv'), index_col=False)
+dataset = '../data/raw512/'
+df = pd.read_csv(os.path.join(dataset, 'dcn-forensics-7m.csv'), index_col=False)
 
-ssim_costs = []
-bpp_costs = []
+# ssim_costs = []
+# bpp_costs = []
 
 transfer_model = '8k-1.0000/'
+basic_model = '8k-basic/'
+
+df_s = pd.DataFrame(columns=['filename', 'ssim', 'bpp'])
 
 print('# {}'.format(dataset))
 for filename in df['filename'].unique():
     dfc = df.loc[df['filename'] == filename]
-    basic_ssim = dfc.loc[dfc['model_dir'] == '8k-basic/', 'ssim'].values[0]
-    basic_bpp = dfc.loc[dfc['model_dir'] == '8k-basic/', 'bpp'].values[0]
+    basic_ssim = dfc.loc[dfc['model_dir'] == basic_model, 'ssim'].values[0]
+    basic_bpp = dfc.loc[dfc['model_dir'] == basic_model, 'bpp'].values[0]
     transfer_ssim = dfc.loc[dfc['model_dir'] == transfer_model, 'ssim'].values[0]
     transfer_bpp = dfc.loc[dfc['model_dir'] == transfer_model, 'bpp'].values[0]
-    ssim_costs.append(transfer_ssim - basic_ssim)
-    bpp_costs.append(transfer_bpp - basic_bpp)
-    print('{:2d} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format(dfc['image_id'].values[0], filename, ssim_costs[-1], bpp_costs[-1]))
-print('{:2} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format('Σ', '-', np.mean(ssim_costs), np.mean(bpp_costs)))
+    df_s = df_s.append({'filename': filename, 'ssim': transfer_ssim - basic_ssim, 'bpp': transfer_bpp - basic_bpp}, ignore_index=True)
+
+print(df_s.sort_values('ssim'))
+print('{:2} -> ssim: {:.3f} bpp: {:.3f}'.format('Σ', *df_s.mean()))
+
+fig = plt.figure(figsize=(8,4))
+ax = fig.gca()
+ax.plot([0, 0], [0, 30], ':k')
+ax.hist(df_s['ssim'], bins=np.linspace(-0.1, 0.1, 30))
+ax.set_xlabel('SSIM deterioration in channel model')
+ax.set_ylabel('Frequency')
+ax.set_title(os.path.split(dataset.strip('/'))[-1])
+ax.set_ylim([0, 17])
+ax.set_xlim([-0.08, 0.08])
+
+fig.savefig('fig_ssim_diff_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1]), dpi=100)
 
 # %% Pool compression quality and classification accuracy
 
@@ -587,7 +600,7 @@ print('{:2} {:>35} -> ssim: {:.3f} bpp: {:.3f}'.format('Σ', '-', np.mean(ssim_c
 #
 # > ./results.py ./data/raw/m/jpeg --df ./results df
 
-dataset = '../data/raw512/'
+dataset = '../data/clic512/'
 dcn_models = ['4k', '8k', '16k']
 lambdas = [0.001, 0.005, 0.010, 0.050, 0.100, 1.000, 'basic']
 
@@ -767,11 +780,11 @@ y_axis = 'ssim'
 if 'raw' in dataset:
     x_limits = [0.225, 1.225]
 else:
-    x_limits = [0.75, 1.00]
+    x_limits = [0.4, 2.1]
 
 if y_axis == 'ssim':
-    x_shift, y_shift = 0, 0.005
-    y_limits = [0.875, 0.952]
+    x_shift, y_shift = 0, 0.01
+    y_limits = [0.825, 0.972]
 
 if y_axis == 'accuracy':
     x_shift, y_shift = 0.015, 0.0
@@ -833,7 +846,7 @@ for pid in range(0, len(df_o)):
 
         # Draw the actual label
         ax.text(df_o.loc[pid, x_axis] + x_shift, df_o.loc[pid, y_axis] - y_shift, label,
-                horizontalalignment='left', size=7, color=label_color,
+                horizontalalignment=ha, size=7, color=label_color,
                 ha=ha)
 
 # Add lines & points for JPEG -------------------------------------------------
@@ -845,7 +858,7 @@ g = sns.scatterplot(x=x_axis, y=y_axis, hue=z_axis, size=z_axis, edgecolor='gray
 
 for pid in range(0, len(df_j)):
     if df_j.loc[pid, x_axis] < x_limits[-1] and df_j.loc[pid, y_axis] > y_limits[0] and int(df_j.quality[pid]) % 10 == 0:
-        ax.text(df_j.loc[pid, x_axis] + 0.015, df_j.loc[pid, y_axis], 'JPG({})'.format(int(df_j.quality[pid])),
+        ax.text(df_j.loc[pid, x_axis] + 0.035, df_j.loc[pid, y_axis], 'JPG({})'.format(int(df_j.quality[pid])),
              horizontalalignment='left', size=7, color='black', va='center')
 
 # Final touches ---------------------------------------------------------------
@@ -867,6 +880,11 @@ ax.set_ylim(y_limits)
 ax.set_xlabel(axis_labels[x_axis])
 ax.set_ylabel(axis_labels[y_axis])
 # ax.legend(loc='lower right', fancybox=True, framealpha=0.5)
+if y_axis == 'ssim':
+    ax.set_title('(b) rate-distortion trade-off')
+if y_axis == 'accuracy':
+    ax.set_title('(a) rate-accuracy trade-off')
+
 
 fig.tight_layout()
 fig.savefig('fig_summary_{}_vs_{}_{}.pdf'.format(y_axis, x_axis, dataset.strip('/').split('/')[-1]),

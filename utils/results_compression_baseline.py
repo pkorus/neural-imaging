@@ -72,7 +72,7 @@ fig.savefig('fig_dcn_tradeoff_{}.pdf'.format(os.path.split(dataset.strip('/'))[-
 
 # %% Load sample data
 
-dataset = '../data/clic512/'
+dataset = '../data/kodak512/'
 images = get_sample_images(dataset)
 
 # Discover test files
@@ -251,7 +251,7 @@ fig.savefig('fig_jpeg_bpp_match_model_{}_image_{}.pdf'.format(model, images[imag
 from compression import jpeg_helpers
 from skimage.measure import compare_ssim
 
-image_id = 3
+image_id = 1
 model = '4k'
 
 dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
@@ -292,7 +292,7 @@ fig = plotting.imsc(
             'JPEG Q={} $\\rightarrow$ ssim:{:.2f} bpp:{:.2f}'.format(q1, ssim_q1, bpp_q1),
             'JPEG Q={} $\\rightarrow$ ssim:{:.2f} bpp:{:.2f}'.format(q2, ssim_q2, bpp_q2)
         ],
-        ncols=4
+        ncols=2, figwidth=8
 )
 fig.tight_layout()
 

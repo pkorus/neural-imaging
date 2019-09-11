@@ -120,13 +120,12 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
     fig = compare_images_ab_ref(target_y, sample_ya, sample_yb)
 
     if output_dir is not None:
-        pass
-    #     from tikzplotlib import save as tikz_save
-    #     dcomp = [x for x in coreutils.splitall(model_b_dirname) if re.match('(lr-.*|[0-9]{3})', x)]
-    #     tikz_save('{}/examples-{}-{}-{}-{}-{}.tex'.format(output_dir, camera, pipeline, image_id, dcomp[0], dcomp[1]), figureheight='8cm', figurewidth='8cm', strict=False)
-    # else:
-    #     fig.tight_layout()
-    #     fig.show(fig)
+        from tikzplotlib import save as tikz_save
+        dcomp = [x for x in coreutils.splitall(model_b_dirname) if re.match('(ln-.*|[0-9]{3})', x)]
+        tikz_save('{}/examples-{}-{}-{}-{}-{}.tex'.format(output_dir, camera, pipeline, image_id, dcomp[0], dcomp[1]), figureheight='8cm', figurewidth='8cm', strict=False)
+    else:
+        fig.tight_layout()
+        fig.show(fig)
 
     plt.show()
     plt.close(fig)
@@ -178,7 +177,7 @@ def compare_images_ab_ref(img_ref, img_a, img_b, labels=None):
     fft_b = fft_log_norm(diff_b)
 
     # fft_ab = nm(np.abs(fft_a - fft_b))
-    fft_ab = nm(np.abs(fft_log_norm(img_b) - fft_log_norm(img_a)))
+    fft_ab = nm(np.abs(fft_log_norm(img_b) - fft_log_norm(img_a)), 0.01)
     plotting.quickshow(fft_a, 'FFT(T - A)', axes=axes[5])
     plotting.quickshow(fft_b, 'FFT(T - B)', axes=axes[7])
     plotting.quickshow(fft_ab, 'FFT(A) - FFT(B)', axes=axes[8])

@@ -324,7 +324,7 @@ def plot_curve(plots, axes,
 
     # Define a parametric model for the trade-off curve
     def func(x, a, b, c, d):
-        return np.exp(b*x**a - c)/(1 + np.exp(b*x**a - c)) - d
+        return 1/(1 + np.exp(- b * x ** a + c)) - d
 
     # Select measurements for the given images
     for dfc in df_all:
@@ -362,7 +362,7 @@ def plot_curve(plots, axes,
             import pyqt_fit.nonparam_regression as smooth
             from pyqt_fit import npr_methods
 
-            k2 = smooth.NonParamRegression(bpps, ssims, method=npr_methods.LocalPolynomialKernel(q=1))
+            k2 = smooth.NonParamRegression(bpps, ssims, method=npr_methods.LocalPolynomialKernel(q=5))
             k2.fit()
             axes.plot(x, k2(x), styles[index][0], label=labels[index] if add_legend else None)
             ssim_min = min([ssim_min, min(k2(x))])
