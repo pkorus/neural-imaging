@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # coding: utf-8
 
 # Basic imports
@@ -48,7 +48,8 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         'learning_rate': 1e-4,
         'n_images': int(split.split(':')[0]),
         'v_images': int(split.split(':')[1]),
-        'val_n_patches': int(split.split(':')[2])
+        'val_n_patches': int(split.split(':')[2]),
+        'feed': 'rgb'
     }
 
     # Setup trainable elements and regularization ----------------------------------------------------------------------
@@ -108,15 +109,24 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
 
     for camera_name in camera_names:
         
-        print('\n# Loading data for camera {}'.format(camera_name))
+        print('\n# Loading data for {}'.format(camera_name))
         
         training['camera_name'] = camera_name
         
         # Load the dataset for the given camera
-        data_directory = os.path.join('./data/raw/nip_training_data/', camera_name)
+        if camera_name == 'rgb':
+            data_directory = os.path.join('./data/compression/')
+            patch_mul = 2
+            load = 'y'
+        else:
+            data_directory = os.path.join('./data/raw/nip_training_data/', camera_name)
+            patch_mul = 2
+            load = 'xy'
 
         # Find available images
-        data = dataset.IPDataset(data_directory, n_images=training['n_images'], v_images=training['v_images'], load='xy', val_rgb_patch_size=2 * training['patch_size'], val_n_patches=training['val_n_patches'])
+        data = dataset.IPDataset(data_directory, n_images=training['n_images'], v_images=training['v_images'], load=load, val_rgb_patch_size=patch_mul * training['patch_size'], val_n_patches=training['val_n_patches'])
+
+        # data = dataset.IPDataset(data_directory, n_images=training['n_images'], v_images=training['v_images'], load=load, val_rgb_patch_size=training['patch_size'], val_n_patches=training['val_n_patches'])
 
         # Repeat evaluation
         for rep in range(start_repetition, end_repetition):
@@ -141,7 +151,7 @@ def main():
 
     # Directories
     group = parser.add_argument_group('directories')
-    group.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/train_manipulation/',
+    group.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/m_experimental/',
                         help='the root directory for storing results')
     group.add_argument('--nip-dir', dest='nip_directory', action='store', default='./data/raw/nip_model_snapshots/',
                         help='the root directory for storing results')

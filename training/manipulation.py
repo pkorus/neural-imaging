@@ -289,9 +289,10 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
         raise ValueError('Training data seems not to be loaded!')
 
     try:
-        batch_x, batch_y = data.next_training_batch(0, 5, training['patch_size'] * 2)
-        if batch_x.shape != (5, training['patch_size'], training['patch_size'], 4) or batch_y.shape != (5, 2 * training['patch_size'], 2 * training['patch_size'], 3):
-            raise ValueError('The training batch returned by the dataset is of invalid size!')
+        if training['feed'] != 'rgb':
+            batch_x, batch_y = data.next_training_batch(0, 5, training['patch_size'] * 2)
+            if batch_x.shape != (5, training['patch_size'], training['patch_size'], 4) or batch_y.shape != (5, 2 * training['patch_size'], 2 * training['patch_size'], 3):
+                raise ValueError('The training batch returned by the dataset is of invalid size!')
 
     except Exception as e:
         raise ValueError('Data set error: {}'.format(e))
@@ -344,7 +345,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     tf_ops['nip'].init()
     tf_ops['sess'].run(tf.global_variables_initializer())
 
-    if training['use_pretrained_nip']:
+    if training['use_pretrained_nip'] and training['feed'] == 'raw':
         tf_ops['nip'].load_model(os.path.join(directories['nip_snapshots'], training['camera_name'], tf_ops['nip'].scoped_name))
     
     if distribution['compression'] == 'dcn':
@@ -392,9 +393,10 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     training_summary['Learning rate'] = '{}'.format(training['learning_rate'])
     training_summary['Learning rate decay schedule'] = '{}'.format(learning_rate_decay_schedule)
     training_summary['Learning rate decay rate'] = '{}'.format(learning_rate_decay_rate)
-    training_summary['# train. images'] = '{}'.format(data['training']['x'].shape)
-    training_summary['# valid. images'] = '{}'.format(data['validation']['x'].shape)
-    training_summary['# batches'] = '{}'.format(batch_x.shape)
+    if training['feed'] != 'rgb':
+        training_summary['# train. images'] = '{}'.format(data['training']['x'].shape)
+        training_summary['# valid. images'] = '{}'.format(data['validation']['x'].shape)
+        training_summary['# batches'] = '{}'.format(batch_x.shape)
     training_summary['NIP input patch'] = '{}'.format(tf_ops['nip'].x.shape)
     training_summary['NIP output patch'] = '{}'.format(tf_ops['nip'].y.shape)
     training_summary['FAN input patch'] = '{}'.format(tf_ops['fan'].x.shape)
@@ -416,12 +418,16 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
             for batch_id in range(n_batches):
 
                 # Extract random patches for the current batch of images
-                batch_x, batch_y = data.next_training_batch(batch_id, batch_size, 2 * patch_size)
+                if training['feed'] == 'raw':
+                    batch_x, batch_y = data.next_training_batch(batch_id, batch_size, 2 * patch_size)
+                else:
+                    batch_x = data.next_training_batch(batch_id, batch_size, 2 * patch_size)
+                    batch_y = batch_x
 
                 if any(joint_optimization):
                     # Make custom optimization step                    
                     comb_loss, nip_loss, _ = tf_ops['sess'].run([tf_ops['loss'], tf_ops['nip'].loss, tf_ops['opt']], feed_dict={
-                        tf_ops['nip'].x: batch_x,
+                        tf_ops['nip'].x if training['feed'] == 'raw' else tf_ops['nip'].yy: batch_x,
                         tf_ops['nip'].y_gt: batch_y,
                         tf_ops['fan'].y: batch_l,
                         tf_ops['lr']: learning_rate,

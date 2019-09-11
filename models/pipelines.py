@@ -72,7 +72,10 @@ class NIPModel(TFModel):
 
                     # Create the optimizer and make sure only the parameters of the current model are updated
                     self.adam = tf.train.AdamOptimizer(learning_rate=self.lr, name='nip_adam{}'.format(self.scoped_name))
-                    self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
+                    if len(self.parameters) > 0:
+                        self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
+                    else:
+                        self.opt = None
     
     def construct_model(self):
         """
@@ -289,3 +292,14 @@ class DNet(NIPModel):
 
 
 supported_models = [name for name, obj in inspect.getmembers(sys.modules[__name__]) if type(obj) is type and issubclass(obj, NIPModel) and name != 'NIPModel']
+
+
+class ONet(NIPModel):
+    """
+    Dummy pipeline for RGB manipulation training.
+    """
+
+    def construct_model(self):
+            self.x = self.y_gt
+            self.yy = self.y_gt
+            self.y = self.y_gt

@@ -28,7 +28,10 @@ def confusion(fan, data, label_generator, label_multiplier=1):
     conf = np.zeros((n_classes, n_classes))
     
     for batch in range(n_batches):
-        batch_x, _ = data.next_validation_batch(batch, batch_size)
+
+        batch_x = data.next_validation_batch(batch, batch_size)
+        if isinstance(batch_x, tuple):
+            batch_x = batch_x[0]
 
         if isinstance(label_generator, types.FunctionType):
             batch_y = label_generator(len(batch_x))
@@ -36,7 +39,7 @@ def confusion(fan, data, label_generator, label_multiplier=1):
             batch_y = label_generator[(batch * batch_size * label_multiplier):(batch + 1) * batch_size * label_multiplier]
 
         predicted_labels = fan.process(batch_x)
-        
+
         for c in range(n_classes):
             for c_ in range(n_classes):
                 conf[c, c_] += np.sum((batch_y == c) * (predicted_labels == c_))
@@ -61,7 +64,9 @@ def validate_dcn(dcn, data, save_dir=False, epoch=0, show_ref=False):
         return
 
     # Compute latent representations and compressed output
-    batch_x = data.next_validation_batch(0, data.count_validation)[-1]
+    batch_x = data.next_validation_batch(0, data.count_validation)
+    if isinstance(batch_x, tuple):
+        batch_x = batch_x[-1]
     batch_z = dcn.compress(batch_x, direct=True)
     batch_y = dcn.process(batch_x, direct=True)
 
@@ -183,7 +188,9 @@ def validate_fan(fan, data, label_generator, label_multiplier, get_labels=False)
 
     for batch in range(n_batches):
 
-        batch_x, _ = data.next_validation_batch(batch, batch_size)
+        batch_x = data.next_validation_batch(batch, batch_size)
+        if isinstance(batch_x, tuple):
+            batch_x = batch_x[0]
 
         if isinstance(label_generator, types.FunctionType):
             batch_y = label_generator(len(batch_x))
@@ -192,8 +199,9 @@ def validate_fan(fan, data, label_generator, label_multiplier, get_labels=False)
 
         if label_multiplier * len(batch_x) != len(batch_y):
             raise RuntimeError('Number of labels is not equal to the number of examples! {} x {} vs. {}'.format(label_multiplier, len(batch_x), len(batch_y)))
-        
+
         predicted_labels = fan.process(batch_x)
+
         if get_labels:
             out_labels += [x for x in predicted_labels]
 
