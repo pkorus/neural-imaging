@@ -289,10 +289,14 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
         raise ValueError('Training data seems not to be loaded!')
 
     try:
-        if training['feed'] != 'rgb':
+        if data._loaded_data == 'xy':
             batch_x, batch_y = data.next_training_batch(0, 5, training['patch_size'] * 2)
             if batch_x.shape != (5, training['patch_size'], training['patch_size'], 4) or batch_y.shape != (5, 2 * training['patch_size'], 2 * training['patch_size'], 3):
-                raise ValueError('The training batch returned by the dataset is of invalid size!')
+                raise ValueError('The training batch returned by the RAW+RGB dataset is of invalid size! {}'.format(batch_x.shape))
+        elif data._loaded_data == 'y':
+            batch_x = data.next_training_batch(0, 5, training['patch_size'] * 2)
+            if batch_x.shape != (5, 2 * training['patch_size'], 2 * training['patch_size'], 3):
+                raise ValueError('The training batch returned by the RGB dataset is of invalid size! {}'.format(batch_x.shape))
 
     except Exception as e:
         raise ValueError('Data set error: {}'.format(e))
@@ -345,7 +349,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     tf_ops['nip'].init()
     tf_ops['sess'].run(tf.global_variables_initializer())
 
-    if training['use_pretrained_nip'] and training['feed'] == 'raw':
+    if training['use_pretrained_nip'] and tf_ops['nip'].count_parameters() > 0:
         tf_ops['nip'].load_model(os.path.join(directories['nip_snapshots'], training['camera_name'], tf_ops['nip'].scoped_name))
     
     if distribution['compression'] == 'dcn':
@@ -393,10 +397,10 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     training_summary['Learning rate'] = '{}'.format(training['learning_rate'])
     training_summary['Learning rate decay schedule'] = '{}'.format(learning_rate_decay_schedule)
     training_summary['Learning rate decay rate'] = '{}'.format(learning_rate_decay_rate)
-    if training['feed'] != 'rgb':
-        training_summary['# train. images'] = '{}'.format(data['training']['x'].shape)
-        training_summary['# valid. images'] = '{}'.format(data['validation']['x'].shape)
-        training_summary['# batches'] = '{}'.format(batch_x.shape)
+    training_summary['Dataset'] = '{}'.format(data.description)
+    training_summary['# train. images'] = '{}'.format(data.count_training)
+    training_summary['# valid. images'] = '{}'.format(data.count_validation)
+    training_summary['Batch shape'] = '{}'.format(batch_x.shape)
     training_summary['NIP input patch'] = '{}'.format(tf_ops['nip'].x.shape)
     training_summary['NIP output patch'] = '{}'.format(tf_ops['nip'].y.shape)
     training_summary['FAN input patch'] = '{}'.format(tf_ops['fan'].x.shape)
@@ -418,7 +422,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
             for batch_id in range(n_batches):
 
                 # Extract random patches for the current batch of images
-                if training['feed'] == 'raw':
+                if data._loaded_data == 'xy':
                     batch_x, batch_y = data.next_training_batch(batch_id, batch_size, 2 * patch_size)
                 else:
                     batch_x = data.next_training_batch(batch_id, batch_size, 2 * patch_size)
@@ -427,7 +431,7 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
                 if any(joint_optimization):
                     # Make custom optimization step                    
                     comb_loss, nip_loss, _ = tf_ops['sess'].run([tf_ops['loss'], tf_ops['nip'].loss, tf_ops['opt']], feed_dict={
-                        tf_ops['nip'].x if training['feed'] == 'raw' else tf_ops['nip'].yy: batch_x,
+                        tf_ops['nip'].x if data._loaded_data == 'xy' else tf_ops['nip'].yy: batch_x,
                         tf_ops['nip'].y_gt: batch_y,
                         tf_ops['fan'].y: batch_l,
                         tf_ops['lr']: learning_rate,

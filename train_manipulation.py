@@ -49,7 +49,6 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         'n_images': int(split.split(':')[0]),
         'v_images': int(split.split(':')[1]),
         'val_n_patches': int(split.split(':')[2]),
-        'feed': 'rgb'
     }
 
     # Setup trainable elements and regularization ----------------------------------------------------------------------
@@ -113,12 +112,14 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         
         training['camera_name'] = camera_name
         
-        # Load the dataset for the given camera
-        if camera_name == 'rgb':
-            data_directory = os.path.join('./data/compression/')
+        # Load the dataset
+        if nip_model == 'ONet':
+            # TODO Dirty hack - if the NIP model is the dummy empty model, load RGB images only
+            data_directory = os.path.join('./data/rgb/', camera_name)
             patch_mul = 2
             load = 'y'
         else:
+            # Otherwise, load (RAW, RGB) pairs for a specific camera
             data_directory = os.path.join('./data/raw/nip_training_data/', camera_name)
             patch_mul = 2
             load = 'xy'

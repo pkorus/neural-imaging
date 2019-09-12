@@ -142,3 +142,20 @@ class IPDataset(object):
             stats['validation/{}'.format(k)] = str(self.data['validation'][k].shape)
 
         return stats
+
+    @property
+    def description(self):
+        if self._loaded_data == 'xy':
+            db_type = 'raw+rgb'
+        elif self._loaded_data == 'y':
+            db_type = 'rgb'
+        elif self._loaded_data == 'x':
+            db_type = 'raw'
+
+        label = ['{} dataset from {} w. {:,d} tr + {:,d} val images'.format(db_type, self._data_directory, self.count_training, self.count_validation)]
+
+        for k in 'xy':
+            if k in self._loaded_data:
+                label.append('| {} -> t:{} + v:{}'.format(k, self.data['training'][k].shape, self.data['validation'][k].shape))
+
+        return ' '.join(label)
