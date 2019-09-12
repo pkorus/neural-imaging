@@ -520,14 +520,16 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
             pbar.update(1)
 
     # Plot final results
-    values = validation.validate_nip(tf_ops['nip'], data, nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
-    for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
-        tf_ops['nip'].performance[metric]['validation'].append(float(np.mean(val_array)))
+    if joint_optimization[0]:
+        values = validation.validate_nip(tf_ops['nip'], data, nip_save_dir, epoch=epoch, show_ref=True, loss_type='L2')
+        for metric, val_array in zip(['ssim', 'psnr', 'loss'], values):
+            tf_ops['nip'].performance[metric]['validation'].append(float(np.mean(val_array)))
 
-    if isinstance(tf_ops['dcn'], compression.DCN):
-        values = validation.validate_dcn(tf_ops['dcn'], data, nip_save_dir, epoch=epoch, show_ref=True)
-        for metric, val_array in zip(['ssim', 'psnr', 'loss', 'entropy'], values):
-            tf_ops['dcn'].performance[metric]['validation'].append(float(np.mean(val_array)))
+    if joint_optimization[1]:
+        if isinstance(tf_ops['dcn'], compression.DCN):
+            values = validation.validate_dcn(tf_ops['dcn'], data, nip_save_dir, epoch=epoch, show_ref=True)
+            for metric, val_array in zip(['ssim', 'psnr', 'loss', 'entropy'], values):
+                tf_ops['dcn'].performance[metric]['validation'].append(float(np.mean(val_array)))
         
     # Compute confusion matrix
     conf = validation.confusion(tf_ops['fan'], data, lambda x: batch_labels(x, n_classes))
