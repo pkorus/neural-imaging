@@ -81,7 +81,7 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
 
         manipulations = manipulations or ['sharpen', 'resample', 'gaussian', 'jpeg']
 
-        strengths = {'sharpen': 2, 'resample': 75, 'gaussian': 0.83, 'jpeg': 80, 'awgn': 5.1, 'gamma': 3, 'median': 3}
+        strengths = {'sharpen': 1, 'resample': 50, 'gaussian': 0.83, 'jpeg': 80, 'awgn': 5.1, 'gamma': 3, 'median': 3}
         manipulations_set = set()
         for m in manipulations:
             spec = m.split(':')
