@@ -14,10 +14,12 @@ activation_mapping = {
 }
 
 
-def manipulation_resample(x, factor=2):
+def manipulation_resample(x, factor=0.5):
     with tf.name_scope('resample'):
-        im_res = tf.image.resize_images(x, [tf.shape(x)[1] // factor, tf.shape(x)[1] // factor])
-        return tf.image.resize_images(im_res, [tf.shape(x)[1], tf.shape(x)[1]])
+        im_res = tf.image.resize_images(x, [tf.shape(x)[1] * int(factor) // 100, tf.shape(x)[1] * int(factor) // 100], method=tf.image.ResizeMethod.BILINEAR)
+        return tf.image.resize_images(im_res, [tf.shape(x)[1], tf.shape(x)[1]], tf.image.ResizeMethod.BILINEAR)
+        # im_res = tf.image.resize_images(x, [tf.shape(x)[1] * factor, tf.shape(x)[1] * factor], method=tf.image.ResizeMethod.BILINEAR)
+        # return tf.image.resize_images(im_res, [tf.shape(x)[1], tf.shape(x)[1]], tf.image.ResizeMethod.BILINEAR)
 
 
 def manipulation_awgn(x, strength=0.025):
@@ -34,7 +36,8 @@ def manipulation_gamma(x, strength=2.0):
         return tf.pow(tf.clip_by_value(im_gamma, 1, 255) / 255.0, 1/strength, name='sqrt')
 
 
-def manipulation_median(x, kernel):
+def manipulation_median(x, kernel=3):
+    kernel = int(kernel)
     with tf.name_scope('median_filter'):
         xp = tf.pad(x, [[0, 0], 2*[kernel//2], 2*[kernel//2], [0, 0]], 'REFLECT')
         patches = tf.extract_image_patches(xp, [1, kernel, kernel, 1], [1, 1, 1, 1], 4*[1], 'VALID')
@@ -43,6 +46,7 @@ def manipulation_median(x, kernel):
 
     
 def manipulation_gaussian(x, kernel, std, skip_clip=False):
+    kernel = int(kernel)
     with tf.name_scope('gaussian_filter'):
         gk = gkern(kernel, std)
         gfilter = np.zeros((kernel, kernel, 3, 3))
@@ -57,19 +61,13 @@ def manipulation_gaussian(x, kernel, std, skip_clip=False):
             return tf.clip_by_value(y, 0, 1)
 
 
-def manipulation_sharpen(x, filter=None, hsv=True):
+def manipulation_sharpen(x, strength=1, hsv=True):
     with tf.name_scope('sharpen_filter'):
 
-        if filter == 0:  # weak
-            gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 2.0000, -0.1667], [-0.0833, -0.1667, -0.0833]])
-        elif filter == 1:  # strong
-            gk = np.array([[-0.1667, -0.6667, -0.1667], [-0.6667, 4.3333, -0.6667], [-0.1667, -0.6667, -0.1667]])
-        else:
-            gk = None
-
-        # Other standard filters
-        # gk = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-        # gk = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])            
+        # Prepare the sharpening filter
+        gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 0, -0.1667], [-0.0833, -0.1667, -0.0833]])
+        gk = strength * gk / np.abs(gk.sum())
+        gk[1, 1] = strength + 1
 
         if gk is None or gk.ndim != 2 or gk.shape[0] != gk.shape[1]:
             raise ValueError('Invalid filter! {}'.format(gk))

@@ -77,52 +77,62 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
     # Several paths for post-processing --------------------------------------------------------------------------------
     with tf.name_scope('distribution'):
 
+        # Parse manipulation specs
+
         manipulations = manipulations or ['sharpen', 'resample', 'gaussian', 'jpeg']
 
-        if any(x not in SUPPORTED_MANIPULATIONS for x in manipulations):
+        strengths = {'sharpen': 2, 'resample': 75, 'gaussian': 0.83, 'jpeg': 80, 'awgn': 5.1, 'gamma': 3, 'median': 3}
+        manipulations_set = set()
+        for m in manipulations:
+            spec = m.split(':')
+            manipulations_set.add(spec[0])
+            if len(spec) > 1:
+                strengths[spec[0]] = float(spec[-1])
+
+        if any(x not in SUPPORTED_MANIPULATIONS for x in manipulations_set):
             raise ValueError('Unsupported manipulation requested! Available: {}'.format(SUPPORTED_MANIPULATIONS))
 
         operations = [model.y]
         forensics_classes = ['native']
         # Sharpen
-        if 'sharpen' in manipulations:
-            im_shr = tf_helpers.manipulation_sharpen(model.y, 0, hsv=True)
+        if 'sharpen' in manipulations_set:
+            im_shr = tf_helpers.manipulation_sharpen(model.y, strengths['sharpen'], hsv=True)
             operations.append(im_shr)
             forensics_classes.append('sharpen')
 
         # Bilinear resampling
-        if 'resample' in manipulations:
-            im_res = tf_helpers.manipulation_resample(model.y)
+        if 'resample' in manipulations_set:
+            im_res = tf_helpers.manipulation_resample(model.y, strengths['resample'])
             operations.append(im_res)
             forensics_classes.append('resample')
 
         # Gaussian filter
-        if 'gaussian' in manipulations:
-            im_gauss = tf_helpers.manipulation_gaussian(model.y, 5, 0.85)
+        if 'gaussian' in manipulations_set:
+            im_gauss = tf_helpers.manipulation_gaussian(model.y, 5, strengths['gaussian'])
             operations.append(im_gauss)
             forensics_classes.append('gaussian')
 
         # Mild JPEG
-        if 'jpeg' in manipulations:
-            tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=80, rounding_approximation='soft')
+        if 'jpeg' in manipulations_set:
+            tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=strengths['jpeg'], rounding_approximation='soft')
             operations.append(tf_jpg.y)
             forensics_classes.append('jpeg')
 
         # AWGN
-        if 'awgn' in manipulations:
-            im_awgn = tf_helpers.manipulation_awgn(model.y, 0.02)
+        if 'awgn' in manipulations_set:
+            im_awgn = tf_helpers.manipulation_awgn(model.y, strengths['awgn'] / 255)
             operations.append(im_awgn)
             forensics_classes.append('awgn')
 
         # Gamma + inverse
-        if 'gamma' in manipulations:
-            im_gamma = tf_helpers.manipulation_gamma(model.y, 3)
+        if 'gamma' in manipulations_set:
+            im_gamma = tf_helpers.manipulation_gamma(model.y, strengths['gamma'])
             operations.append(im_gamma)
             forensics_classes.append('gamma')
 
         # Median
-        if 'median' in manipulations:
-            im_median = tf_helpers.manipulation_median(model.y, 3)
+        if 'median' in manipulations_set:
+            im_median = tf_helpers.manipulation_median(model.y, strengths['median'])
             operations.append(im_median)
             forensics_classes.append('median')
 
@@ -331,6 +341,9 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     joint_opt.extend(sorted(training['trainable']))
     joint_opt = '+'.join(joint_opt)
     joint_optimization = ['nip' in training['trainable'], 'dcn' in training['trainable']]
+
+    if joint_optimization[0] and tf_ops['nip'].count_parameters() == 0:
+        raise ValueError('It looks like you`re trying to optimize a NIP with no trainable parameters!')
 
     # Basic setup
     problem_description = 'manipulation detection'
