@@ -44,7 +44,10 @@ def confusion(fan, data, label_generator, label_multiplier=1):
             for c_ in range(n_classes):
                 conf[c, c_] += np.sum((batch_y == c) * (predicted_labels == c_))
 
-    return conf / data.count_validation
+    if n_batches * batch_size != data.count_validation:
+        print('WARNING Not enough images to fill the last batch ({})'.format(batch_size))
+
+    return conf / (n_batches * batch_size)
 
 
 def validate_dcn(dcn, data, save_dir=False, epoch=0, show_ref=False):

@@ -294,7 +294,7 @@ def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=
         training_progress_path = str(filename)
 
     if training_progress_path is None:
-        raise FileNotFoundError('Could not find a model snapshot in {}'.format(dir_name))
+        raise FileNotFoundError('Could not find a DCN model snapshot (json+checkpoint) in {}'.format(dir_name))
 
     with open(training_progress_path) as f:
         training_progress = json.load(f)

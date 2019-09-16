@@ -98,43 +98,43 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
         if 'sharpen' in manipulations_set:
             im_shr = tf_helpers.manipulation_sharpen(model.y, strengths['sharpen'], hsv=True)
             operations.append(im_shr)
-            forensics_classes.append('sharpen')
+            forensics_classes.append('sharpen:{}'.format(strengths['sharpen']))
 
         # Bilinear resampling
         if 'resample' in manipulations_set:
             im_res = tf_helpers.manipulation_resample(model.y, strengths['resample'])
             operations.append(im_res)
-            forensics_classes.append('resample')
+            forensics_classes.append('resample:{}'.format(strengths['resample']))
 
         # Gaussian filter
         if 'gaussian' in manipulations_set:
             im_gauss = tf_helpers.manipulation_gaussian(model.y, 5, strengths['gaussian'])
             operations.append(im_gauss)
-            forensics_classes.append('gaussian')
+            forensics_classes.append('gaussian:{}'.format(strengths['gaussian']))
 
         # Mild JPEG
         if 'jpeg' in manipulations_set:
             tf_jpg = DJPG(sess, tf.get_default_graph(), model.y, None, quality=strengths['jpeg'], rounding_approximation='soft')
             operations.append(tf_jpg.y)
-            forensics_classes.append('jpeg')
+            forensics_classes.append('jpeg:{}'.format(strengths['jpeg']))
 
         # AWGN
         if 'awgn' in manipulations_set:
             im_awgn = tf_helpers.manipulation_awgn(model.y, strengths['awgn'] / 255)
             operations.append(im_awgn)
-            forensics_classes.append('awgn')
+            forensics_classes.append('awgn:{}'.format(strengths['awgn']))
 
         # Gamma + inverse
         if 'gamma' in manipulations_set:
             im_gamma = tf_helpers.manipulation_gamma(model.y, strengths['gamma'])
             operations.append(im_gamma)
-            forensics_classes.append('gamma')
+            forensics_classes.append('gamma:{}'.format(strengths['gamma']))
 
         # Median
         if 'median' in manipulations_set:
             im_median = tf_helpers.manipulation_median(model.y, strengths['median'])
             operations.append(im_median)
-            forensics_classes.append('median')
+            forensics_classes.append('median:{}'.format(strengths['median']))
 
         n_classes = len(operations)
         assert len(forensics_classes) == n_classes
