@@ -13,7 +13,7 @@ from skimage.measure import compare_ssim
 from helpers import plotting, dataset, coreutils, loading, utils
 from compression import jpeg_helpers, afi, ratedistortion
 
-supported_plots = ['batch', 'jpeg-match', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off', 'bpg-trade-off']
+supported_plots = ['batch', 'jpeg-match-ssim', 'jpeg-match-bpp', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off', 'bpg-trade-off']
 
 
 def match_jpeg(model, batch_x, axes=None, match='ssim'):
@@ -178,7 +178,7 @@ def main():
         plt.show()
         plt.close()
 
-    elif args.plot == 'jpeg-match':
+    elif args.plot == 'jpeg-match-ssim':
         files, _ = loading.discover_files(args.data, n_images=-1, v_images=0)
         files = files[args.image_id:args.image_id+1]
         batch_x = loading.load_images(files, args.data, load='y')
@@ -186,7 +186,19 @@ def main():
 
         model = afi.restore_model(args.dir, batch_x.shape[1])
 
-        fig = match_jpeg(model, batch_x)
+        fig = match_jpeg(model, batch_x, match='ssim')
+        plt.show()
+        plt.close()
+
+    elif args.plot == 'jpeg-match-bpp':
+        files, _ = loading.discover_files(args.data, n_images=-1, v_images=0)
+        files = files[args.image_id:args.image_id+1]
+        batch_x = loading.load_images(files, args.data, load='y')
+        batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
+
+        model = afi.restore_model(args.dir, batch_x.shape[1])
+
+        fig = match_jpeg(model, batch_x, match='bpp')
         plt.show()
         plt.close()
 
