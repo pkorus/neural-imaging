@@ -126,7 +126,7 @@ For example, to compare our low-qualit codec against JPEG at matching app:
 > python3 test_dcn.py --data ./data/kodak --dir ./data/raw/dcn/presets/4k jpeg-match-bpp --image 4
 ```
 
-![neural imaging pipeline](docs/dcn-example-low-kodak-4.png)
+![neural imaging pipeline](docs/dcn-example-low-kodak-4.jpg)
 
 ### (III) Optimization for Manipulation Detection
 
