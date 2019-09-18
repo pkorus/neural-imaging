@@ -2,25 +2,23 @@
 
 Authors: [Paweł Korus](http://kt.agh.edu.pl/~korus/) and [Nasir Memon](http://isis.poly.edu/memon/), New York University
 
-A Python toolbox for training neural imaging pipelines (NIPs) with support for explicit optimization of content authentication capabilities at the end of content distribution channels. The general principle is illustrated below for a binary manipulation detection problem:
+A Python toolbox for modeling and optimization of photo acquisition and distribution channels focusing on reliable manipulation detection capabilities. Joint optimization can include the camera ISP (NIP), lossy photo compression (DCN), and forensic image analysis (FAN). 
 
-![schematic overview](./docs/schematic_overview.png)
+The toolbox provides a [Tensorflow](https://www.tensorflow.org/) implementation of the following generic model: 
 
-The whole imaging and distribution channel is modeled as a fully differentiable [Tensorflow](https://www.tensorflow.org/) model. The camera is replaced with a convolutional neural network and optimized for:
+![training for optimized manipulation detection](docs/manipulation_detection_training_architecture.png)
 
-- faithful development of color RGB images from RAW sensor measurements,
-- reliable manipulation detection at the end of the distribution channel.
-
-The NIP is used to replace most of the steps of the standard pipeline:     
-
-![neural imaging pipeline](./docs/nip_architectures_pipeline.png)
-
-More information can be found in papers listed below.
-
-**References:**
+More information can be found in papers listed below:
 
 1. P. Korus, N. Memon, *Content Authentication for Neural Imaging Pipelines: End-to-end Optimization of Photo Provenance in Complex Distribution Channels*, CVPR'19, [arxiv:1812.01516](https://arxiv.org/abs/1812.01516) 
 2. P. Korus, N. Memon, *Neural Imaging Pipelines - the Scourge or Hope of Forensics?*, 2019, [arXiv:1902.10707](https://arxiv.org/abs/1902.10707)
+3. P. Korus, N. Memon, *Quantifying the Cost of Reliable Photo Authentication via High-Performance Learned Lossy Representations*, 2019
+
+A standalone version of the included lossy compression codec can be found in the [neural-image-compression](https://github.com/pkorus/neural-image-compression) repository.
+
+## Changelog
+
+- 2019.11 - Added support for learned compression, configurable manipulations + major refactoring
 
 ## Setup
 
@@ -29,48 +27,61 @@ The toolbox was written in Python 3. Follow the standard procedure to install de
 ```
 > git clone https://github.com/pkorus/neural-imaging && cd neural-imaging.git
 > pip3 install -r requirements.txt
-> mkdir -p data/raw
+> mkdir -p data/{raw,rgb}
+> git submodule init
+> cd pyfse && make && cd ..
 ```
 
 #### Data Directory Structure
 
-The `data/raw` directory is used for storing all data (input images, training pairs, trained model snapshots, etc.). The expected content looks as follow:
+The toolbox uses the `data` directory to store images, training data and pre-trained models:
 
 ```
-images/{Camera name}                            - RAW images (*.nef *.dng)
-nip_training_data/{Camera name}                 - Bayer stacks (uint16 *.npy) and developed (*.png)
-nip_model_snapshots/{Camera name}/{nip}         - NIP models (TF checkpoints)
-nip_developed/{Camera name}/{pipeline or nip}   - NIP-developed images (*.png)
+data/raw/                               - RAW images used for camera ISP training
+  |- images/{camera name}                 RAW images (*.nef *.dng)
+  |- nip_training_data/{camera name}      Bayer stacks (*.npy) and developed (*.png)
+  |- nip_developed/{camera name}/{nip}    NIP-developed images (*.png)
+data/rgb/                               - RGB images used for compression training
+  |- kodak                                A sample dataset with kodak images
+data/config                             - Configuration files (e.g., for DCN training)
+data/models                             - pre-trained TF models
+  |- nip/{camera name}/{nip}              NIP models (TF checkpoints)
+  |- dcn/{dcn model}                      DCN models (TF checkpoints)
+data/m                                  - manipulation training results
 ```
-
-Training data can be prepared from input images with the `train_prepare_training_set.py` script (see details below).
 
 ## Getting Started
 
-We followed a two-phase protocol to train our models:
+The model can be easily customized to use various NIP models, photo manipulations, distribution channels, etc. Detailed configuration instruction are given below in sub-section (III). We generally follow a 2-step protocol with separate model pre-training (camera ISP and/or compression) and joint-optimization/fine-tuning for manipulation detection (retraining from scratch is also possible). 
+
+The following sections cover all necessary steps:
+
 - pre-training of the NIP models for faithful photo development,
-- fine-tuning of the NIP models to optimize for reliable image manipulation detection.
+- pre-training of the DCN for efficient lossy photo compression,
+- joint fine-tuning of the NIP/DCN/FAN models for reliable image manipulation detection.
 
-Since the second phase uses both image fidelity and classification accuracy objectives, the enhanced NIP model can most likely be trained using the second phase only, but this has not been tested. 
+### (I) Pre-training the NIP (Camera ISP)
 
-### Phase I: Standard NIP Training
+The camera ISP is replaced with a convolutional neural network (NIP) which replaces the following steps from the standard pipeline:
 
-First, we need to extract NIP training data for a given camera. The training script looks for RAW images in `./data/raw/images/{camera}`. By default, 150 horizontal images will be taken. This step produces pairs of RGGB Bayer stacks (stored in `*.npy` files) and RGB optimization targets (`*.png`).
+![neural imaging pipeline](./docs/nip_architectures_pipeline.png)
+
+To pre-train a NIP model, we must first extract training data for a given camera. The training script looks for RAW images in `./data/raw/images/{camera name}`. By default, 150 horizontal images will be taken. This step produces pairs of RGGB Bayer stacks (stored in `*.npy` files) and RGB optimization targets (`*.png`).
 
 ```
-> python3 train_prepare_training_set.py --cam "Canon EOS 4D"
+> python3 train_prepare_training_set.py --cam EOS-4D
 ```
 
 Then, we train selected NIP models (the `--nip` argument can be repeated). This step consumes (RGGB, RGB) training pairs and trains the NIP by optimizing the L2 loss on randomly sampled patches. By default, the 150 available images are split into 120/30 for training/validation.
 
 ```
-> python3 train_nip.py --cam "Canon EOS 4D" --nip INet --nip UNet
+> python3 train_nip.py --cam EOS-4D --nip INet --nip UNet
 ```
 
 If needed, additional parameters for the NIPs can be provided as a JSON string.
 
 ```
-> python3 train_nip.py --cam "Nikon D7000" --nip INet --params '{"random_init": true}'
+> python3 train_nip.py --cam D7000 --nip INet --params '{"random_init": true}'
 ```
 
 To validate the NIP models, you may wish to develop some images. The following command will develop all images in the data set. In this command, you can use all of the available imaging pipelines: `libRAW, Python, INet, DNet, UNet`.
@@ -89,9 +100,35 @@ To quickly test a selected NIP on a central image patch (128 x 128 px by default
 > python3 test_nip.py --cam "Canon EOS 5D" --nip INet
 ```
 
-### Phase II: Training NIPs Optimized for Manipulation Detection
+### (II) Pre-training Lossy Compression
 
-![training for optimized manipulation detection](docs/manipulation_detection_training_architecture.png)
+Our toolbox can support various DCN models, but by default we provide only one - `TwitterDCN`. This DCN model follows the general autoencoder architecture by [Theis et al.](https://arxiv.org/abs/1703.00395) but uses custom solutions for quatization, entropy estimation and coding. We illustrate the structure of the model below.
+
+![neural imaging pipeline](docs/dcn-architecture.png)
+
+We also provide 3 pre-trained versions of this model with low, medium and high-quality.
+
+To train a different model, we can use the `train_dcn` script and provide a list of model configurations (csv file with hyperparameter values) and an RGB training set, e.g.:
+
+```
+> python3 train_dcn.py --dcn TwitterDCN --split 31000:1000:1 --param_list data/config/twitter.csv --epochs 2500 --out data/models/dcn --data data/rgb/compression/
+```
+
+We test the DCN using the `test_dcn` script which can:
+
+- show compression results for a batch of images
+- compare against JPEG compression at a matching quality level / bpp
+- generate rate-distortion curves for various codecs
+
+For example, to compare our low-qualit codec against JPEG at matching app:
+
+```
+> python3 test_dcn.py --data ./data/kodak --dir ./data/raw/dcn/presets/4k jpeg-match-bpp --image 4
+```
+
+![neural imaging pipeline](docs/dcn-example-low-kodak-4.png)
+
+### (III) Optimization for Manipulation Detection
 
 The following command can be used for training NIPs optimized for image manipulation detection. In the current experiment, we follow a common evaluation protocol and train to distinguish between native camera output and 4 manipulation classes: sharpening, re-sampling, Gaussian filtering, and JPEG compression. (See figure above and our paper for details.) The basic usage is as follows:
 
@@ -102,7 +139,7 @@ The following command can be used for training NIPs optimized for image manipula
 The script relies on a single optimization objective with a regularized image fidelity term (see paper [2] for more details). It repeats the experiment 10 times for different values of the regularization strength. The optimization runs for a fixed number of epochs (1,000 by default) and saves results to the following directory:
 
 ```
-data/raw/train_manipulation/{camera}/{nip}/lr-{NIP-regularization}/{run number}/
+data/m/{camera}/{nip}/ln-{NIP-regularization}/{run number}/
 ```
 
 The script generates:
@@ -116,7 +153,7 @@ The script generates:
 The results can be quickly inspected with the `results.py` script. For example, the following command shows the scatter plot with the trade-off between classification accuracy and image fidelity for the `UNet` model trained on `Nikon D90` :
 
 ```
-> python3 results.py --nip UNet --cam "Nikon D90" scatter-psnr
+> python3 results.py --nip UNet --cam D90 scatter-psnr
 ```
 
 ![training for optimized manipulation detection](docs/scatterplot-nikon-d90.png)
@@ -124,14 +161,14 @@ The results can be quickly inspected with the `results.py` script. For example, 
 To visualize variations of classification accuracy and image quality as the training progresses:
 
 ```
-> python3 results.py --nip UNet --cam "Nikon D90" progress
+> python3 results.py --nip UNet --cam D90 progress
 ```
 ![training for optimized manipulation detection](docs/progress-nikon-d90.png)
 
 To show confusion matrices for all regularization strengths:
 
 ```
-> python3 results.py --nip UNet --cam "Nikon D90" confusion
+> python3 results.py --nip UNet --cam D90 confusion
 ```
 ![training for optimized manipulation detection](docs/confusion-nikon-d90.png)
 
@@ -140,7 +177,7 @@ To show confusion matrices for all regularization strengths:
 This command shows differences between a UNet model trained normally (A) and with manipulation detection objectives (B). 
 
 ```
-> python3 test_nip_compare.py --nip UNet --cam "Nikon D90" --b ./data/raw/train_manipulation/Nikon\ D90/UNet/lr-0.1000/000/models/ --image 16
+> python3 diff_nip.py --nip UNet --cam D90 --b ./data/m/D90/UNet/ln-0.1000/000/models/ --image 16
 ```
 
 ![Differences between NIP models](docs/nip_differences.jpg)
