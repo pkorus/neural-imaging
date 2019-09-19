@@ -125,7 +125,7 @@ def save_progress(performance, training_summary, out_directory):
         json.dump(output_stats, f, indent=4)
 
 
-def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshold=1e-3, sampling_rate=100, resume=False, patch_size=64, batch_size=20, data=None, out_directory_root='./data/raw/nip_model_snapshots'):
+def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshold=1e-3, sampling_rate=100, resume=False, patch_size=64, batch_size=20, data=None, out_directory_root='./data/models/nip'):
     
     if data is None:
         raise ValueError('Training data seems not to be loaded!')

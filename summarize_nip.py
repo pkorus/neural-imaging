@@ -7,7 +7,7 @@ from helpers.results_data import nip_stats
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Summarize results of NIP training')
-    parser.add_argument('dirs', nargs='*', default=['./data/raw/nip_model_snapshots/'])
+    parser.add_argument('dirs', nargs='*', default=['./data/models/nip'])
     parser.add_argument('--stats', dest='stats', action='store_true', default=False,
                         help='Display summary stats')
     parser.add_argument('--n', dest='n', action='store', default=1, type=int,

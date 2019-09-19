@@ -7,16 +7,15 @@ from helpers import coreutils
 from pathlib import Path
 
 run = 0
-dirname = './data/raw/m/dcn+'
-output = './data/raw/dcn/forensics'
-basics = './data/raw/dcn/entropy'
+dirname = './data/m/7-rgb/dcn+'
+output = './data/dcn/forensics/7-rgb'
+basics = './data/dcn/_all/entropy'
 
 dcn_presets = {
-    '4k': 'TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
-    '8k': 'TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
-    '16k': 'TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
+    '16c': 'TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
+    '32c': 'TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
+    '64c': 'TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
 }
-
 
 jsons_files = sorted(str(f) for f in Path(dirname).glob('**/training.json'))
 

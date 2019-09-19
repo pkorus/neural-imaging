@@ -19,8 +19,6 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('test')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-supported_pipelines = ['UNet', 'DNet', 'INet']
-
 
 def validate_fan(output_directory, manipulations, data, patch=64, dcn_model=None, downsampling='pool', jpeg_quality=50):
 
@@ -80,13 +78,13 @@ def main():
                         help='directory with test RGB images')
 
     group = parser.add_argument_group('Training session selection')
-    group.add_argument('--dir', dest='dir', action='store', default='./data/raw/m',
+    group.add_argument('--dir', dest='dir', action='store', default='./data/m/7-raw',
                         help='directory with training sessions')
     group.add_argument('--re', dest='re', action='store', default=None,
                         help='regular expression to filter training sessions')
 
     group = parser.add_argument_group('Override training settings')
-    group.add_argument('--jpeg', dest='jpeg_quality', action='store', default=None, type=int,
+    group.add_argument('--jpeg', dest='jpeg', action='store', default=None, type=int,
                         help='Override JPEG quality level (distribution channel)')
     group.add_argument('--dcn', dest='dcn_model', action='store', default=None,
                         help='DCN compression model path')

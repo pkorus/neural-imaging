@@ -8,7 +8,7 @@ import pandas as pd
 
 from helpers import coreutils
 
-ROOT_DIRNAME = './data/raw/m'
+ROOT_DIRNAME = './data/m/5-raw/cvpr2019'
 
 
 def autodetect_cameras(dirname):
@@ -148,41 +148,28 @@ def manipulation_summary(dirname):
 
 
 coreutils.logCall
-def confusion_data(nip_models, cameras, run=None, reg=None, root_dir=ROOT_DIRNAME):
+def confusion_data(run=None, root_dir=ROOT_DIRNAME):
 
-    nip_models = [nip_models] if type(nip_models) is str else nip_models
-    cameras = cameras or coreutils.listdir(root_dir, '.', dirs_only=True)
     confusion = OrderedDict()
 
-    for camera in cameras:
+    jsons_files = sorted(str(f) for f in Path(root_dir).glob('**/training.json'))
 
-        nip_models = nip_models or coreutils.listdir(os.path.join(root_dir, camera), '.', dirs_only=True)
+    # Pre-filter only some run numbers
+    if run is None:
+        print('INFO Using the first found repetition of the experiment')
+        run = 0
 
-        for nip_model in nip_models:
+    jsons_files = [jf for jf in jsons_files if '/{:03d}/'.format(run) in jf]
 
-            experiment_dirs = sorted(coreutils.listdir(os.path.join(root_dir, camera, nip_model), '.', dirs_only=True))
+    for jf in jsons_files:
 
-            if reg is not None:
-                experiment_dirs = experiment_dirs[reg:reg + 1]
+        with open(jf) as f:
+            data = json.load(f)
 
-            for ed in experiment_dirs:
-
-                find_dir = os.path.join(root_dir, camera, nip_model, ed)
-                jsons_files = sorted(str(f) for f in Path(find_dir).glob('**/training.json'))
-
-                if run is None:
-                    print('INFO Using the first found repetition of the experiment')
-                    run = 0
-
-                jf = jsons_files[run]
-
-                with open(jf) as f:
-                    data = json.load(f)
-
-                confusion['{}/{}/{}'.format(camera, nip_model, ed)] = {
-                    'data': np.array(data['forensics']['validation']['confusion']),
-                    'labels': data['summary']['Classes'] if isinstance(data['summary']['Classes'], list) else eval(data['summary']['Classes'])
-                }
+        confusion['{}'.format(os.path.relpath(os.path.split(jf)[0], root_dir)).replace('/{:03d}'.format(run), '')] = {
+            'data': np.array(data['forensics']['validation']['confusion']),
+            'labels': data['summary']['Classes'] if isinstance(data['summary']['Classes'], list) else eval(data['summary']['Classes'])
+        }
 
     return confusion
 

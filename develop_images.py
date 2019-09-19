@@ -19,15 +19,15 @@ raw_extensions = ['.nef', '.dng', '.NEF', '.DNG']
 supported_pipelines = ['libRAW', 'Python', 'INet', 'DNet', 'UNet']
 
 
-def develop_images(camera, pipeline, n_images=0, root_dir='./data/raw/', model_dir='nip_model_snapshots', dev_dir='nip_developed', nip_params=None):
+def develop_images(camera, pipeline, n_images=0, root_dir='./data', model_dir='nip', dev_dir='developed', nip_params=None):
 
     if pipeline not in supported_pipelines:
         raise ValueError('Unsupported pipeline model ({})! Available models: {}'.format(pipeline, ', '.join(supported_pipelines)))
 
     dir_models = os.path.join(root_dir, model_dir)
-    nip_directory = os.path.join(root_dir, 'nip_training_data', camera)
-    out_directory = os.path.join(root_dir, dev_dir, camera, pipeline)
-    raw_directory = os.path.join(root_dir, 'images', camera)
+    nip_directory = os.path.join(root_dir, 'raw', 'training_data', camera)
+    out_directory = os.path.join(root_dir, 'raw', dev_dir, camera, pipeline)
+    raw_directory = os.path.join(root_dir, 'raw', 'images', camera)
 
     if not os.path.exists(nip_directory):
         raise IOError('Directory not found! {}'.format(nip_directory))
@@ -103,11 +103,11 @@ def main():
     parser.add_argument('--cam', dest='camera', action='store', help='camera')
     parser.add_argument('--pipe', dest='pipeline', action='store', default='libRAW',
                         help='imaging pipeline ({})'.format(supported_pipelines))
-    parser.add_argument('--dir', dest='dir', action='store', default='./data/raw/',
+    parser.add_argument('--dir', dest='dir', action='store', default='./data',
                         help='root directory with images and training data')
-    parser.add_argument('--model_dir', dest='model_dir', action='store', default='nip_model_snapshots',
+    parser.add_argument('--model_dir', dest='model_dir', action='store', default='nip',
                         help='directory with TF models')                        
-    parser.add_argument('--dev_dir', dest='dev_dir', action='store', default='nip_developed',
+    parser.add_argument('--dev_dir', dest='dev_dir', action='store', default='developed',
                         help='output directory')
     parser.add_argument('--params', dest='nip_params', default=None, help='Extra parameters for NIP constructor (JSON string)')    
     parser.add_argument('--images', dest='images', action='store', default=0, type=int,

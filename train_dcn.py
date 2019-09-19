@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
     
     # Parameters related to the training data
-    parser.add_argument('--data', dest='data', action='store', default='./data/compression/',
+    parser.add_argument('--data', dest='data', action='store', default='./data/rgb/32k',
                        help='directory with training & validation images (png)')
     parser.add_argument('--split', dest='split', action='store', default='16000:800:2',
                        help='data split with #training:#validation:#validation_patches - e.g., 16000:800:2')
@@ -36,7 +36,7 @@ def main():
     parser.add_argument('--param_list', dest='dcn_param_list', default=None, help='CSV file with DCN configurations')
     
     # General
-    parser.add_argument('--out', dest='out_dir', action='store', default='./data/raw/compression/',
+    parser.add_argument('--out', dest='out_dir', action='store', default='./data/models/dcn/playground',
                         help='output directory for storing trained models')
     parser.add_argument('--epochs', dest='epochs', action='store', default=1500, type=int,
                         help='maximum number of training epochs')

@@ -272,15 +272,15 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     
     :param directories: {
         root             - the root output directory for storing training progress and model snapshots 
-                           (default: './data/raw/train_manipulation/')
+                           (default: './data/m/playground/')
         nip_snapshots    - root directory with pre-trained NIP models 
-                           (default: './data/raw/nip_model_snapshots/')
+                           (default: './data/models/nip/')
     }
     
     """
     
     # Apply default settings
-    directories_def = {'root': './data/raw/train_manipulation/', 'nip_snapshots': './data/raw/nip_model_snapshots/'}
+    directories_def = {'root': './data/m/playground/', 'nip_snapshots': './data/models/nip/'}
     if directories is not None: 
         directories_def.update(directories)    
     directories = directories_def

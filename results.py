@@ -98,8 +98,13 @@ def display_results(args):
                 print('WARNING Only one NIP will be used for this plot!')
             args.nips = args.nips[0]
         
-        conf = results_data.confusion_data(args.nips, args.cameras, args.run, root_dir=args.dir)
-        tex_output = plot == 'confusion-tex'
+        conf = results_data.confusion_data(args.run, root_dir=args.dir)
+
+        if len(conf) == 0:
+            print('ERROR No results found!')
+            return
+
+        tex_output = plot == 'conf-tex'
         plot_data = not tex_output if len(conf.keys()) < 20 else False
 
         if plot_data:
@@ -120,7 +125,7 @@ def display_results(args):
                 acc = np.mean(np.diag(data))
                 ax = fig.add_subplot(images_y, images_x, i+1)
                 sns.heatmap(data, annot=True, fmt=".0f", linewidths=.5, xticklabels=[x[0] for x in labels], yticklabels=labels)
-                ax.set_title('{} : acc={}'.format(k, acc))
+                ax.set_title('{} : acc={:.1f}'.format(k, acc))
 
         if plot_data:
             plt.tight_layout()

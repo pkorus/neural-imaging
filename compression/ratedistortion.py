@@ -273,7 +273,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
 
 def plot_curve(plots, axes,
-               dirname='./data/clic256',
+               dirname='./data/rgb/clic256',
                images=[],
                plot='fit',
                draw_markers=None,
@@ -334,7 +334,7 @@ def plot_curve(plots, axes,
             dfc['selected'] = True
 
     # Setup drawing styles
-    styles = [['r-', 'rx'], ['b-', 'b+'], ['k-', 'k2'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
+    styles = [['r-', 'rx'], ['b--', 'b+'], ['k:', 'k2'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
     avg_markers = ['', '', '', 'o', 'o', '2', '+', 'x', '^', '.']
 
     if baseline_count < 3:

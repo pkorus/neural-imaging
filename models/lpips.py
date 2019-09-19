@@ -49,7 +49,12 @@ def lpips(img_a, img_b, model='net-lin', net='alex', version=0.1):
     input0_name, input1_name = '0:0', '1:0'
 
     default_graph = tf.get_default_graph()
-    cache_dir = os.path.expanduser('../data/lpips')
+    if os.path.exists('../data/models/lpips'):
+        cache_dir = os.path.expanduser('../data/models/lpips')
+    elif os.path.exists('./data/models/lpips'):
+        cache_dir = os.path.expanduser('./data/models/lpips')
+    else:
+        raise RuntimeError('Cannot find LPIPS model directory!')
 
     # files to try. try a specific producer version, but fallback to the version-less version (latest).
     pb_fname = '%s_%s_v%s.pb' % (model, net, version)

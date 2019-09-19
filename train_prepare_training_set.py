@@ -16,13 +16,13 @@ log = logging.getLogger('data')
 EXTENSIONS = '(NEF|DNG|CR2|AWR)'
 
 
-def prepare_training_set(camera, target_pipeline, dev_settings, n_images=150, root_dir='./data/raw/'):
+def prepare_training_set(camera, target_pipeline, dev_settings, n_images=150, root_dir='./data/'):
 
     if target_pipeline not in ['auto', 'manual']:
         raise ValueError('Unsupported target pipeline!')
 
-    raw_directory = os.path.join(root_dir, 'images', camera)
-    out_directory = os.path.join(root_dir, 'nip_training_data', camera)
+    raw_directory = os.path.join(root_dir, 'raw', 'images', camera)
+    out_directory = os.path.join(root_dir, 'raw', 'training_data', camera)
 
     if not os.path.exists(raw_directory):
         log.error('Directory not found! {}'.format(raw_directory))
@@ -95,7 +95,7 @@ def main():
     parser.add_argument('--cam', dest='camera', action='store', help='camera')
     parser.add_argument('--target', dest='target', action='store', default='manual',
                         help='target for optimization (manual or auto)')
-    parser.add_argument('--dir', dest='dir', action='store', default='./data/raw/',
+    parser.add_argument('--dir', dest='dir', action='store', default='./data',
                         help='root directory with images and training data')
     parser.add_argument('--images', dest='images', action='store', default=150, type=int,
                         help='number of images to prepare')

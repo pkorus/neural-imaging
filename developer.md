@@ -33,3 +33,11 @@ python3 train_manipulation.py --nip DNet --cam "Nikon D90" --dir ./data/raw/mani
 # Various JPEG quality levels
 
 python3 train_manipulation.py --nip DNet --cam "Nikon D90" --dir ./data/raw/m/jpeg --end 5 --ds none --patch 128 --jpeg 50
+
+# DCN Evaluation
+
+test_dcn.py --dir data/raw/dcn/entropy/ --data ./data/raw512/ dcn-trade-off
+
+# New API for Batching calls
+
+srun -t168:00:00 --mem=48000 --gres=gpu:v100:1 --pty /bin/bash train_manipulation_batch.sh dcn+

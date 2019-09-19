@@ -15,7 +15,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 supported_pipelines = ['UNet', 'DNet', 'INet']
 
 
-def develop_image(camera, pipeline, ps=128, image_id=None, root_dir='./data/raw'):
+def develop_image(camera, pipeline, ps=128, image_id=None, root_dir='./data'):
     """
     Display a patch developed by a neural imaging pipeline.
     """
@@ -41,8 +41,8 @@ def develop_image(camera, pipeline, ps=128, image_id=None, root_dir='./data/raw'
     from models import pipelines
     from skimage.measure import compare_psnr
 
-    root_dirname = os.path.join(root_dir, 'nip_model_snapshots')
-    data_dirname = os.path.join(root_dir, 'nip_training_data', camera)
+    root_dirname = os.path.join(root_dir, 'models', 'nip')
+    data_dirname = os.path.join(root_dir, 'raw', 'training_data', camera)
     files = coreutils.listdir(data_dirname, '.*\.npy')
 
     if len(files) == 0:
@@ -98,7 +98,7 @@ def main():
                         help='image id (n-th image in the camera\'s directory')
     parser.add_argument('--patch', dest='patch', action='store', default=128, type=int,
                         help='patch size')
-    parser.add_argument('--dir', dest='dir', action='store', default='./data/raw/',
+    parser.add_argument('--dir', dest='dir', action='store', default='./data',
                         help='root directory with images and training data')
 
     args = parser.parse_args()

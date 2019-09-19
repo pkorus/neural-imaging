@@ -36,7 +36,7 @@ dataset = '../data/clic512'
 
 # %% Show changes in rate distortion (averages)
 
-dataset = '../data/clic512'
+dataset = '../data/rgb/raw512'
 
 latent_bpf = 5
 lcs = [1.0, 0.1, 0.01, 0.005]
@@ -54,10 +54,10 @@ ratedistortion.plot_curve(plots, axes, dataset, title='{}-bpf repr.'.format(late
 for dcn_model in ['4k', '8k', '16k']:
     plots = OrderedDict()
     
-    plots['dcn (b)'] = ('dcn-forensics-7m.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
+    plots['dcn (b)'] = ('dcn-forensics-7md.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
     # plots['dcn (o)'] = ('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250})
     for lc in lcs:
-        plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics-7m.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
+        plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics-7md.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
 
     ratedistortion.plot_curve(plots, axes, dataset,
                               title='{}-bpf repr.'.format(latent_bpf), images=[],
@@ -116,7 +116,7 @@ fig.set_size_inches((5 * len(plot_types), 4))
 
 # %% Load sample data
 
-dataset = '../data/clic512/'
+dataset = '../data/rgb/clic512/'
 images = get_sample_images(dataset)
 
 # Discover test files
@@ -144,19 +144,19 @@ compact = True
 
 # Define the distribution channel
 models = OrderedDict()
-models['basic'] = '../data/raw/dcn/forensics-7m/{}-basic'.format(dcn_model)
-models[1.000]   = '../data/raw/dcn/forensics-7m/{}-1.0000'.format(dcn_model)
-models[0.050]   = '../data/raw/dcn/forensics-7m/{}-0.0500'.format(dcn_model)
-models[0.010]   = '../data/raw/dcn/forensics-7m/{}-0.0100'.format(dcn_model)
-models[0.001]   = '../data/raw/dcn/forensics-7m/{}-0.0010'.format(dcn_model)
+models['basic'] = '../data/models/dcn/forensics-7md/{}-basic'.format(dcn_model)
+models[1.000]   = '../data/models/dcn/forensics-7md/{}-1.0000'.format(dcn_model)
+models[0.050]   = '../data/models/dcn/forensics-7md/{}-0.0500'.format(dcn_model)
+models[0.010]   = '../data/models/dcn/forensics-7md/{}-0.0100'.format(dcn_model)
+models[0.001]   = '../data/models/dcn/forensics-7md/{}-0.0010'.format(dcn_model)
 
 dcns = OrderedDict()
 for model in models.keys():
     dcns[model] = afi.restore_model(models[model], patch_size=batch_x.shape[1])
 
-for image_id in get_sample_images(dataset) + [10]:
+for image_id in get_sample_images(dataset):
 
-    out_filename = 'debug/{}/{}_{:02d}_{}.pdf'.format(
+    out_filename = '../var/debug-d/{}/{}_{:02d}_{}.pdf'.format(
             dataset.strip('/').split('/')[-1],
             dcn_model, image_id, 'c' if compact else 'f')
 
@@ -291,7 +291,7 @@ for image_id in get_sample_images(dataset) + [10]:
             axes[5, index].grid(True, linestyle=':')
 
     fig.subplots_adjust(wspace=0, hspace=0.05)
-    os.makedirs('debug/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
+    os.makedirs('../var/debug-d/{}/{}/'.format(dataset.strip('/').split('/')[-1], image_id), exist_ok=True)
     fig.savefig(out_filename, bbox_inches='tight', dpi=200)
     
     print('Written to: {}'.format(out_filename))
@@ -302,12 +302,12 @@ dcn_model = '16k'
 
 # Define the distribution channel
 models = OrderedDict()
-models['basic'] = '../data/raw/dcn/forensics-7m/{}-basic'.format(dcn_model)
-models[1.000]   = '../data/raw/dcn/forensics-7m/{}-1.0000'.format(dcn_model)
-models[0.050]   = '../data/raw/dcn/forensics-7m/{}-0.0500'.format(dcn_model)
-models[0.010]   = '../data/raw/dcn/forensics-7m/{}-0.0100'.format(dcn_model)
-models[0.005]   = '../data/raw/dcn/forensics-7m/{}-0.0050'.format(dcn_model)
-models[0.001]   = '../data/raw/dcn/forensics-7m/{}-0.0010'.format(dcn_model)
+models['basic'] = '../data/models/dcn/forensics-7md/{}-basic'.format(dcn_model)
+models[1.000]   = '../data/models/dcn/forensics-7md/{}-1.0000'.format(dcn_model)
+models[0.050]   = '../data/models/dcn/forensics-7md/{}-0.0500'.format(dcn_model)
+models[0.010]   = '../data/models/dcn/forensics-7md/{}-0.0100'.format(dcn_model)
+models[0.005]   = '../data/models/dcn/forensics-7md/{}-0.0050'.format(dcn_model)
+models[0.001]   = '../data/models/dcn/forensics-7md/{}-0.0010'.format(dcn_model)
 
 dcns = OrderedDict()
 for model in models.keys():
@@ -359,23 +359,55 @@ for mid, model in enumerate(models.keys()):
     y = np.zeros(batch_x.shape)
     
     for image_id in range(batch_x.shape[0]):
-        y[image_id] = spectrum((outputs[image_id][model]).squeeze()) / spectrum((batch_x[image_id]).squeeze())
+        y[image_id] = spectrum(outputs[image_id][model]) / spectrum(batch_x[image_id])
 
     yv = y.mean(axis=(0))
     yv = sp.ndimage.median_filter(yv, 7)
     yv = np.log(yv)
-    yv = yv / np.abs(yv).max()
-    yv = (yv + 1) / 2
+    # yv = yv / np.abs(yv).max()
+    # yv = (yv + 1) / 2
     spectrums.append(yv)
 
-    print(model, yv.min(), yv.max())
+mx_norm = np.abs(spectrums[0]).max()
 
-fig = plotting.imsc(spectrums, all_labels, ncols=len(models))
-fig.set_size_inches((3.25 * len(models), 3.25))
+for spec in spectrums:
+    mx_norm = np.max([mx_norm, np.abs(yv).max()])
+
+for i in range(len(spectrums)):
+    spectrums[i] = (spectrums[i] / np.abs(yv).max() + 1) / 2
+    print(model, spectrums[i].min(), spectrums[i].max())
+
+
+fig = plotting.imsc(spectrums, all_labels, ncols=len(models)/2)
+# fig.set_size_inches((3.25 * len(models), 3.25))
 fig.subplots_adjust(wspace=0, hspace=0)
 # fig.tight_layout()
 out_filename = 'fig_spectral_{}.pdf'.format(dcn_model)
-fig.savefig(out_filename, bbox_inches='tight',  dpi=100)
+# fig.savefig(out_filename, bbox_inches='tight',  dpi=100)
+
+# %% Spectra + their differences
+
+for_plotting = []
+for_plotting.extend(spectrums)
+for_plotting.append(np.ones_like(spectrums[0]))
+for r in range(1, len(spectrums)):
+    diff = np.abs(spectrums[r] - spectrums[0]) * 10
+    # diff = diff / diff.max() * 2
+    for_plotting.append(diff)
+
+for_plotting.append(np.ones_like(spectrums[0]))
+for_plotting.append(np.ones_like(spectrums[0]))
+
+for r in range(2, len(spectrums)):
+    diff = np.abs(spectrums[r] - spectrums[1]) * 20
+    # diff = diff / diff.max()
+    # diff = np.power(diff, 0.25)
+    for_plotting.append(diff)
+
+fig = plotting.imsc(for_plotting, all_labels + ['' for r in range(len(spectrums))] * 2, ncols=len(models))
+
+# out_filename = 'fig_spectral_{}_diff.pdf'.format(dcn_model)
+# fig.savefig(out_filename, bbox_inches='tight',  dpi=100)
 
 # %% JPEG Output
 

@@ -14,9 +14,12 @@ from helpers import utils
 
 
 dcn_presets = {
-    '4k': './data/raw/dcn/entropy/TwitterDCN-4096D/16x16x16-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
-    '8k': './data/raw/dcn/entropy/TwitterDCN-8192D/16x16x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00',
-    '16k': './data/raw/dcn/entropy/TwitterDCN-16384D/16x16x64-r:soft-codebook-Q-5.0bpf-S+-H+250.00'
+    '16c': './data/models/dcn/baselines/16c',
+    '32c': './data/models/dcn/baselines/16c',
+    '64c': './data/models/dcn/baselines/16c',
+    'lq': './data/models/dcn/baselines/16c',
+    'mq': './data/models/dcn/baselines/16c',
+    'hq': './data/models/dcn/baselines/16c',
 }
 
 class AFIError(Exception):

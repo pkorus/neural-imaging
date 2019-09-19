@@ -38,7 +38,7 @@ from training import compression
 
 from misc import get_sample_images
 
-dataset = '../data/clic512'
+dataset = '../data/rgb/clic512'
 
 # %% Entropy-regularization
 # II. Fix codebook and regularization
@@ -54,7 +54,7 @@ plots['dcn'] = ('dcn-entropy.csv', {
                   'entropy_reg': 250
                 })
 
-dataset = '../data/kodak512/'
+dataset = '../data/rgb/kodak512/'
 images = get_sample_images(dataset)
 
 fig, axes = plt.subplots(ncols=len(images)+1, nrows=1, sharey=True)
@@ -63,12 +63,42 @@ fig.set_size_inches((20, 3))
 ratedistortion.plot_curve(plots, axes[0], dataset, title=os.path.split(dataset.strip('/'))[-1], images=[], plot='ensemble')
 for i, im in enumerate(images):
     ratedistortion.plot_curve(plots, axes[i+1], dataset,
-                              title='Example {}'.format(im),
+                              title='\\#{}'.format(im),
                               images=[im], plot='ensemble',
                               add_legend=False, marker_legend=False)
 
 fig.savefig('fig_dcn_tradeoff_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1]),
             bbox_inches='tight')
+
+# %% Summarize all datasets
+
+latent_bpf = 5
+
+datasets = ['../data/rgb/clic512/', '../data/rgb/kodak512/', '../data/rgb/raw512/']
+fig, axes = plt.subplots(ncols=len(datasets), nrows=1, sharey=True, sharex=True)
+fig.set_size_inches((16, 3))
+
+for i, dataset in enumerate(datasets):
+
+    plots = OrderedDict()
+    plots['jpeg'] = ('jpeg.csv', {})
+    plots['jpeg2000'] = ('jpeg2000.csv', {})
+    plots['bpg'] = ('bpg.csv', {})
+    plots['dcn'] = ('dcn-entropy.csv', {
+                      'quantization': 'soft-codebook-{}bpf'.format(latent_bpf),
+                      'entropy_reg': 250
+                    })
+    
+    images = get_sample_images(dataset)
+    ratedistortion.plot_curve(plots, axes[i], dataset,
+                              title=os.path.split(dataset.strip('/'))[-1],
+                              images=[], plot='ensemble',
+                              add_legend=i==0)
+
+fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('all'), bbox_inches='tight')
+
+with open('fig_dcn_tradeoff_{}.mpf'.format('all'), 'wb') as f:
+    pickle.dump(fig, f)
 
 # %% Load sample data
 

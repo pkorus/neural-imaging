@@ -115,12 +115,12 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         # Load the dataset
         if nip_model == 'ONet':
             # TODO Dirty hack - if the NIP model is the dummy empty model, load RGB images only
-            data_directory = os.path.join('./data/rgb/', camera_name)
+            data_directory = os.path.join(root_directory, 'rgb/', camera_name)
             patch_mul = 2
             load = 'y'
         else:
             # Otherwise, load (RAW, RGB) pairs for a specific camera
-            data_directory = os.path.join('./data/raw/nip_training_data/', camera_name)
+            data_directory = os.path.join(root_directory, 'raw' 'training_data', camera_name)
             patch_mul = 2
             load = 'xy'
 
@@ -152,9 +152,9 @@ def main():
 
     # Directories
     group = parser.add_argument_group('directories')
-    group.add_argument('--dir', dest='root_dir', action='store', default='./data/raw/m_experimental/',
+    group.add_argument('--dir', dest='root_dir', action='store', default='./data/m/playground/',
                         help='the root directory for storing results')
-    group.add_argument('--nip-dir', dest='nip_directory', action='store', default='./data/raw/nip_model_snapshots/',
+    group.add_argument('--nip-dir', dest='nip_directory', action='store', default='./data/models/nip/',
                         help='the root directory for storing results')
 
     # Training parameters

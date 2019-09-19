@@ -37,7 +37,7 @@ def nm(x, perc=0):
     return ((x - mn) / (mx - mn)).clip(0, 1)
 
 
-def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, image_id=None, root_dir='./data/raw', output_dir=None):
+def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, image_id=None, root_dir='./data', output_dir=None):
     """
     Display a comparison of two variants of a neural imaging pipeline.
     :param camera: camera name (e.g., 'Nikon D90')
@@ -58,7 +58,7 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
     import tensorflow as tf
     from models import pipelines
 
-    supported_cameras = coreutils.listdir(os.path.join(root_dir,  'nip_model_snapshots'), '.*')
+    supported_cameras = coreutils.listdir(os.path.join(root_dir, 'models', 'nip'), '.*')
     supported_pipelines = pipelines.supported_models
 
     if ps < 4 or ps > 2048:
@@ -73,7 +73,7 @@ def compare_nips(camera, pipeline, model_a_dirname, model_b_dirname, ps=128, ima
     image_id = image_id or 0
 
     # Find available Bayer stacks for the camera
-    dirname = os.path.join(root_dir, 'nip_training_data', camera)
+    dirname = os.path.join(root_dir, 'raw', 'training_data', camera)
     files = coreutils.listdir(dirname, '.*\.npy')
 
     if len(files) == 0:
@@ -193,11 +193,11 @@ def main():
                         help='image id (n-th image in the camera\'s directory')
     parser.add_argument('--patch', dest='patch', action='store', default=128, type=int,
                         help='patch size')
-    parser.add_argument('--a', dest='model_a_dir', action='store', default='./data/raw/nip_model_snapshots',
+    parser.add_argument('--a', dest='model_a_dir', action='store', default='./data/models/nip',
                         help='path to first model (TF checkpoint dir)')
-    parser.add_argument('--b', dest='model_b_dir', action='store', default='./data/raw/nip_model_snapshots',
+    parser.add_argument('--b', dest='model_b_dir', action='store', default='./data/models/nip',
                         help='path to second model (TF checkpoint dir)')
-    parser.add_argument('--dir', dest='dir', action='store', default='./data/raw/',
+    parser.add_argument('--dir', dest='dir', action='store', default='./data/',
                         help='root directory with images and training data')
     parser.add_argument('--out', dest='out', action='store', default=None,
                         help='output directory for TikZ output (if set, the figure is not displayed)')

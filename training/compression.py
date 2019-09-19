@@ -119,7 +119,7 @@ def save_progress(dcn, data, training, out_dir):
         json.dump(output_stats, f, indent=4)
 
 
-def train_dcn(tf_ops, training, data, directory='./data/raw/compression/', overwrite=False):
+def train_dcn(tf_ops, training, data, directory='./data/models/dcn/playground/', overwrite=False):
     """
     tf_ops = {
         'dcn'
