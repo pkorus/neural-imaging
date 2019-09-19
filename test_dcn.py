@@ -140,8 +140,7 @@ def show_example(model, batch_x):
 def main():
     parser = argparse.ArgumentParser(description='Test a neural imaging pipeline')
     parser.add_argument('plot', help='Plot type ({})'.format(', '.join(supported_plots)))
-    # Parameters related to the training data
-    parser.add_argument('--data', dest='data', action='store', default='./data/clic/',
+    parser.add_argument('--data', dest='data', action='store', default='./data/rgb/clic256/',
                         help='directory with training & validation images (png)')
     parser.add_argument('--images', dest='images', action='store', default=10, type=int,
                         help='number of images to test')
@@ -149,20 +148,10 @@ def main():
                         help='ID of the image to load')
     parser.add_argument('--patch', dest='patch_size', action='store', default=128, type=int,
                         help='training patch size')
-
-    # Parameters of the DCN
-    parser.add_argument('--dcn', dest='dcn', action='store', help='specific DCN class name', default='AutoencoderDCN')
-
-    # General
     parser.add_argument('--dir', dest='dir', action='store',
-                        help='directory with saved DCN models')
+                        help='directory with a trained DCN model')
 
     args = parser.parse_args()
-
-    if not args.dcn:
-        print('A DCN needs to be specified!')
-        parser.print_usage()
-        sys.exit(1)
 
     # Match the current
     args.plot = coreutils.match_option(args.plot, supported_plots)

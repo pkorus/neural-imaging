@@ -20,7 +20,7 @@ def develop_image(camera, pipeline, ps=128, image_id=None, root_dir='./data'):
     Display a patch developed by a neural imaging pipeline.
     """
 
-    supported_cameras = coreutils.listdir(os.path.join(root_dir,  'nip_model_snapshots'), '.*')
+    supported_cameras = coreutils.listdir(os.path.join(root_dir,  'models', 'nip'), '.*')
 
     if ps < 4 or ps > 2048:
         raise ValueError('Patch size seems to be invalid!')

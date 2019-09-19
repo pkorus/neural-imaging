@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import numpy as np
 from scipy import cluster
@@ -15,11 +16,11 @@ from helpers import utils
 
 dcn_presets = {
     '16c': './data/models/dcn/baselines/16c',
-    '32c': './data/models/dcn/baselines/16c',
-    '64c': './data/models/dcn/baselines/16c',
+    '32c': './data/models/dcn/baselines/32c',
+    '64c': './data/models/dcn/baselines/64c',
     'lq': './data/models/dcn/baselines/16c',
-    'mq': './data/models/dcn/baselines/16c',
-    'hq': './data/models/dcn/baselines/16c',
+    'mq': './data/models/dcn/baselines/32c',
+    'hq': './data/models/dcn/baselines/64c',
 }
 
 class AFIError(Exception):
@@ -292,6 +293,12 @@ def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=
 
     if dir_name in dcn_presets:
         dir_name = dcn_presets[dir_name]
+
+    if dir_name is None:
+        raise ValueError('dcn directory cannot be None')
+
+    if not os.path.exists(dir_name):
+        raise ValueError('Directory {} does not exist!'.format(dir_name))
 
     for filename in Path(dir_name).glob('**/progress.json'):
         training_progress_path = str(filename)
