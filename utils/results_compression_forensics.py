@@ -632,15 +632,15 @@ fig.savefig('fig_ssim_diff_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1])
 #
 # > ./results.py ./data/raw/m/jpeg --df ./results df
 
-dataset = '../data/clic512/'
+dataset = '../data/rgb/clic512/'
 dcn_models = ['4k', '8k', '16k']
 lambdas = [0.001, 0.005, 0.010, 0.050, 0.100, 1.000, 'basic']
 
 models = OrderedDict()
 
 # --- DCNs --------------------------------------------------------------------
-df = pd.read_csv(os.path.join(dataset, 'dcn-forensics-7m.csv'), index_col=False)
-df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all-7m.csv'), index_col=False)
+df = pd.read_csv(os.path.join(dataset, 'dcn-forensics-7-rgb.csv'), index_col=False)
+df_acc = pd.read_csv(os.path.join('../data/results/', 'summary-dcn-all-7-rgb.csv'), index_col=False)
 
 df_o = pd.DataFrame(columns=['dcn_model', 'lambda', 'bpp', 'ssim', 'accuracy'])
 
@@ -649,7 +649,7 @@ for dcn_model in dcn_models:
 
         if type(lbda) is not str:
             lbda = '{:.4f}'.format(lbda)
-        models['{}-{}'.format(dcn_model, lbda)] = '../data/raw/dcn/forensics/{}-{}'.format(dcn_model, lbda)
+        models['{}-{}'.format(dcn_model, lbda)] = '../data/models/dcn/_forensics/{}-{}'.format(dcn_model, lbda)
 
         # Find the average bpp and ssim
         bpp = df.loc[df['model_dir'] == '{}-{}/'.format(dcn_model, lbda), 'bpp'].mean()
@@ -666,7 +666,7 @@ for dcn_model in dcn_models:
 
 # --- JPEG --------------------------------------------------------------------
 df = pd.read_csv(os.path.join(dataset, 'jpeg.csv'), index_col=False)
-df_acc = pd.read_csv(os.path.join('../results/', 'summary-jpeg-7m.csv'), index_col=False)
+df_acc = pd.read_csv(os.path.join('../data/results/', 'summary-jpeg-7-rgb.csv'), index_col=False)
 
 df_j = pd.DataFrame(columns=['quality', 'bpp', 'ssim', 'accuracy'])
 
@@ -806,8 +806,8 @@ ax = fig.gca()
 axis_labels = {'bpp': 'Effective bpp', 'accuracy': 'FAN accuracy', 'ssim': 'SSIM'}
 
 x_axis = 'bpp'
-z_axis = 'accuracy'
-y_axis = 'ssim'
+y_axis = 'accuracy'
+z_axis = 'ssim'
 
 if 'raw' in dataset:
     x_limits = [0.225, 1.225]
@@ -816,7 +816,7 @@ else:
 
 if y_axis == 'ssim':
     x_shift, y_shift = 0, 0.01
-    y_limits = [0.825, 0.972]
+    y_limits = [0.825, 0.98]
 
 if y_axis == 'accuracy':
     x_shift, y_shift = 0.015, 0.0
@@ -882,16 +882,16 @@ for pid in range(0, len(df_o)):
                 ha=ha)
 
 # Add lines & points for JPEG -------------------------------------------------
-g = sns.lineplot(x=x_axis, y=y_axis, data=df_j, dashes=True)
+# g = sns.lineplot(x=x_axis, y=y_axis, data=df_j, dashes=True)
 
-g = sns.scatterplot(x=x_axis, y=y_axis, hue=z_axis, size=z_axis, edgecolor='gray',
-                sizes=(10, 100), size_norm=(min_z, max_z), hue_norm=(min_z, max_z),
-                legend=False, marker='D', s=50, alpha=0.7, data=df_j)
+# g = sns.scatterplot(x=x_axis, y=y_axis, hue=z_axis, size=z_axis, edgecolor='gray',
+#                 sizes=(10, 100), size_norm=(min_z, max_z), hue_norm=(min_z, max_z),
+#                 legend=False, marker='D', s=50, alpha=0.7, data=df_j)
 
-for pid in range(0, len(df_j)):
-    if df_j.loc[pid, x_axis] < x_limits[-1] and df_j.loc[pid, y_axis] > y_limits[0] and int(df_j.quality[pid]) % 10 == 0:
-        ax.text(df_j.loc[pid, x_axis] + 0.035, df_j.loc[pid, y_axis], 'JPG({})'.format(int(df_j.quality[pid])),
-             horizontalalignment='left', size=7, color='black', va='center')
+# for pid in range(0, len(df_j)):
+#     if df_j.loc[pid, x_axis] < x_limits[-1] and df_j.loc[pid, y_axis] > y_limits[0] and int(df_j.quality[pid]) % 10 == 0:
+#         ax.text(df_j.loc[pid, x_axis] + 0.035, df_j.loc[pid, y_axis], 'JPG({})'.format(int(df_j.quality[pid])),
+#              horizontalalignment='left', size=7, color='black', va='center')
 
 # Final touches ---------------------------------------------------------------
 for line in g.lines:
