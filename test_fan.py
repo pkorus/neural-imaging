@@ -161,6 +161,7 @@ def main():
 
             print(results_data.confusion_to_text((100*conf_mat).round(0), labels, filename, 'txt'))
             print('Accuracy: {:.2f} // Expected {:.2f}'.format(np.mean(np.diag(conf_mat)), accuracy))
+            print(';{};{:.4f};{:.4f}'.format(os.path.split(filename)[0], np.mean(np.diag(conf_mat)), accuracy))
 
 
 if __name__ == "__main__":

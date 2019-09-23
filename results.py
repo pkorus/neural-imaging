@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import re
 import os
 import argparse
 import numpy as np
@@ -156,10 +157,27 @@ def display_results(args):
         df = results_data.manipulation_summary(args.dir)
         df = df.sort_values('scenario')
 
+        guessed_names = {}
+
         # Guess scenario
         components = df['scenario'].str.split("/", expand=True)
         for i in components:
-            df['scenario:{}'.format(i)] = components[i]
+            # Try to guess the column name based on content
+            template = 'scenario:{}'.format(i)
+            if components.iloc[0, i].endswith('Net'):
+                guessed_names[template] = 'nip'
+            elif components.iloc[0, i].startswith('ln-'):
+                guessed_names[template] = 'nip reg.'
+            elif components.iloc[0, i].startswith('lc-'):
+                guessed_names[template] = 'dcn reg.'
+            elif set(components.iloc[:, i].unique()) == {'4k', '8k', '16k'}:
+                guessed_names[template] = 'dcn'
+            elif all([re.match('^[0-9]{2,3}$', x) for x in components.iloc[:, i].unique()]):
+                guessed_names[template] = 'jpeg'
+            else:
+                guessed_names[template] = template
+
+            df[guessed_names[template]] = components[i]
 
         df['scenario'] = coreutils.remove_commons(df['scenario'])
 
@@ -168,7 +186,7 @@ def display_results(args):
         mapping_id = 0
 
         # Choose the feature with most unique values as x axis
-        uniques = [len(df['scenario:{}'.format(i)].unique()) for i in components]
+        uniques = [len(df[guessed_names['scenario:{}'.format(i)]].unique()) for i in components]
 
         x_feature = np.argmax(uniques)
 
@@ -176,11 +194,11 @@ def display_results(args):
             if i == x_feature:
                 continue
 
-            if len(df['scenario:{}'.format(i)].unique()) > 1:
-                mapping[mapping_targets[mapping_id]] = 'scenario:{}'.format(i)
+            if len(df[guessed_names['scenario:{}'.format(i)]].unique()) > 1:
+                mapping[mapping_targets[mapping_id]] = guessed_names['scenario:{}'.format(i)]
                 mapping_id += 1
 
-        sns.catplot(x='scenario:{}'.format(x_feature), y='accuracy', data=df, kind='box', **mapping)
+        sns.catplot(x=guessed_names['scenario:{}'.format(x_feature)], y='accuracy', data=df, kind='box', **mapping)
         # sns.catplot(x='scenario:0', y='dcn_ssim', data=df, kind='box', **mapping)
         # sns.scatterplot(x='dcn_ssim', y='accuracy', data=df)
         plt.show()
