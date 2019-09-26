@@ -148,7 +148,7 @@ def main():
     group.add_argument('--cam', dest='cameras', action='append',
                         help='add cameras for evaluation (repeat if needed)')
     group.add_argument('--manip', dest='manipulations', action='store', default='sharpen,resample,gaussian,jpeg',
-                       help='Included manipulations, e.g., : {}'.format('sharpen,jpeg,resample,gaussian'))
+                       help='comma-sep. list of manipulations (:strength), e.g., : {}'.format('sharpen:1,jpeg:80,resample,gaussian'))
 
     # Directories
     group = parser.add_argument_group('directories')

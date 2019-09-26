@@ -657,11 +657,6 @@ class TwitterDCN(DCN):
 
         return '{}/{}'.format(super().model_code, '-'.join(parameter_summary))
 
-    def get_parameters(self):
-        params = super().get_parameters()
-        params.update(self._h.to_json())
-        return params
-
 
 class WaveOne(DCN):
     """
@@ -790,8 +785,3 @@ class WaveOne(DCN):
             parameter_summary.append('H+{:.2f}'.format(self.entropy_weight))
 
         return '{}/{}'.format(super().model_code, '-'.join(parameter_summary))
-
-    def get_parameters(self):
-        params = super().get_parameters()
-        params.update(self._h.to_json())
-        return params

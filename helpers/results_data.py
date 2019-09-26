@@ -247,7 +247,6 @@ def nip_stats(dirname, n=1):
     df = pd.DataFrame(columns=['pipeline', 'camera', 'psnr', 'ssim'])
 
     for camera in cameras:
-        print('\n  {}'.format(camera))
         pipelines = sorted(os.listdir(os.path.join(dirname, camera)))
 
         for pipe in pipelines:
@@ -258,7 +257,7 @@ def nip_stats(dirname, n=1):
 
             df = df.append({
                 'pipeline': pipe,
-                'camera': cameras,
+                'camera': camera,
                 'psnr': np.mean(np.mean(data['psnr'][-n:])),
                 'ssim': np.mean(np.mean(data['ssim'][-n:]))
             }, ignore_index=True, sort=False)

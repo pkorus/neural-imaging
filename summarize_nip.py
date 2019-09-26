@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import argparse
@@ -19,10 +20,10 @@ if __name__ == "__main__":
         if os.path.exists(dirname):
             print('\n# {}'.format(dirname))
             df = nip_stats(dirname, args.n)
-            print(df.to_string())
+            print('\n', df.to_string())
 
             if args.stats:
-                print('Per-pipeline summary:')
+                print('\nPer-pipeline summary:\n')
                 print(df.groupby('pipeline').mean().reset_index().to_string())
 
         else:

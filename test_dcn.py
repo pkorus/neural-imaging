@@ -148,7 +148,7 @@ def main():
                         help='ID of the image to load')
     parser.add_argument('--patch', dest='patch_size', action='store', default=128, type=int,
                         help='training patch size')
-    parser.add_argument('--dir', dest='dir', action='store',
+    parser.add_argument('--dcn', dest='dcn', action='store',
                         help='directory with a trained DCN model')
 
     args = parser.parse_args()
@@ -157,7 +157,7 @@ def main():
     args.plot = coreutils.match_option(args.plot, supported_plots)
 
     if args.plot == 'batch':
-        model, stats = afi.restore_model(args.dir, args.patch_size, fetch_stats=True)
+        model, stats = afi.restore_model(args.dcn, args.patch_size, fetch_stats=True)
         print('Training stats:', stats)
 
         data = dataset.IPDataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
@@ -173,7 +173,7 @@ def main():
         batch_x = loading.load_images(files, args.data, load='y')
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
-        model = afi.restore_model(args.dir, batch_x.shape[1])
+        model = afi.restore_model(args.dcn, batch_x.shape[1])
 
         fig = match_jpeg(model, batch_x, match='ssim')
         plt.show()
@@ -185,7 +185,7 @@ def main():
         batch_x = loading.load_images(files, args.data, load='y')
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
-        model = afi.restore_model(args.dir, batch_x.shape[1])
+        model = afi.restore_model(args.dcn, batch_x.shape[1])
 
         fig = match_jpeg(model, batch_x, match='bpp')
         plt.show()
