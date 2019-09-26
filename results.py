@@ -8,7 +8,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from helpers import coreutils, results_data
 
-supported_plots = ['accuracy', 'scatter-psnr', 'scatter-ssim', 'progress', 'conf', 'conf-tex', 'ssim', 'psnr', 'df', 'ai']
+supported_plots = ['accuracy', 'scatter-psnr', 'scatter-ssim', 'progress', 'conf', 'conf-tex', 'ssim', 'psnr', 'df', 'auto']
 
 
 def save_df(df, dirname, df_filename):
@@ -151,7 +151,7 @@ def display_results(args):
 
         return
 
-    if plot == 'ai':
+    if plot == 'auto':
 
         print('Searching for "training.json" in', args.dir)
         df = results_data.manipulation_summary(args.dir)

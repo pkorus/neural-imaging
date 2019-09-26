@@ -55,7 +55,7 @@ data/results                            - CSV files with exported results
 
 The model can be easily customized to use various NIP models, photo manipulations, distribution channels, etc. Detailed configuration instruction are given below in sub-section (III). We generally follow a 2-step protocol with separate model pre-training (camera ISP and/or compression) and joint-optimization/fine-tuning for manipulation detection (retraining from scratch is also possible). 
 
-The following sections cover all necessary steps:
+The following sections cover all steps:
 
 - pre-training of the NIP models for faithful photo development,
 - pre-training of the DCN for efficient lossy photo compression,
@@ -123,7 +123,7 @@ We test the DCN using the `test_dcn` script which can:
 - compare against JPEG compression at a matching quality level / bpp
 - generate rate-distortion curves for various codecs
 
-For example, to compare our low-qualit codec against JPEG at matching app:
+For example, to compare our low-quality codec against JPEG at matching bpp:
 
 ```bash
 > python3 test_dcn.py --data ./data/rgb/kodak --dcn 16c jpeg-match-bpp --image 4
@@ -164,7 +164,18 @@ The script generates:
 
 **Plotting Results**
 
-The results can be quickly inspected with the `results.py` script. For example, the following command shows the scatter plot with the trade-off between classification accuracy and image fidelity for the `UNet` model trained on `Nikon D90` :
+The results can be quickly inspected / exported with the `results.py` script. Supported output modes are shown in table below. Data can be exported by appending `--df {output dir}` .
+
+| Output mode                     | Description                                                  |
+| ------------------------------- | ------------------------------------------------------------ |
+| `scatter-psnr` / `scatter-ssim` | show accuracy / image quality trade-off (NIP optimization)   |
+| `progress`                      | show training progress                                       |
+| `conf` / `conf-tex`             | print confusion matrices as plain text or LaTeX tables       |
+| `ssim` / `psnr`/`accuracy`      | boxplots with image quality / accuracy                       |
+| `df`                            | print results' summary as a table                            |
+| `auto`                          | automatically parse the results' structure and plot accuracy for various configurations |
+
+For example, the following command shows the scatter plot with the trade-off between classification accuracy and image fidelity for the `UNet` model trained on `Nikon D90` :
 
 ```bash
 > python3 results.py --nip UNet --cam D90 scatter-psnr
@@ -262,10 +273,10 @@ While the original model used only the green channel, our FAN uses full RGB info
 
 ## Other Useful Scripts
 
-| Script           | Description                                                  |
-| ---------------- | ------------------------------------------------------------ |
-| summarize_nip.py | extracts and summarizes performance stats for standalone NIP models |
-| test_fan.py      | allows for testing trained FAN models on various datasets    |
+| Script             | Description                                                  |
+| ------------------ | ------------------------------------------------------------ |
+| `summarize_nip.py` | extracts and summarizes performance stats for standalone NIP models |
+| `test_fan.py`      | allows for testing trained FAN models on various datasets    |
 
 ## Data Sources
 
