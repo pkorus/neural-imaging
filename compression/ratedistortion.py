@@ -240,12 +240,11 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
                     print('Error while processing {} with {} : {}'.format(filename, dcn.model_code, e))
                     raise e
 
-                # Save the image
-                image_dir = os.path.join(directory, os.path.splitext(filename)[0])
-                if not os.path.isdir(image_dir):
-                    os.makedirs(image_dir)
-
                 if write_files:
+                    image_dir = os.path.join(directory, os.path.splitext(filename)[0])
+                    if not os.path.isdir(image_dir):
+                        os.makedirs(image_dir)
+
                     image_path = os.path.join(image_dir, dcn.model_code.replace('/', '-') + '.png')
                     imageio.imwrite(image_path, (255 * batch_y[0]).astype(np.uint8))
 

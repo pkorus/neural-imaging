@@ -200,7 +200,7 @@ def main():
         print(df.to_string())
 
     elif args.plot == 'dcn-trade-off':
-        df = ratedistortion.get_dcn_df(args.data, args.dir, write_files=False)
+        df = ratedistortion.get_dcn_df(args.data, args.dcn, write_files=False)
         print(df.to_string())
 
     elif args.plot == 'bpg-trade-off':
