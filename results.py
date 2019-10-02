@@ -24,6 +24,10 @@ def display_results(args):
     sns.set('paper', font_scale=1, style="ticks")
     plot = coreutils.match_option(args.plot, supported_plots)
 
+    if not os.path.isdir(args.dir):
+        raise FileNotFoundError('Directory {} not found!'.format(args.dir))
+
+    print('Results from: {}'.format(args.dir))
     print('Matched plotting command: {}'.format(plot))
 
     postfix = [
@@ -44,6 +48,11 @@ def display_results(args):
     if plot == 'scatter-psnr' or plot == 'scatter-ssim':
 
         df = results_data.manipulation_metrics(args.nips, args.cameras, root_dir=args.dir)
+
+        if len(df) == 0:
+            print('ERROR No results found!')
+            sys.exit(2)
+
         print(df)
         g = sns.relplot(x=plot.split('-')[-1], y='accuracy', hue='ln', col='camera', row='nip', data=df,
                     palette=sns.color_palette("Set2", len(df['ln'].unique())))
@@ -225,7 +234,7 @@ if __name__ == "__main__":
     parser.add_argument('--run', dest='run', action='store', default=None, type=int,
                         help='select experiment instance number')
     parser.add_argument('--dir', dest='dir', action='store',
-                        default=os.path.join(results_data.ROOT_DIRNAME, 'cvpr2019'),
+                        default=os.path.join(results_data.ROOT_DIRNAME),
                         help='Root directory with the results')
     parser.add_argument('--df', dest='df', action='store',
                         default=None,

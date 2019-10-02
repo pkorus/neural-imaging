@@ -13,13 +13,14 @@ ROOT_DIRNAME = './data/m/5-raw/cvpr2019'
 
 def autodetect_cameras(dirname):
     counter = 5
-    while counter > 0 and not os.path.exists(os.path.join(dirname, 'nip_model_snapshots')):
+    while counter > 0 and not os.path.exists(os.path.join(dirname, 'models', 'nip')):
         dirname = os.path.split(dirname)[0]
+        counter -= 1
 
     if counter == 0:
         raise ValueError('The {} directory does not seem to be a valid results directory'.format(dirname))
 
-    return coreutils.listdir(os.path.join(dirname, 'nip_model_snapshots'), '.*', dirs_only=True)
+    return coreutils.listdir(os.path.join(dirname, 'models', 'nip'), '.*', dirs_only=True)
 
 
 def manipulation_metrics(nip_models, cameras, root_dir=ROOT_DIRNAME):
