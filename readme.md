@@ -27,7 +27,7 @@ More information can be found in papers listed below.
 The toolbox was written in Python 3. Follow the standard procedure to install dependencies.
 
 ```
-> git clone https://github.com/pkorus/neural-imaging && cd neural-imaging.git
+> git clone https://github.com/pkorus/neural-imaging && cd neural-imaging
 > pip3 install -r requirements.txt
 > mkdir -p data/raw
 ```
