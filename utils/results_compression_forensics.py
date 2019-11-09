@@ -36,10 +36,10 @@ dataset = '../data/clic512'
 
 # %% Show changes in rate distortion (averages)
 
-dataset = '../data/rgb/raw512'
+dataset = '../data/rgb/clic512'
 
 latent_bpf = 5
-lcs = [1.0, 0.1, 0.01, 0.005]
+lcs = [0.1, 0.01, 0.005, 0.001]
 
 fig = plt.figure(figsize=(8, 6))
 axes = fig.gca()
@@ -54,10 +54,10 @@ ratedistortion.plot_curve(plots, axes, dataset, title='{}-bpf repr.'.format(late
 for dcn_model in ['4k', '8k', '16k']:
     plots = OrderedDict()
     
-    plots['dcn (b)'] = ('dcn-forensics-7md.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
+    plots['dcn (b)'] = ('dcn-forensics-7-rgb.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
     # plots['dcn (o)'] = ('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250})
     for lc in lcs:
-        plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics-7md.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
+        plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics-7-rgb.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
 
     ratedistortion.plot_curve(plots, axes, dataset,
                               title='{}-bpf repr.'.format(latent_bpf), images=[],
@@ -73,6 +73,50 @@ else:
 axes.grid(True, linestyle=':')
 
 fig.savefig('dcn_forensics_tradeoff_{}.pdf'.format(dataset.split('/')[-1]), bbox_inches='tight')
+
+# %% Show changes in rate distortion (averages)
+
+dataset = '../data/rgb/kodak512'
+ft_set = 'rgb'
+
+titles = {
+    'raw': 'comparison on native camera output (raw)',
+    'rgb': 'comparison on mixed natural images (clic)',
+    }
+
+latent_bpf = 5
+lcs = [0.1, 0.01, 0.005, 0.001]
+
+fig = plt.figure(figsize=(8, 6))
+axes = fig.gca()
+
+plots = OrderedDict()
+plots['jpg'] = ('jpeg.csv', {})
+plots['jpeg2k'] = ('jpeg2000.csv', {})
+plots['bpg'] = ('bpg.csv', {})
+
+ratedistortion.plot_curve(plots, axes, dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='ensemble')
+
+plots = OrderedDict()
+
+plots['dcn (b)'] = ('dcn-forensics-7-{}.csv'.format(ft_set), {'model_dir': '.*-basic/'.format(dcn_model)})
+plots['dcn (1.000)'] = ('dcn-forensics-7-{}.csv'.format(ft_set), {'model_dir': '.*k-1.0000/'.format(dcn_model)})
+plots['dcn (0.005)'] = ('dcn-forensics-7-{}.csv'.format(ft_set), {'model_dir': '.*k-0.0050/'.format(dcn_model)})
+plots['dcn (0.001)'] = ('dcn-forensics-7-{}.csv'.format(ft_set), {'model_dir': '.*k-0.0010/'.format(dcn_model)})
+
+ratedistortion.plot_curve(plots, axes, dataset,
+                          title=titles[ft_set], images=[],
+                          plot='ensemble', baseline_count=0)
+
+if 'raw' in dataset:
+    axes.set_xlim([0.1, 1.5])
+    axes.set_ylim([0.8, 0.97])
+else:
+    axes.set_xlim([0.1, 1.95])
+    axes.set_ylim([0.8, 1.00])
+axes.grid(True, linestyle=':')
+
+fig.savefig('dcn_forensics_tradeoff_{}_final.pdf'.format(dataset.split('/')[-1]), bbox_inches='tight')
 
 # %% Show rate distortion curves
 
@@ -144,11 +188,11 @@ compact = True
 
 # Define the distribution channel
 models = OrderedDict()
-models['basic'] = '../data/models/dcn/forensics-7md/{}-basic'.format(dcn_model)
-models[1.000]   = '../data/models/dcn/forensics-7md/{}-1.0000'.format(dcn_model)
-models[0.050]   = '../data/models/dcn/forensics-7md/{}-0.0500'.format(dcn_model)
-models[0.010]   = '../data/models/dcn/forensics-7md/{}-0.0100'.format(dcn_model)
-models[0.001]   = '../data/models/dcn/forensics-7md/{}-0.0010'.format(dcn_model)
+models['basic'] = '../data/models/dcn/_forensics/7-rgb/{}-basic'.format(dcn_model)
+models[1.000]   = '../data/models/dcn/_forensics/7-rgb/{}-1.0000'.format(dcn_model)
+models[0.050]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0500'.format(dcn_model)
+models[0.010]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0100'.format(dcn_model)
+models[0.001]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0010'.format(dcn_model)
 
 dcns = OrderedDict()
 for model in models.keys():
@@ -164,7 +208,7 @@ for image_id in get_sample_images(dataset):
     outputs = OrderedDict()
     stats = OrderedDict()
     
-    df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all-7m.csv'), index_col=False)
+    df_acc = pd.read_csv(os.path.join('../data/results/', 'summary-dcn-all-7-rgb.csv'), index_col=False)
     
     # Get compressed images for all selected models
     for model in models.keys():
@@ -298,16 +342,16 @@ for image_id in get_sample_images(dataset):
 
 # %% Plot aggregated spectrum statistics
 
-dcn_model = '16k'
+dcn_model = '4k'
 
 # Define the distribution channel
 models = OrderedDict()
-models['basic'] = '../data/models/dcn/forensics-7md/{}-basic'.format(dcn_model)
-models[1.000]   = '../data/models/dcn/forensics-7md/{}-1.0000'.format(dcn_model)
-models[0.050]   = '../data/models/dcn/forensics-7md/{}-0.0500'.format(dcn_model)
-models[0.010]   = '../data/models/dcn/forensics-7md/{}-0.0100'.format(dcn_model)
-models[0.005]   = '../data/models/dcn/forensics-7md/{}-0.0050'.format(dcn_model)
-models[0.001]   = '../data/models/dcn/forensics-7md/{}-0.0010'.format(dcn_model)
+models['basic'] = '../data/models/dcn/_forensics/7-rgb/{}-basic'.format(dcn_model)
+models[1.000]   = '../data/models/dcn/_forensics/7-rgb/{}-1.0000'.format(dcn_model)
+models[0.050]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0500'.format(dcn_model)
+models[0.010]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0100'.format(dcn_model)
+models[0.005]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0050'.format(dcn_model)
+models[0.001]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0010'.format(dcn_model)
 
 dcns = OrderedDict()
 for model in models.keys():
@@ -328,7 +372,7 @@ for image_id in range(batch_x.shape[0]):
 model_mapping = {'4k': '16-C', '8k': '32-C', '16k': '64-C'}
 
 accuracies = OrderedDict()
-df_acc = pd.read_csv(os.path.join('../results/', 'summary-dcn-all-7m.csv'), index_col=False)
+df_acc = pd.read_csv(os.path.join('../data/results/', 'summary-dcn-all-7-rgb.csv'), index_col=False)
 
 # Get compressed images for all selected models
 for model in models.keys():
@@ -378,8 +422,8 @@ for i in range(len(spectrums)):
     print(model, spectrums[i].min(), spectrums[i].max())
 
 
-fig = plotting.imsc(spectrums, all_labels, ncols=len(models)/2)
-# fig.set_size_inches((3.25 * len(models), 3.25))
+fig = plotting.imsc(spectrums, all_labels, ncols=len(models))
+fig.set_size_inches((3.25 * len(models), 3.25))
 fig.subplots_adjust(wspace=0, hspace=0)
 # fig.tight_layout()
 out_filename = 'fig_spectral_{}.pdf'.format(dcn_model)
@@ -391,7 +435,7 @@ for_plotting = []
 for_plotting.extend(spectrums)
 for_plotting.append(np.ones_like(spectrums[0]))
 for r in range(1, len(spectrums)):
-    diff = np.abs(spectrums[r] - spectrums[0]) * 10
+    diff = np.abs(spectrums[r] - spectrums[0]) * 4
     # diff = diff / diff.max() * 2
     for_plotting.append(diff)
 
@@ -399,15 +443,20 @@ for_plotting.append(np.ones_like(spectrums[0]))
 for_plotting.append(np.ones_like(spectrums[0]))
 
 for r in range(2, len(spectrums)):
-    diff = np.abs(spectrums[r] - spectrums[1]) * 20
+    diff = np.abs(spectrums[r] - spectrums[1]) * 4
     # diff = diff / diff.max()
     # diff = np.power(diff, 0.25)
     for_plotting.append(diff)
 
 fig = plotting.imsc(for_plotting, all_labels + ['' for r in range(len(spectrums))] * 2, ncols=len(models))
+fig.get_axes()[len(models) + 1].set_ylabel('Diff. w.r.t. basic')
+fig.get_axes()[2*len(models) + 2].set_ylabel('Diff. w.r.t. $\lambda_c=1$')
 
-# out_filename = 'fig_spectral_{}_diff.pdf'.format(dcn_model)
-# fig.savefig(out_filename, bbox_inches='tight',  dpi=100)
+fig.set_size_inches((3.25 * len(models), 3 * 3.25))
+fig.subplots_adjust(wspace=0, hspace=0.02)
+
+out_filename = 'fig_spectral_{}_{}_diff.pdf'.format(dcn_model, dataset.strip('/').split('/')[-1])
+fig.savefig(out_filename, bbox_inches='tight',  dpi=100)
 
 # %% JPEG Output
 
@@ -583,8 +632,8 @@ print('Written to: {}'.format(out_filename))
 
 # %% Per-image SSIM & bpp detrioration stats
 
-dataset = '../data/raw512/'
-df = pd.read_csv(os.path.join(dataset, 'dcn-forensics-7m.csv'), index_col=False)
+dataset = '../data/rgb/clic512/'
+df = pd.read_csv(os.path.join(dataset, 'dcn-forensics-7-rgb.csv'), index_col=False)
 
 # ssim_costs = []
 # bpp_costs = []
@@ -806,8 +855,8 @@ ax = fig.gca()
 axis_labels = {'bpp': 'Effective bpp', 'accuracy': 'FAN accuracy', 'ssim': 'SSIM'}
 
 x_axis = 'bpp'
-y_axis = 'accuracy'
-z_axis = 'ssim'
+z_axis = 'accuracy'
+y_axis = 'ssim'
 
 if 'raw' in dataset:
     x_limits = [0.225, 1.225]
@@ -819,9 +868,11 @@ if y_axis == 'ssim':
     y_limits = [0.825, 0.98]
 
 if y_axis == 'accuracy':
-    x_shift, y_shift = 0.015, 0.0
-    y_limits = [0.25, 1.01]
+    x_shift, y_shift = 0.035, 0.0
+    # y_limits = [0.25, 1.01] # for raw training
+    y_limits = [0.45, 0.9]
 
+annotation_whitelist = ['0.0010', '0.0050', 'basic']
 
 min_z = min([df_j[z_axis].min(), df_o[z_axis].min()])
 max_z = max([df_j[z_axis].max(), df_o[z_axis].max()])
@@ -876,22 +927,23 @@ for pid in range(0, len(df_o)):
         else:
             ha = 'center'
 
-        # Draw the actual label
-        ax.text(df_o.loc[pid, x_axis] + x_shift, df_o.loc[pid, y_axis] - y_shift, label,
-                horizontalalignment=ha, size=7, color=label_color,
-                ha=ha)
+        if len(annotation_whitelist) == 0 or lbda in annotation_whitelist:
+            # Draw the actual label
+            ax.text(df_o.loc[pid, x_axis] + x_shift, df_o.loc[pid, y_axis] - y_shift, label,
+                    horizontalalignment=ha, size=7, color=label_color,
+                    ha=ha)
 
 # Add lines & points for JPEG -------------------------------------------------
-# g = sns.lineplot(x=x_axis, y=y_axis, data=df_j, dashes=True)
+g = sns.lineplot(x=x_axis, y=y_axis, data=df_j, dashes=True)
 
-# g = sns.scatterplot(x=x_axis, y=y_axis, hue=z_axis, size=z_axis, edgecolor='gray',
-#                 sizes=(10, 100), size_norm=(min_z, max_z), hue_norm=(min_z, max_z),
-#                 legend=False, marker='D', s=50, alpha=0.7, data=df_j)
+g = sns.scatterplot(x=x_axis, y=y_axis, hue=z_axis, size=z_axis, edgecolor='gray',
+                sizes=(10, 100), size_norm=(min_z, max_z), hue_norm=(min_z, max_z),
+                legend=False, marker='D', s=50, alpha=0.7, data=df_j)
 
-# for pid in range(0, len(df_j)):
-#     if df_j.loc[pid, x_axis] < x_limits[-1] and df_j.loc[pid, y_axis] > y_limits[0] and int(df_j.quality[pid]) % 10 == 0:
-#         ax.text(df_j.loc[pid, x_axis] + 0.035, df_j.loc[pid, y_axis], 'JPG({})'.format(int(df_j.quality[pid])),
-#              horizontalalignment='left', size=7, color='black', va='center')
+for pid in range(0, len(df_j)):
+    if df_j.loc[pid, x_axis] < x_limits[-1] and df_j.loc[pid, y_axis] > y_limits[0] and int(df_j.quality[pid]) % 35 == 0:
+        ax.text(df_j.loc[pid, x_axis] + 0.035, df_j.loc[pid, y_axis], 'JPG({})'.format(int(df_j.quality[pid])),
+              horizontalalignment='left', size=7, color='black', va='center')
 
 # Final touches ---------------------------------------------------------------
 for line in g.lines:

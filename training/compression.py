@@ -252,7 +252,7 @@ def train_dcn(tf_ops, training, data, directory='./data/models/dcn/playground/',
                     caches['loss']['validation'].append(loss_value)
 
                     # Compute SSIM
-                    ssim_value = np.mean([ssim(batch_x[r], batch_y[r], multichannel=True) for r in range(len(batch_x))])
+                    ssim_value = np.mean([ssim(batch_x[r], batch_y[r], multichannel=True, data_range=1.0) for r in range(len(batch_x))])
                     caches['ssim']['validation'].append(ssim_value)
 
                     # Entropy

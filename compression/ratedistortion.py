@@ -8,6 +8,7 @@ import seaborn as sns
 import glymur
 from pathlib import Path
 from skimage.measure import compare_ssim, compare_psnr
+from sewar.full_ref import msssim, ssim, psnr
 
 # For curve fitting and regression
 from scipy.optimize import curve_fit
@@ -32,7 +33,7 @@ def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=F
         print('Restoring JPEG stats from {}'.format(df_jpeg_path))
         df = pd.read_csv(df_jpeg_path, index_col=False)
     else:
-        df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'bytes', 'bpp'])
+        df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'msssim', 'msssim_db', 'bytes', 'bpp'])
 
         with tqdm.tqdm(total=len(files) * len(quality_levels), ncols=120, desc='JPEG') as pbar:
 
@@ -54,12 +55,16 @@ def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=F
                         image_path = os.path.join(image_dir, 'jpeg_q{:03d}.png'.format(q))
                         imageio.imwrite(image_path, (255 * image_compressed).astype(np.uint8))
 
+                    msssim_value = msssim(image, image_compressed, MAX=1).real
+
                     df = df.append({'image_id': image_id,
                                     'filename': filename,
                                     'codec': 'jpeg',
                                     'quality': q,
                                     'ssim': compare_ssim(image, image_compressed, multichannel=True, data_range=1),
                                     'psnr': compare_psnr(image, image_compressed, data_range=1),
+                                    'msssim': msssim_value,
+                                    'msssim_db': -10 * np.log10(1 - msssim_value),
                                     'bytes': image_bytes,
                                     'bpp': 8 * image_bytes / image.shape[0] / image.shape[1]
                                     }, ignore_index=True)
@@ -86,7 +91,7 @@ def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc
             print('Restoring JPEG 2000 stats from {}'.format(df_jpeg_path))
             df = pd.read_csv(df_jpeg_path, index_col=False)
         else:
-            df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'bytes', 'bpp'])
+            df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'msssim', 'msssim_db', 'bytes', 'bpp'])
 
             with tqdm.tqdm(total=len(files) * len(quality_levels), ncols=120, desc='JP2k') as pbar:
 
@@ -122,12 +127,16 @@ def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc
                             image_path = os.path.join(image_dir, 'jp2_q{:.1f}dB.png'.format(q))
                             imageio.imwrite(image_path, (255*image_compressed).astype(np.uint8))
 
+                        msssim_value = msssim(image, image_compressed, MAX=1).real
+
                         df = df.append({'image_id': image_id,
                                         'filename': filename,
                                         'codec': 'jpeg2000',
                                         'quality': q,
                                         'ssim': compare_ssim(image, image_compressed, multichannel=True, data_range=1),
                                         'psnr': compare_psnr(image, image_compressed, data_range=1),
+                                        'msssim': msssim_value,
+                                        'msssim_db': -10 * np.log10(1 - msssim_value),
                                         'bytes': image_bytes,
                                         'bpp': 8 * image_bytes / image.shape[0] / image.shape[1]
                                         }, ignore_index=True)
@@ -153,7 +162,7 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
         print('Restoring BPG stats from {}'.format(df_jpeg_path))
         df = pd.read_csv(df_jpeg_path, index_col=False)
     else:
-        df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'bytes', 'bpp'])
+        df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'msssim', 'msssim_db', 'bytes', 'bpp'])
 
         with tqdm.tqdm(total=len(files) * len(quality_levels), ncols=120, desc='BPG') as pbar:
 
@@ -185,12 +194,16 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
                         image_path = os.path.join(image_dir, 'bpg_q{:03d}.png'.format(q))
                         imageio.imwrite(image_path, (255 * image_compressed).astype(np.uint8))
 
+                    msssim_value = msssim(image, image_compressed, MAX=1).real
+
                     df = df.append({'image_id': image_id,
                                     'filename': filename,
                                     'codec': 'bpg',
                                     'quality': q,
                                     'ssim': compare_ssim(image, image_compressed, multichannel=True, data_range=1),
                                     'psnr': compare_psnr(image, image_compressed, data_range=1),
+                                    'msssim': msssim_value,
+                                    'msssim_db': -10 * np.log10(1 - msssim_value),
                                     'bytes': image_bytes,
                                     'bpp': bpp
                                     }, ignore_index=True)
@@ -202,6 +215,7 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
 
     return df
 
+
 def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
     # Discover test files
@@ -211,8 +225,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
     # Create a new table for the DCN
     df = pd.DataFrame(
-        columns=['image_id', 'filename', 'model_dir', 'codec', 'ssim', 'psnr', 'entropy', 'bytes', 'bpp', 'layers', 'quantization',
-                 'entropy_reg', 'codebook', 'latent', 'latent_shape', 'n_features'])
+        columns=['image_id', 'filename', 'model_dir', 'codec', 'ssim', 'psnr', 'msssim', 'msssim_db', 'entropy', 'bytes', 'bpp', 'layers', 'quantization', 'entropy_reg', 'codebook', 'latent', 'latent_shape', 'n_features'])
 
     # Discover available models
     model_dirs = list(Path(model_directory).glob('**/progress.json'))
@@ -248,12 +261,16 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
                     image_path = os.path.join(image_dir, dcn.model_code.replace('/', '-') + '.png')
                     imageio.imwrite(image_path, (255 * batch_y[0]).astype(np.uint8))
 
+                msssim_value = msssim(batch_x[image_id], batch_y[0], MAX=1).real
+
                 df = df.append({'image_id': image_id,
                                 'filename': filename,
                                 'model_dir': os.path.relpath(os.path.split(str(model_dir))[0], model_directory).replace(dcn.scoped_name, ''),
                                 'codec': dcn.model_code,
                                 'ssim': compare_ssim(batch_x[image_id], batch_y[0], multichannel=True, data_range=1),
                                 'psnr': compare_psnr(batch_x[image_id], batch_y[0], data_range=1),
+                                'msssim': msssim_value,
+                                'msssim_db': -10 * np.log10(1 - msssim_value),
                                 'entropy': entropy,
                                 'bytes': image_bytes,
                                 'bpp': 8 * image_bytes / batch_x[image_id].shape[0] / batch_x[image_id].shape[1],
@@ -281,7 +298,9 @@ def plot_curve(plots, axes,
                add_legend=True,
                marker_legend=True,
                baseline_count=3,
-               dump_df=False):
+               dump_df=False,
+               update_ylim=False,
+               db_scale=False):
 
     # Parse input parameters
     draw_markers = draw_markers if draw_markers is not None else len(images) == 1
@@ -322,10 +341,20 @@ def plot_curve(plots, axes,
         images = df['image_id'].unique().tolist()
 
     # Define a parametric model for the trade-off curve
-    def func(x, a, b, c, d):
-        return 1/(1 + np.exp(- b * x ** a + c)) - d
+    if metric in {'ssim', 'msssim'}:
+        fit_bounds = ([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1])
 
-    # Select measurements for the given images
+        def func(x, a, b, c, d):
+            return 1/(1 + np.exp(- b * x ** a + c)) - d
+    else:
+        fit_bounds = ([1e-4, 1e-5, 1e-2, -500], [1000, 1000, 100, 500])
+
+        def func(x, a, b, c, d):
+            # return a * np.log(np.clip(b*x**c + d, a_min=1e-9, a_max=1e9))
+            # return a + b * x + c * x ** 2 + d * x **3
+            return a * np.log(b * x ** c + d)
+
+    # Select measurements for specific images, if specified
     for dfc in df_all:
         if len(images) > 0:
             dfc['selected'] = dfc['image_id'].apply(lambda x: x in images)
@@ -336,20 +365,38 @@ def plot_curve(plots, axes,
     styles = [['r-', 'rx'], ['b--', 'b+'], ['k:', 'k2'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'], ['m:', 'gx']]
     avg_markers = ['', '', '', 'o', 'o', '2', '+', 'x', '^', '.']
 
+    # To retain consistent styles across plots, adjust the lists based on the number of baseline methods
     if baseline_count < 3:
         styles = styles[(3 - baseline_count):]
         avg_markers = avg_markers[(3 - baseline_count):]
 
+    if metric == 'psnr':
+        ssim_min = 25
+        ssim_max = 45
+        metric_label = 'PSNR [dB]'
+
+    elif metric == 'msssim_db' or db_scale:
+        ssim_min = 10
+        ssim_max = 32
+        metric_label = 'MS-SSIM [dB]'
+
+    elif metric == 'ssim':
+        ssim_min = 0.85
+        ssim_max = 1
+        metric_label = 'SSIM'
+
+    elif metric == 'msssim':
+        ssim_min = 0.9
+        ssim_max = 1
+        metric_label = 'MS-SSIM'
+    else:
+        raise ValueError('Unsupported metric!')
+
     # Iterate over defined plots and draw data accordingly
-    ssim_min = 1
     for index, dfc in enumerate(df_all):
 
         bpps = dfc.loc[dfc['selected'], 'bpp'].values
         ssims = dfc.loc[dfc['selected'], metric].values
-
-        # Discard invalid measurements (e.g., for empty images)
-        bpps = bpps[ssims > 0.6]
-        ssims = ssims[ssims > 0.6]
 
         if dump_df:
             print('{} matched {} rows -> {}'.format(labels[index], len(dfc.loc[dfc['selected']]), 'debug-{}.csv'.format(labels[index])))
@@ -357,24 +404,20 @@ def plot_curve(plots, axes,
 
         x = np.linspace(bpps.min(), bpps.max(), 256)
 
-        if plot == 'kde':
-            import pyqt_fit.nonparam_regression as smooth
-            from pyqt_fit import npr_methods
+        if plot == 'fit':
+            # Fit all of the data to a single curve
 
-            k2 = smooth.NonParamRegression(bpps, ssims, method=npr_methods.LocalPolynomialKernel(q=5))
-            k2.fit()
-            axes.plot(x, k2(x), styles[index][0], label=labels[index] if add_legend else None)
-            ssim_min = min([ssim_min, min(k2(x))])
-
-        elif plot == 'fit':
-            popt, pcov = curve_fit(func, bpps, ssims, bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]), maxfev=10000)
+            popt, pcov = curve_fit(func, bpps, ssims, bounds=fit_bounds, maxfev=10000)
             axes.plot(x, func(x, *popt), styles[index][0], label=labels[index] if add_legend else None)
             # print(labels[index], *popt)
 
             # If plotting many images, add confidence intervals
             if len(images) > 5 or len(images) == 0:
                 a, b, c, d = unc.correlated_values(popt, pcov)
-                py = unp.exp(b * x ** a - c) / (1 + unp.exp(b * x ** a - c)) - d
+                if metric in {'ssim', 'msssim'}:
+                    py = 1 / (1 + unp.exp(- b * x ** a + c)) - d
+                else:
+                    py = a * unp.log(np.clip(b * x ** c + d, a_min=1e-9, a_max=1e9))
 
                 nom = unp.nominal_values(py)
                 std = unp.std_devs(py)
@@ -384,9 +427,11 @@ def plot_curve(plots, axes,
                 axes.fill(np.concatenate([x, x[::-1]]), np.concatenate([nom - 1.96 * std, (nom + 1.96 * std)[::-1]]),
                           alpha=0.1, fc=styles[index][0][0], ec='None')
 
-            ssim_min = min([ssim_min, func(x[0], *popt)])
+            ssim_min = min([ssim_min, func(x[0], *popt)]) if update_ylim else ssim_min
 
         elif plot == 'ensemble':
+            # Fit individual images to a curve, then average the curves
+
             Y = np.zeros((len(images), len(x)))
 
             for image_no, image_id in enumerate(images):
@@ -394,28 +439,40 @@ def plot_curve(plots, axes,
                 bpps = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), 'bpp'].values
                 ssims = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), metric].values
 
-                bpps = bpps[ssims > 0.6]
-                ssims = ssims[ssims > 0.6]
-
                 try:
                     popt, pcov = curve_fit(func, bpps, ssims,
-                                       bounds=([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1]),
+                                       bounds=fit_bounds,
                                        maxfev=100000)
+                    ssims_est = func(bpps, *popt)
+                    mse = np.sum(np.power(ssims - ssims_est, 2))
+                    print('MSE for {} = {:.2f}'.format(labels[index], mse))
+                    if mse > 100:
+                        print('WARNING Large MSE for {} = {:.2f}'.format(labels[index], mse))
+                        print('  bounds: ', fit_bounds)
+                        print('  params: ', popt)
+
                 except RuntimeError:
                     print('ERROR', labels[index], 'image =', image_id, 'bpp =', bpps, 'ssims =', ssims)
 
                 Y[image_no] = func(x, *popt)
+                # out_of_range_mask = (x < 0.33 * np.min(bpps)) + (x > np.max(bpps) * 3)
+                # Y[image_no, out_of_range_mask] = np.nan
 
-            y = np.mean(Y, axis=0)
+            # print(Y.tolist())
+            y = np.nanmean(Y, axis=0)
+            if db_scale:
+                y = -10*np.log10(1 - y)
             axes.plot(x, y, styles[index][0], label=labels[index] if add_legend else None)
-            ssim_min = min([ssim_min, min(y)])
+            ssim_min = min([ssim_min, min(y)]) if update_ylim else ssim_min
 
         elif plot == 'line':
-            axes.plot(bpps, ssims, styles[index][0], label=labels[index] if add_legend else None)
-            ssim_min = min([ssim_min, min(ssims)])
+            # Simple linear interpolation
 
+            axes.plot(bpps, ssims, styles[index][0], label=labels[index] if add_legend else None)
+            ssim_min = min([ssim_min, min(ssims)]) if update_ylim else ssim_min
 
         elif plot == 'averages':
+            # For each quality level (QF, #channels) find the average quality level
 
             dfa = dfc.loc[dfc['selected']]
 
@@ -427,11 +484,8 @@ def plot_curve(plots, axes,
             bpps = dfg.mean()['bpp'].values
             ssims = dfg.mean()[metric].values
 
-            bpps = bpps[ssims > 0.6]
-            ssims = ssims[ssims > 0.6]
-
             axes.plot(bpps, ssims, styles[index][0], label=labels[index] if add_legend else None, marker=avg_markers[index], alpha=0.65)
-            ssim_min = min([ssim_min, min(ssims)])
+            ssim_min = min([ssim_min, min(ssims)]) if update_ylim else ssim_min
 
         elif plot == 'none':
             pass
@@ -457,12 +511,17 @@ def plot_curve(plots, axes,
                 if 'quantization' in dfc and len(dfc['quantization'].unique()) > 1:
                     style_mapping['style'] = 'quantization'
 
+                if db_scale:
+                    dfc[metric] = -10 * np.log10(1 - dfc[metric])
+
                 g = sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
                                 palette="Set2", ax=axes, legend=detailed_legend,
                                 **style_mapping)
 
             else:
-                axes.plot(bpps, ssims, styles[index][1], alpha=5 / (sum(dfc['selected'])))
+                if db_scale:
+                    ssims = -10 * np.log10(1 - ssims)
+                axes.plot(bpps, ssims, styles[index][1], alpha=10 / (sum(dfc['selected'])))
 
     n_images = len(dfc.loc[dfc['selected'], 'image_id'].unique())
 
@@ -477,10 +536,10 @@ def plot_curve(plots, axes,
             t.set_text(t.get_text().replace('_', '-'))
 
     axes.set_xlim([-0.1, 3.1])
-    axes.set_ylim([ssim_min * 0.99, 1])
-    axes.set_ylim([0.75, 1])
+    axes.set_ylim([ssim_min * 0.99, ssim_max])
+    # axes.set_ylim([0.75, 1])
     # axes.legend(loc='lower right')
     axes.set_title(title)
     axes.set_xlabel('Effective bpp')
-    axes.set_ylabel('SSIM')
+    axes.set_ylabel(metric_label)
 

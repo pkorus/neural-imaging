@@ -6,6 +6,7 @@ from matplotlib import rc
 import matplotlib.pyplot as plt
 sys.path.append('..')
 
+from scipy import stats
 from helpers import coreutils
 
 dirname = os.path.expanduser('~/Dropbox/logs')
@@ -51,7 +52,23 @@ leg = g._legend
 leg.set_bbox_to_anchor([0.05, 0.95])  # coordinates of lower left of bounding box
 leg._loc = 2
 
-g.fig.set_size_inches((12, 6))
+g.fig.set_size_inches((10, 6))
 g.fig.show()
 
-g.fig.savefig('fig_fan_validation.pdf', bbox_inches='tight')
+# g.fig.savefig('fig_fan_transferability.pdf', bbox_inches='tight')
+
+# Some measurements
+
+from scipy.optimize import curve_fit
+
+dfq = df[(df['training data'] == 'rgb') & (df['compression'] == 'dcn+') & (df['test set'] == 'clic256')]
+x = dfq['validation accuracy']
+y = dfq['test accuracy']
+slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
+
+popt, pcov = curve_fit(lambda x, b: x - b, x, y, maxfev=10000)
+
+print(len(x), len(y))
+print('Slope: {:.3f}, intercept: {:.3f}, R2: {:.2f}'.format(slope, intercept, r_value))
+
+print(popt)

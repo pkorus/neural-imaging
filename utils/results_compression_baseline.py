@@ -38,7 +38,7 @@ from training import compression
 
 from misc import get_sample_images
 
-dataset = '../data/rgb/clic512'
+dataset = '../data/rgb/kodak512'
 
 # %% Entropy-regularization
 # II. Fix codebook and regularization
@@ -49,26 +49,63 @@ plots = OrderedDict()
 plots['jpeg'] = ('jpeg.csv', {})
 plots['jpeg2000'] = ('jpeg2000.csv', {})
 plots['bpg'] = ('bpg.csv', {})
-plots['dcn'] = ('dcn-entropy.csv', {
-                  'quantization': 'soft-codebook-{}bpf'.format(latent_bpf),
-                  'entropy_reg': 250
+# plots['dcn'] = ('dcn-7-raw.csv', {
+#                   'quantization': 'soft-codebook-{}bpf'.format(latent_bpf),
+#                   'entropy_reg': 250
+#                 })
+plots['dcn'] = ('dcn-7-raw.csv', {
+                  'model_dir': '.*basic/',
                 })
 
-dataset = '../data/rgb/kodak512/'
+metric = 'psnr'
+plot_type = 'ensemble'
+
+dataset = '../data/rgb/raw512/'
 images = get_sample_images(dataset)
 
 fig, axes = plt.subplots(ncols=len(images)+1, nrows=1, sharey=True)
 fig.set_size_inches((20, 3))
 
-ratedistortion.plot_curve(plots, axes[0], dataset, title=os.path.split(dataset.strip('/'))[-1], images=[], plot='ensemble')
+ratedistortion.plot_curve(plots, axes[0], dataset, title=os.path.split(dataset.strip('/'))[-1],
+                          images=[], plot=plot_type, metric=metric)
+
 for i, im in enumerate(images):
     ratedistortion.plot_curve(plots, axes[i+1], dataset,
                               title='\\#{}'.format(im),
-                              images=[im], plot='ensemble',
+                              images=[im], plot=plot_type, metric=metric,
                               add_legend=False, marker_legend=False)
 
-fig.savefig('fig_dcn_tradeoff_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1]),
+fig.savefig('../var/results/fig_dcn_tradeoff_{}_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1], metric),
             bbox_inches='tight')
+
+# %%
+
+
+plots = OrderedDict()
+# plots['jpeg'] = ('jpeg.csv', {})
+plots['jpeg2000'] = ('jpeg2000.csv', {})
+# plots['bpg'] = ('bpg.csv', {})
+plots['dcn'] = ('dcn-7-raw.csv', {'model_dir': '.*basic/'})
+
+
+metric = 'psnr'
+plot_type = 'ensemble'
+
+ratedistortion.plot_curve(plots, plt.gca(), dataset,
+                          title='\\#{}'.format(im),
+                          images=[1], plot=plot_type, metric=metric,
+                          add_legend=True, marker_legend=False, baseline_count=1)
+
+plt.gca().set_xlim([0, 5])
+
+# %%
+
+x = [[1, 1, 1, 1],
+     [2, 2, 2, 2],
+     [3, 3, np.nan, 3]]
+
+x = np.array(x)
+print(np.nanmean(x, axis=0))
 
 # %% Summarize all datasets
 
@@ -95,14 +132,14 @@ for i, dataset in enumerate(datasets):
                               images=[], plot='ensemble',
                               add_legend=i==0)
 
-fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('all'), bbox_inches='tight')
+# fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('all'), bbox_inches='tight')
 
-with open('fig_dcn_tradeoff_{}.mpf'.format('all'), 'wb') as f:
-    pickle.dump(fig, f)
+# with open('fig_dcn_tradeoff_{}.mpf'.format('all'), 'wb') as f:
+#     pickle.dump(fig, f)
 
 # %% Load sample data
 
-dataset = '../data/kodak512/'
+dataset = '../data/rgb/raw512/'
 images = get_sample_images(dataset)
 
 # Discover test files
@@ -110,7 +147,7 @@ files, _ = loading.discover_files(dataset, n_images=-1, v_images=0)
 batch_x = loading.load_images(files, dataset, load='y')
 batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
-fig = plotting.imsc(batch_x[images], titles='')
+fig = plotting.imsc(batch_x[images], titles=['{} ()'.format(files[x]) for x in images])
 fig.tight_layout()
 
 fig.savefig('fig_samples_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1]),
@@ -322,8 +359,8 @@ fig = plotting.imsc(
             'JPEG Q={} $\\rightarrow$ ssim:{:.2f} bpp:{:.2f}'.format(q1, ssim_q1, bpp_q1),
             'JPEG Q={} $\\rightarrow$ ssim:{:.2f} bpp:{:.2f}'.format(q2, ssim_q2, bpp_q2)
         ],
-        ncols=2, figwidth=8
+        ncols=4, figwidth=16
 )
 fig.tight_layout()
 
-fig.savefig('fig_jpeg_match_{}_{}_image_{}.pdf'.format(model, os.path.split(dataset.strip('/'))[-1], images[image_id]), bbox_inches='tight')
+fig.savefig('../data/var/jpeg_match_{}_{}_image_{}.pdf'.format(model, os.path.split(dataset.strip('/'))[-1], images[image_id]), bbox_inches='tight')
