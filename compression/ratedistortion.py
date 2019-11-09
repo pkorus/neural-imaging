@@ -347,12 +347,12 @@ def plot_curve(plots, axes,
         def func(x, a, b, c, d):
             return 1/(1 + np.exp(- b * x ** a + c)) - d
     else:
-        fit_bounds = ([1e-4, 1e-5, 1e-2, -500], [1000, 1000, 100, 500])
+        fit_bounds = ([1e-4, 1e-5, 1e-2, -200], [20, 1000, 10, 200])
 
         def func(x, a, b, c, d):
-            # return a * np.log(np.clip(b*x**c + d, a_min=1e-9, a_max=1e9))
+            return a * np.log(np.clip(b*x**c + d, a_min=1e-9, a_max=1e9))
             # return a + b * x + c * x ** 2 + d * x **3
-            return a * np.log(b * x ** c + d)
+            # return a * np.log(b * x ** c + d)
 
     # Select measurements for specific images, if specified
     for dfc in df_all:
@@ -442,12 +442,12 @@ def plot_curve(plots, axes,
                 try:
                     popt, pcov = curve_fit(func, bpps, ssims,
                                        bounds=fit_bounds,
-                                       maxfev=100000)
+                                       maxfev=10000)
                     ssims_est = func(bpps, *popt)
                     mse = np.sum(np.power(ssims - ssims_est, 2))
-                    print('MSE for {} = {:.2f}'.format(labels[index], mse))
-                    if mse > 100:
-                        print('WARNING Large MSE for {} = {:.2f}'.format(labels[index], mse))
+                    print('MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
+                    if mse > 10:
+                        print('WARNING Large MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
                         print('  bounds: ', fit_bounds)
                         print('  params: ', popt)
 
