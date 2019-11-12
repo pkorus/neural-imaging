@@ -140,9 +140,7 @@ def setup_fit(metric):
 
 # %%
 
-def plot_ratedistortion(plots, dirname, plot_images, metric, plot, baseline_count=3, add_legend=True, output=None):
-    
-    # f = open('params-{}.dat'.format(metric), 'a')
+def plot_ratedistortion(plots, dirname, plot_images, metric, plot, baseline_count=3, add_legend=True, output=None, max_bpp=5, draw_markers=1):
     
     plot = coreutils.match_option(plot, ['fit', 'aggregate'])
     dirname = dirname.strip('/')
@@ -156,7 +154,6 @@ def plot_ratedistortion(plots, dirname, plot_images, metric, plot, baseline_coun
     images_y = int(np.ceil(len(plot_images) / images_x))
                 
     update_ylim = False
-    draw_markers = True
     db_scale = False
     marker_legend = False
 
@@ -198,11 +195,7 @@ def plot_ratedistortion(plots, dirname, plot_images, metric, plot, baseline_coun
             
             bpps = dfc.loc[dfc['selected'], 'bpp'].values
             ssims = dfc.loc[dfc['selected'], metric].values
-    
-            # if dump_df:
-            #     print('{} matched {} rows -> {}'.format(labels[index], len(dfc.loc[dfc['selected']]), 'debug-{}.csv'.format(labels[index])))
-            #     dfc.loc[dfc['selected']].to_csv('debug-{}.csv'.format(labels[index]))
-    
+        
             x = np.linspace(max([0, bpps.min() * 0.9]), min([5, bpps.max() * 1.1]), 256)
         
             if plot == 'fit':
@@ -229,38 +222,21 @@ def plot_ratedistortion(plots, dirname, plot_images, metric, plot, baseline_coun
                         ssims_est = func(bpps, *popt)
                         mse = np.mean(np.power(ssims - ssims_est, 2))
                         mse_l.append(mse)
-                        # print('MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
                         if mse > 1:
-                            print('WARNING Large MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
-                            print('  bounds: ', fit_bounds)
-                            print('  params: ', popt)
-                            # print('  x = {}'.format(list(bpps)))
-                            # print('  y = {}'.format(list(ssims)))
-    
-                        # if mse < 0.1:
-                        #     print('!{} {}'.format(labels[index], popt.round(4)))
+                            print('WARNING Large MSE for {} img=#{} = {:.2f}'.format(labels[index], image_no, mse))
+                            # print('  bounds: ', fit_bounds)
+                            # print('  params: ', popt)
     
                     except RuntimeError as err:
                         print('ERROR', labels[index], 'image =', imid, 'bpp =', bpps, 'ssims =', ssims, 'err =', err)
 
-                    # if labels[index] != 'dcn':
-                    #     f.write(', '.join(['{:.4f}'.format(v) for v in popt]))
-                    #     f.write('\n')
-                    # params_av[image_no] = popt
                     Y[image_no] = func(x, *popt)
-                    # out_of_range_mask = (x < 0.33 * np.min(bpps)) + (x > np.max(bpps) * 3)
-                    # Y[image_no, out_of_range_mask] = np.nan
 
                 if image_id < 0:
                     print('Fit quality - MSE for {} av={:.2f} max={:.2f}'.format(labels[index], np.mean(mse_l), np.max(mse_l)))
-                # if image_id < 0:
-                #     print(params_av.round(2))
                 mse_labels[labels[index]] = np.mean(mse_l)
     
-                # print(Y.tolist())
                 y = np.nanmean(Y, axis=0)
-                if db_scale:
-                    y = -10*np.log10(1 - y)
                 axes.plot(x, y, styles[index][0], label='{} ({:.3f})'.format(labels[index], mse_labels[labels[index]]) if add_legend else None)
                 ssim_min = min([ssim_min, min(y)]) if update_ylim else ssim_min
     
@@ -292,35 +268,37 @@ def plot_ratedistortion(plots, dirname, plot_images, metric, plot, baseline_coun
             else:
                 raise ValueError('Unsupported plot type!')
     
-            if draw_markers:
+            if draw_markers > 0:
     
                 if 'entropy_reg' in dfc:
+                    
+                    if image_id >= 0 or draw_markers >= 2: 
     
-                    # No need to draw legend if multiple DCNs are plotted
-                    detailed_legend = 'full' if marker_legend and index == baseline_count else False
-    
-                    style_mapping = {}
-    
-                    if 'n_features' in dfc and len(dfc['n_features'].unique()) > 1:
-                        style_mapping['hue'] = 'n_features'
-    
-                    if 'entropy_reg' in dfc and len(dfc['entropy_reg'].unique()) > 1:
-                        style_mapping['size'] = 'entropy_reg'
-    
-                    if 'quantization' in dfc and len(dfc['quantization'].unique()) > 1:
-                        style_mapping['style'] = 'quantization'
-    
-                    if db_scale:
-                        dfc[metric] = -10 * np.log10(1 - dfc[metric])
-    
-                    g = sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
-                                    palette="Set2", ax=axes, legend=detailed_legend,
-                                    **style_mapping)
-    
+                        # No need to draw legend if multiple DCNs are plotted
+                        detailed_legend = 'full' if marker_legend and index == baseline_count else False
+        
+                        style_mapping = {}
+        
+                        if 'n_features' in dfc and len(dfc['n_features'].unique()) > 1:
+                            style_mapping['hue'] = 'n_features'
+        
+                        if 'entropy_reg' in dfc and len(dfc['entropy_reg'].unique()) > 1:
+                            style_mapping['size'] = 'entropy_reg'
+        
+                        if 'quantization' in dfc and len(dfc['quantization'].unique()) > 1:
+                            style_mapping['style'] = 'quantization'
+        
+                        if db_scale:
+                            dfc[metric] = -10 * np.log10(1 - dfc[metric])
+        
+                        g = sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
+                                        palette="Set2", ax=axes, legend=detailed_legend,
+                                        **style_mapping)
+
                 else:
-                    if db_scale:
-                        ssims = -10 * np.log10(1 - ssims)
-                    axes.plot(bpps, ssims, styles[index][1], alpha=10 / (sum(dfc['selected'])))
+                    
+                    if image_id >= 0:
+                        axes.plot(bpps, ssims, styles[index][1], alpha=0.65)
     
         # Setup title
         n_images = len(dfc.loc[dfc['selected'], 'image_id'].unique())
@@ -334,22 +312,24 @@ def plot_ratedistortion(plots, dirname, plot_images, metric, plot, baseline_coun
             for t in axes.legend().texts:
                 t.set_text(t.get_text().replace('_', '-'))
     
-        axes.set_xlim([-0.1, 5.1])
+        axes.set_xlim([-0.1, max_bpp + 0.1])
         axes.set_ylim([ssim_min * 0.95, ssim_max])
         axes.legend(loc='lower right')
         axes.set_title(title)
-        axes.set_xlabel('Effective bpp')
-        axes.set_ylabel(metric_label)
+        if image_id // images_x == images_y - 1:
+            axes.set_xlabel('Effective bpp')
+        if image_id % images_x == 0:
+            axes.set_ylabel(metric_label)
         
-    # f.close()
-    
+    # Save or display
     if output is not None:
-        fig.savefig(
-            os.path.join(output, 
-                         'tradeoff_{}_{}.pdf'.format(os.path.split(dirname)[-1], metric)
-                         ),
-            bbox_inches='tight')
+        plt.tight_layout(3)
+        dset = os.path.split(dirname)[-1]
+        of_name = os.path.join(output, 'tradeoff_{}_{}_{}.pdf'.format(dset, metric, plot))
+        fig.savefig(of_name, bbox_inches='tight')
+        print('Wrritten to {}'.format(of_name))
     else:
+        plt.tight_layout(3)
         plt.show()
         plt.close()
 
@@ -368,7 +348,11 @@ def main():
                         help='plot type (aggregate, fit)')
     parser.add_argument('-o', '--out', dest='output', action='store', default=None,
                         help='output directory for the figure')
-
+    parser.add_argument('-b', '--bpp', dest='max_bpp', action='store', default=3,
+                        help='limit for the rate axis (bpp, default=3)')
+    parser.add_argument('-x', '--markers', dest='markers', action='store', default=0, type=int,
+                        help='Draw markers: 0 (none), 1 (only single images), 2 (all markers for the dcn aggregate)')
+    
     args = parser.parse_args()
     args.codec = args.codec.split(',')
     args.images = [int(x) for x in args.images]
@@ -381,7 +365,7 @@ def main():
     
     baseline_count = sum([x in args.codec for x in ['jpg', 'jp2', 'bpg']])
             
-    plot_ratedistortion(plots, args.data, args.images, args.metric, args.plot, baseline_count, True, args.output)
+    plot_ratedistortion(plots, args.data, args.images, args.metric, args.plot, baseline_count, True, args.output, args.max_bpp, args.markers)
     
 if not coreutils.is_interactive():
     main()
@@ -397,4 +381,4 @@ else:
     metric = 'ssim'
     plot = 'agg'
     
-    plot_ratedistortion(plots, dirname, [], metric, plot, 3, True, None)
+    plot_ratedistortion(plots, dirname, [], metric, plot, 3, True, None, 5)
