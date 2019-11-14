@@ -23,6 +23,13 @@ sns.set_context("paper")
 rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 rc('text', usetex=True)
 
+rc('axes', titlesize=14)
+rc('axes', labelsize=14)
+rc('xtick', labelsize=8)
+rc('ytick', labelsize=8)
+rc('legend', fontsize=10)
+rc('figure', titlesize=14)
+
 from test_dcn import match_jpeg
 from helpers import plotting, loading, utils
 from compression import ratedistortion, afi
@@ -54,10 +61,10 @@ ratedistortion.plot_curve(plots, axes, dataset, title='{}-bpf repr.'.format(late
 for dcn_model in ['4k', '8k', '16k']:
     plots = OrderedDict()
     
-    plots['dcn (b)'] = ('dcn-forensics-7-rgb.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
+    plots['dcn (b)'] = ('dcn-7-rgb.csv', {'model_dir': '{}-basic/'.format(dcn_model)})
     # plots['dcn (o)'] = ('dcn-entropy.csv', {'quantization': 'soft-codebook-{}bpf'.format(latent_bpf), 'entropy_reg': 250})
     for lc in lcs:
-        plots['dcn ({:.3f})'.format(lc)] = ('dcn-forensics-7-rgb.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
+        plots['dcn ({:.3f})'.format(lc)] = ('dcn-7-rgb.csv', {'model_dir': '{}-{:.4f}/'.format(dcn_model, lc)})
 
     ratedistortion.plot_curve(plots, axes, dataset,
                               title='{}-bpf repr.'.format(latent_bpf), images=[],
@@ -72,20 +79,22 @@ else:
     axes.set_ylim([0.8, 1.00])
 axes.grid(True, linestyle=':')
 
-fig.savefig('dcn_forensics_tradeoff_{}.pdf'.format(dataset.split('/')[-1]), bbox_inches='tight')
+fig.savefig('../var/results/dcn_forensics_tradeoff_{}.pdf'.format(dataset.split('/')[-1]), bbox_inches='tight')
 
-# %% Show changes in rate distortion (averages)
+# %% Show changes in rate distortion (averages) (Fig. A6)
 
-dataset = '../data/rgb/kodak512'
-ft_set = 'rgb'
+dataset = '../data/rgb/raw512'
+ft_set = 'raw'
+plot = 'fit'
 
 titles = {
     'raw': 'comparison on native camera output (raw)',
     'rgb': 'comparison on mixed natural images (clic)',
     }
 
-latent_bpf = 5
 lcs = [0.1, 0.01, 0.005, 0.001]
+images = []
+metric = 'ssim'
 
 fig = plt.figure(figsize=(8, 6))
 axes = fig.gca()
@@ -95,28 +104,36 @@ plots['jpg'] = ('jpeg.csv', {})
 plots['jpeg2k'] = ('jpeg2000.csv', {})
 plots['bpg'] = ('bpg.csv', {})
 
-ratedistortion.plot_curve(plots, axes, dataset, title='{}-bpf repr.'.format(latent_bpf), images=[], plot='ensemble')
+ratedistortion.plot_curve(plots, axes, dataset, 
+                          title='{}-bpf repr.'.format(latent_bpf), metric=metric,
+                          images=images, plot=plot, baseline_count=3)
 
 plots = OrderedDict()
 
-plots['dcn (b)'] = ('dcn-forensics-7-{}.csv'.format(ft_set), {'model_dir': '.*-basic/'.format(dcn_model)})
-plots['dcn (1.000)'] = ('dcn-forensics-7-{}.csv'.format(ft_set), {'model_dir': '.*k-1.0000/'.format(dcn_model)})
-plots['dcn (0.005)'] = ('dcn-forensics-7-{}.csv'.format(ft_set), {'model_dir': '.*k-0.0050/'.format(dcn_model)})
-plots['dcn (0.001)'] = ('dcn-forensics-7-{}.csv'.format(ft_set), {'model_dir': '.*k-0.0010/'.format(dcn_model)})
+plots['dcn (b)'] = ('dcn-7-{}.csv'.format(ft_set), {'model_dir': '.*-basic/'.format(dcn_model)})
+plots['dcn (1.000)'] = ('dcn-7-{}.csv'.format(ft_set), {'model_dir': '.*k-1.0000/'.format(dcn_model)})
+plots['dcn (0.005)'] = ('dcn-7-{}.csv'.format(ft_set), {'model_dir': '.*k-0.0050/'.format(dcn_model)})
+plots['dcn (0.001)'] = ('dcn-7-{}.csv'.format(ft_set), {'model_dir': '.*k-0.0010/'.format(dcn_model)})
 
 ratedistortion.plot_curve(plots, axes, dataset,
-                          title=titles[ft_set], images=[],
-                          plot='ensemble', baseline_count=0)
+                          title=titles[ft_set], images=images, metric=metric,
+                          plot=plot, baseline_count=0)
 
 if 'raw' in dataset:
-    axes.set_xlim([0.1, 1.5])
-    axes.set_ylim([0.8, 0.97])
+    axes.set_xlim([-0.025, 3.1])
+    # axes.set_xlim([-0.025, 1.6])
+    # axes.set_ylim([0.8, 1.0])
 else:
-    axes.set_xlim([0.1, 1.95])
-    axes.set_ylim([0.8, 1.00])
+    axes.set_xlim([-0.025, 3.1])
+    # axes.set_ylim([0.8, 1.00])
 axes.grid(True, linestyle=':')
 
-fig.savefig('dcn_forensics_tradeoff_{}_final.pdf'.format(dataset.split('/')[-1]), bbox_inches='tight')
+fig.savefig('dcn_forensics_tradeoff_{}_{}_{}_final.pdf'.format(dataset.split('/')[-1], metric, plot), bbox_inches='tight')
+
+# %%
+x = np.linspace(0.1, 3, 100)
+y = 40 * np.log(np.clip(1 * x ** 1 + 1.39, a_min=1e-9, a_max=1e9))
+plt.plot(x, y)
 
 # %% Show rate distortion curves
 
