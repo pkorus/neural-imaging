@@ -12,13 +12,13 @@ More information can be found in papers listed below:
 
 1. P. Korus, N. Memon, *Content Authentication for Neural Imaging Pipelines: End-to-end Optimization of Photo Provenance in Complex Distribution Channels*, CVPR'19, [arxiv:1812.01516](https://arxiv.org/abs/1812.01516) 
 2. P. Korus, N. Memon, *Neural Imaging Pipelines - the Scourge or Hope of Forensics?*, 2019, [arXiv:1902.10707](https://arxiv.org/abs/1902.10707)
-3. P. Korus, N. Memon, *Quantifying the Cost of Reliable Photo Authentication via High-Performance Learned Lossy Representations*, 2019, [openreview](https://openreview.net/forum?id=HyxG3p4twS)
+3. P. Korus, N. Memon, *Quantifying the Cost of Reliable Photo Authentication via High-Performance Learned Lossy Representations*, ICLR'20, [openreview](https://openreview.net/forum?id=HyxG3p4twS)
 
 A standalone version of the included lossy compression codec can be found in the [neural-image-compression](https://github.com/pkorus/neural-image-compression) repository.
 
-## Changelog
+## Change Log
 
-- 2019.11 - Added support for learned compression, configurable manipulations + major refactoring
+- 2019.12 - Added support for learned compression, configurable manipulations + major refactoring
 
 ## Setup
 
@@ -111,7 +111,7 @@ We also provide 3 pre-trained versions of this model with low, medium and high-q
 
 ![DCN rate-distortion trade-off](docs/dcn_tradeoffs.png)
 
-To train a different model, we can use the `train_dcn` script and provide a list of model configurations (csv file with hyperparameter values) and an RGB training set, e.g.:
+To train a different model, we can use the `train_dcn` script and provide a list of model configurations (csv file with hyper-parameter values) and an RGB training set, e.g.:
 
 ```bash
 > python3 train_dcn.py --dcn TwitterDCN --split 31000:1000:1 --param_list data/config/twitter.csv --epochs 2500 --out data/models/dcn/custom --data data/rgb/compression/
@@ -287,7 +287,7 @@ In our experiments we used RAW images from publicly available datasets:
 
 ## Usage and Citations
 
-This code is provided for educational purposes and aims to facilitate reproduction of our results, and further research in this direction. We have done our best to  document, refactor, and test the code before publication. However, the toolbox is provided "as-is", without warranties of any kind.   
+This code is provided for educational purposes and aims to facilitate reproduction of our results, and further research in this direction. We have done our best to document, refactor, and test the code before publication. However, the toolbox is provided "as-is", without warranties of any kind.   
 
 If you find any bugs or would like to contribute new models, training protocols, etc, please let us know. 
 
@@ -301,7 +301,6 @@ If you find this code useful in your work, please cite our papers:
   year={2019}
 }
 ```
-
 ```
 @article{korus2019neural,
   title={Neural Imaging Pipelines - the Scourge or Hope of Forensics?},
@@ -310,10 +309,18 @@ If you find this code useful in your work, please cite our papers:
   year={2019}
 }
 ```
+```
+@inproceedings{korus2020quantifying,
+  title={Quantifying the Cost of Reliable Photo Authentication via High-Performance Learned Lossy Representations},
+  author={Korus, Pawel and Memon, Nasir},
+  booktitle={IEEE Conf. Learning Representations},
+  year={2020}
+}
+```
 
 ## Related Work
 
-A shortlist of related papers with global end-to-end ISP optimization:
+### End-to-end ISP optimization:
 
 - Eli Schwartz, Raja Giryes, Alex M. Bronstein, [DeepISP: Towards Learning an End-to-End Image Processing Pipeline](https://arxiv.org/abs/1801.06724), 2019 - optimization for low-light performance
 - Chen Chen, Qifeng Chen, Jia Xu, Vladlen Koltun, [Learning to See in the Dark](https://arxiv.org/abs/1805.01934), 2018 - optimization for low-light performance
@@ -322,3 +329,12 @@ A shortlist of related papers with global end-to-end ISP optimization:
 - Haomiao Jiang, Qiyuan Tian, Joyce Farrell, Brian Wandell, [Learning the Image Processing Pipeline](https://ieeexplore.ieee.org/document/7944641), 2017 - learning ISPs for non-standard CFA patterns
 - Gabriel Eilertsen, Joel Kronander, Gyorgy Denes, Rafał K. Mantiuk, Jonas Unger, [HDR image reconstruction from a single exposure using deep CNNs](http://hdrv.org/hdrcnn/), 2017 - HDR simulation from a single exposure
 - Felix Heide et al., [FlexISP: A Flexible Camera Image Processing Framework](http://www.cs.ubc.ca/labs/imager/tr/2014/FlexISP/), 2014 - general ISP optimization framework for various low-level vision problems
+
+### Learned Compression
+
+- Eirikur Agustsson, Michael Tschannen, Fabian Mentzer, Radu Timofte & Luc Van Gool, [Generative Adversarial Networks For Extreme Learned Image Compression](http://arxiv.org/abs/1804.02958), 2018 - using GANs to synthesize appearance on inconsequential content 
+- Fabian Mentzer, Eirikur Agustsson, Michael Tschannen, Radu Timofte & Luc Van Gool, [Conditional Probability Models for Deep Image Compression](http://arxiv.org/abs/1801.04260), 2018 - adopts PixelCNN for context modeling
+- Johannes Ballé, David Minnen, Saurabh Singh, Sung Jin Hwang, Nick Johnston, [Variational Image Compression With A Scale Hyperprior](http://arxiv.org/abs/1802.01436), 2018 - an additional hyper-prior to handle spatial dependencies
+- Lucas Theis, Wenzhe Shi, Andrew Cunningham & Ferenc Huszar, [Lossy Image Compression with Compressive Autoencoders](http://arxiv.org/abs/1703.00395), 2017 - deep auto-encoder competitive with JPEG2000
+- Oren Rippel & Lubomir Bourdev, [Real-Time Adaptive Image Compression](http://arxiv.org/abs/1705.05823), 2017 - a high-performance lossy codec
+- Johannes Ballé, Valero Laparra & Eero P. Simoncelli, [End-to-end Optimized Image Compression](http://arxiv.org/abs/1611.01704), 2016 - end-to-end optimization framework
