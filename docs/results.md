@@ -1,4 +1,4 @@
-**Plotting Results**
+# Plotting Results
 
 The results can be quickly inspected / exported with the `results.py` script. Supported output modes are shown in table below. Data can be exported by appending `--df {output dir}` .
 
