@@ -43,8 +43,14 @@ def splitall(path):
 
 
 def match_option(x, options):
-    distances = [Levenshtein.distance(x, y) for y in options]
-    return options[distances.index(min(distances))]
+    
+    start_match = [y.startswith(x) for y in options]
+    
+    if sum(start_match) == 1:
+        return options[start_match.index(True)]
+    else:
+        distances = [Levenshtein.distance(x, y) for y in options]
+        return options[distances.index(min(distances))]
 
 
 def logCall(func):

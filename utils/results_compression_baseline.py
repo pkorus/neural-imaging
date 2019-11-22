@@ -40,7 +40,7 @@ from misc import get_sample_images
 
 dataset = '../data/rgb/kodak512'
 
-# %% Entropy-regularization
+# %% Summarize the dataset and show example images (Fig. A5)
 # II. Fix codebook and regularization
 
 latent_bpf = 5
@@ -49,18 +49,12 @@ plots = OrderedDict()
 plots['jpeg'] = ('jpeg.csv', {})
 plots['jpeg2000'] = ('jpeg2000.csv', {})
 plots['bpg'] = ('bpg.csv', {})
-# plots['dcn'] = ('dcn-7-raw.csv', {
-#                   'quantization': 'soft-codebook-{}bpf'.format(latent_bpf),
-#                   'entropy_reg': 250
-#                 })
-plots['dcn'] = ('dcn-7-raw.csv', {
-                  'model_dir': '.*basic/',
-                })
+plots['dcn'] = ('dcn-7-raw.csv', {'model_dir': '.*basic/'})
 
-metric = 'psnr'
-plot_type = 'ensemble'
+metric = 'ssim'
+plot_type = 'fit'
 
-dataset = '../data/rgb/raw512/'
+dataset = '../data/rgb/clic512/'
 images = get_sample_images(dataset)
 
 fig, axes = plt.subplots(ncols=len(images)+1, nrows=1, sharey=True)
@@ -78,38 +72,8 @@ for i, im in enumerate(images):
 fig.savefig('../var/results/fig_dcn_tradeoff_{}_{}.pdf'.format(os.path.split(dataset.strip('/'))[-1], metric),
             bbox_inches='tight')
 
-# %%
 
-
-plots = OrderedDict()
-# plots['jpeg'] = ('jpeg.csv', {})
-plots['jpeg2000'] = ('jpeg2000.csv', {})
-# plots['bpg'] = ('bpg.csv', {})
-plots['dcn'] = ('dcn-7-raw.csv', {'model_dir': '.*basic/'})
-
-
-metric = 'psnr'
-plot_type = 'ensemble'
-
-ratedistortion.plot_curve(plots, plt.gca(), dataset,
-                          title='\\#{}'.format(im),
-                          images=[1], plot=plot_type, metric=metric,
-                          add_legend=True, marker_legend=False, baseline_count=1)
-
-plt.gca().set_xlim([0, 5])
-
-# %%
-
-x = [[1, 1, 1, 1],
-     [2, 2, 2, 2],
-     [3, 3, np.nan, 3]]
-
-x = np.array(x)
-print(np.nanmean(x, axis=0))
-
-# %% Summarize all datasets
-
-latent_bpf = 5
+# %% Summarize all datasets (Fig. 5)
 
 datasets = ['../data/rgb/clic512/', '../data/rgb/kodak512/', '../data/rgb/raw512/']
 fig, axes = plt.subplots(ncols=len(datasets), nrows=1, sharey=True, sharex=True)
@@ -121,18 +85,15 @@ for i, dataset in enumerate(datasets):
     plots['jpeg'] = ('jpeg.csv', {})
     plots['jpeg2000'] = ('jpeg2000.csv', {})
     plots['bpg'] = ('bpg.csv', {})
-    plots['dcn'] = ('dcn-entropy.csv', {
-                      'quantization': 'soft-codebook-{}bpf'.format(latent_bpf),
-                      'entropy_reg': 250
-                    })
+    plots['dcn'] = ('dcn-7-raw.csv', {'model_dir': '.*basic/'})
     
     images = get_sample_images(dataset)
     ratedistortion.plot_curve(plots, axes[i], dataset,
                               title=os.path.split(dataset.strip('/'))[-1],
-                              images=[], plot='ensemble',
+                              images=[], plot='fit',
                               add_legend=i==0)
 
-# fig.savefig('fig_dcn_tradeoff_{}.pdf'.format('all'), bbox_inches='tight')
+fig.savefig('../var/results/fig_dcn_tradeoff_{}_{}.pdf'.format('all', 'ssim'), bbox_inches='tight')
 
 # with open('fig_dcn_tradeoff_{}.mpf'.format('all'), 'wb') as f:
 #     pickle.dump(fig, f)

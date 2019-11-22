@@ -5,10 +5,11 @@ import imageio
 import pandas as pd
 import numpy as np
 import seaborn as sns
+import matplotlib.pyplot as plt
 import glymur
 from pathlib import Path
 from skimage.measure import compare_ssim, compare_psnr
-from sewar.full_ref import msssim, ssim, psnr
+from sewar.full_ref import msssim
 
 # For curve fitting and regression
 from scipy.optimize import curve_fit
@@ -288,22 +289,21 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
     return df
 
 
-def plot_curve(plots, axes,
-               dirname='./data/rgb/clic256',
-               images=[],
-               plot='fit',
-               draw_markers=None,
-               metric='ssim',
-               title=None,
-               add_legend=True,
-               marker_legend=True,
-               baseline_count=3,
-               dump_df=False,
-               update_ylim=False,
-               db_scale=False):
+def load_data(plots, dirname):
+    """
+    Returns dataframes with numerical results for specified codecs [and settings]
 
-    # Parse input parameters
-    draw_markers = draw_markers if draw_markers is not None else len(images) == 1
+    Example definition (can be both a list or a dictionary):
+
+    plots = OrderedDict()
+    plots['jpg'] = ('jpeg.csv', {})
+    plots['jp2'] = ('jpeg2000.csv', {})
+    plots['bpg'] = ('bpg.csv', {})
+    plots['dcn'] = ('dcn-7-raw.csv', {'model_dir': '.*basic/'})
+
+    Tuple structure: (filename, data filtering conditions - dict {column: value})
+
+    """
 
     # Load all needed tables and setup legend labels
     labels = []
@@ -319,7 +319,7 @@ def plot_curve(plots, axes,
                 else:
                     df = df[df[k] == v]
             if len(df) == 0:
-                raise(ValueError('No rows matched for column {}'.format(k)))
+                raise (ValueError('No rows matched for column {}'.format(k)))
             df_all.append(df)
 
     elif isinstance(plots, dict):
@@ -332,27 +332,90 @@ def plot_curve(plots, axes,
                 else:
                     df = df[df[k] == v]
             if len(df) == 0:
-                raise(ValueError('No rows matched for column {}'.format(k)))
+                raise (ValueError('No rows matched for column {}'.format(k)))
             df_all.append(df)
     else:
         raise ValueError('Unsupported plot definition!')
 
-    if len(images) == 0:
-        images = df['image_id'].unique().tolist()
+    return df_all, labels
 
+
+def setup_plot(metric):
+    if metric == 'psnr':
+        y_min = 25
+        y_max = 45
+        metric_label = 'PSNR [dB]'
+
+    elif metric == 'msssim_db':
+        y_min = 10
+        y_max = 32
+        metric_label = 'MS-SSIM [dB]'
+
+    elif metric == 'ssim':
+        y_min = 0.8
+        y_max = 1
+        metric_label = 'SSIM'
+
+    elif metric == 'msssim':
+        y_min = 0.9
+        y_max = 1
+        metric_label = 'MS-SSIM'
+    else:
+        raise ValueError('Unsupported metric!')
+
+    return y_min, y_max, metric_label
+
+
+def setup_fit(metric):
     # Define a parametric model for the trade-off curve
     if metric in {'ssim', 'msssim'}:
+        # These bounds work well for baseline fitting
+        fit_bounds = ([1e-4, 1e-2, -3, -0.5], [5, 15, 5, 0.5])
+        # These bounds work better for optimized DCN codecs - there are some weird outliers in the data
         fit_bounds = ([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1])
 
         def func(x, a, b, c, d):
-            return 1/(1 + np.exp(- b * x ** a + c)) - d
+            return 1 / (1 + np.exp(- b * x ** a + c)) - d
     else:
-        fit_bounds = ([1e-4, 1e-5, 1e-2, -200], [20, 1000, 10, 200])
+        # These bounds work well for baseline fitting
+        fit_bounds = ([1e-4, 1e-5, 1e-2, -50], [100, 100, 3, 50])
+        # These bounds work better for optimized DCN codecs - there are some weird outliers in the data
+        # fit_bounds = ([1e-4, 1, 1e-2, -20], [20, 50, 1, 20])
 
         def func(x, a, b, c, d):
-            return a * np.log(np.clip(b*x**c + d, a_min=1e-9, a_max=1e9))
+            # return a * (x + b) ** c + d
+            return a * np.log(np.clip(b * x ** c + d, a_min=1e-9, a_max=1e9))
+            # return a / (1 + np.exp(- b * x ** c + d))
             # return a + b * x + c * x ** 2 + d * x **3
             # return a * np.log(b * x ** c + d)
+
+    return func, fit_bounds
+
+
+def plot_curve(plots, axes,
+               dirname='./data/rgb/clic256',
+               images=[],
+               plot='fit',
+               draw_markers=None,
+               metric='ssim',
+               title=None,
+               add_legend=True,
+               marker_legend=True,
+               baseline_count=3,
+               update_ylim=False):
+
+    # Parse input parameters
+    draw_markers = draw_markers if draw_markers is not None else len(images) == 1
+    plot = coreutils.match_option(plot, ['fit', 'aggregate'])
+
+    df_all, labels = load_data(plots, dirname)
+
+    if len(images) == 0:
+        images = df_all[0]['image_id'].unique().tolist()
+
+    # Plot setup
+    func, fit_bounds = setup_fit(metric)
+    y_min, y_max, metric_label = setup_plot(metric)
 
     # Select measurements for specific images, if specified
     for dfc in df_all:
@@ -370,108 +433,58 @@ def plot_curve(plots, axes,
         styles = styles[(3 - baseline_count):]
         avg_markers = avg_markers[(3 - baseline_count):]
 
-    if metric == 'psnr':
-        ssim_min = 25
-        ssim_max = 45
-        metric_label = 'PSNR [dB]'
-
-    elif metric == 'msssim_db' or db_scale:
-        ssim_min = 10
-        ssim_max = 32
-        metric_label = 'MS-SSIM [dB]'
-
-    elif metric == 'ssim':
-        ssim_min = 0.85
-        ssim_max = 1
-        metric_label = 'SSIM'
-
-    elif metric == 'msssim':
-        ssim_min = 0.9
-        ssim_max = 1
-        metric_label = 'MS-SSIM'
-    else:
-        raise ValueError('Unsupported metric!')
-
     # Iterate over defined plots and draw data accordingly
     for index, dfc in enumerate(df_all):
 
-        bpps = dfc.loc[dfc['selected'], 'bpp'].values
-        ssims = dfc.loc[dfc['selected'], metric].values
+        x = dfc.loc[dfc['selected'], 'bpp'].values
+        y = dfc.loc[dfc['selected'], metric].values
 
-        if dump_df:
-            print('{} matched {} rows -> {}'.format(labels[index], len(dfc.loc[dfc['selected']]), 'debug-{}.csv'.format(labels[index])))
-            dfc.loc[dfc['selected']].to_csv('debug-{}.csv'.format(labels[index]))
-
-        x = np.linspace(bpps.min(), bpps.max(), 256)
+        X = np.linspace(max([0, x.min() * 0.9]), min([5, x.max() * 1.1]), 256)
 
         if plot == 'fit':
-            # Fit all of the data to a single curve
-
-            popt, pcov = curve_fit(func, bpps, ssims, bounds=fit_bounds, maxfev=10000)
-            axes.plot(x, func(x, *popt), styles[index][0], label=labels[index] if add_legend else None)
-            # print(labels[index], *popt)
-
-            # If plotting many images, add confidence intervals
-            if len(images) > 5 or len(images) == 0:
-                a, b, c, d = unc.correlated_values(popt, pcov)
-                if metric in {'ssim', 'msssim'}:
-                    py = 1 / (1 + unp.exp(- b * x ** a + c)) - d
-                else:
-                    py = a * unp.log(np.clip(b * x ** c + d, a_min=1e-9, a_max=1e9))
-
-                nom = unp.nominal_values(py)
-                std = unp.std_devs(py)
-
-                axes.plot(x, nom - 1.96 * std, c=styles[index][0][0], alpha=0.2)
-                axes.plot(x, nom + 1.96 * std, c=styles[index][0][0], alpha=0.2)
-                axes.fill(np.concatenate([x, x[::-1]]), np.concatenate([nom - 1.96 * std, (nom + 1.96 * std)[::-1]]),
-                          alpha=0.1, fc=styles[index][0][0], ec='None')
-
-            ssim_min = min([ssim_min, func(x[0], *popt)]) if update_ylim else ssim_min
-
-        elif plot == 'ensemble':
             # Fit individual images to a curve, then average the curves
 
-            Y = np.zeros((len(images), len(x)))
+            Y = np.zeros((len(images), len(X)))
+            mse_l = []
 
             for image_no, image_id in enumerate(images):
 
-                bpps = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), 'bpp'].values
-                ssims = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), metric].values
+                x = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), 'bpp'].values
+                y = dfc.loc[dfc['selected'] & (dfc['image_id'] == image_id), metric].values
+
+                # Allow for larger errors for lower SSIM values
+                if metric in ['ssim', 'msssim']:
+                    sigma = np.abs(1 - y).reshape((-1,))
+                else:
+                    sigma = np.ones_like(y).reshape((-1,))
 
                 try:
-                    popt, pcov = curve_fit(func, bpps, ssims,
-                                       bounds=fit_bounds,
-                                       maxfev=10000)
-                    ssims_est = func(bpps, *popt)
-                    mse = np.sum(np.power(ssims - ssims_est, 2))
-                    print('MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
-                    if mse > 10:
+                    popt, pcov = curve_fit(func, x, y, bounds=fit_bounds, maxfev=10000, sigma=sigma)
+                    print(popt.round(2))
+                    y_est = func(x, *popt)
+                    mse = np.mean(np.power(y - y_est, 2))
+                    mse_l.append(mse)
+                    if mse > 0.5:
                         print('WARNING Large MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
-                        print('  bounds: ', fit_bounds)
-                        print('  params: ', popt)
+                        # print('  bounds: ', fit_bounds)
+                        # print('  params: ', popt)
+                        # print('  x = {}'.format(list(x)))
+                        # print('  y = {}'.format(list(y)))
 
                 except RuntimeError:
-                    print('ERROR', labels[index], 'image =', image_id, 'bpp =', bpps, 'ssims =', ssims)
+                    print('ERROR', labels[index], 'image =', image_id, 'bpp =', x, 'y =', y)
 
-                Y[image_no] = func(x, *popt)
-                # out_of_range_mask = (x < 0.33 * np.min(bpps)) + (x > np.max(bpps) * 3)
-                # Y[image_no, out_of_range_mask] = np.nan
+                Y[image_no] = func(X, *popt)
+
+            if len(images) > 1:
+                print('Fit summary - MSE for {} av={:.2f} max={:.2f}'.format(labels[index], np.mean(mse_l), np.max(mse_l)))
 
             # print(Y.tolist())
-            y = np.nanmean(Y, axis=0)
-            if db_scale:
-                y = -10*np.log10(1 - y)
-            axes.plot(x, y, styles[index][0], label=labels[index] if add_legend else None)
-            ssim_min = min([ssim_min, min(y)]) if update_ylim else ssim_min
+            yy = np.nanmean(Y, axis=0)
+            axes.plot(X, yy, styles[index][0], label=labels[index] if add_legend else None)
+            y_min = min([y_min, min(yy)]) if update_ylim else y_min
 
-        elif plot == 'line':
-            # Simple linear interpolation
-
-            axes.plot(bpps, ssims, styles[index][0], label=labels[index] if add_legend else None)
-            ssim_min = min([ssim_min, min(ssims)]) if update_ylim else ssim_min
-
-        elif plot == 'averages':
+        elif plot == 'aggregate':
             # For each quality level (QF, #channels) find the average quality level
 
             dfa = dfc.loc[dfc['selected']]
@@ -481,11 +494,11 @@ def plot_curve(plots, axes,
             else:
                 dfg = dfa.groupby('quality')
 
-            bpps = dfg.mean()['bpp'].values
-            ssims = dfg.mean()[metric].values
+            x = dfg.mean()['bpp'].values
+            y = dfg.mean()[metric].values
 
-            axes.plot(bpps, ssims, styles[index][0], label=labels[index] if add_legend else None, marker=avg_markers[index], alpha=0.65)
-            ssim_min = min([ssim_min, min(ssims)]) if update_ylim else ssim_min
+            axes.plot(x, y, styles[index][0], label=labels[index] if add_legend else None, marker=avg_markers[index], alpha=0.65)
+            y_min = min([y_min, min(y)]) if update_ylim else y_min
 
         elif plot == 'none':
             pass
@@ -511,17 +524,12 @@ def plot_curve(plots, axes,
                 if 'quantization' in dfc and len(dfc['quantization'].unique()) > 1:
                     style_mapping['style'] = 'quantization'
 
-                if db_scale:
-                    dfc[metric] = -10 * np.log10(1 - dfc[metric])
-
-                g = sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
+                sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
                                 palette="Set2", ax=axes, legend=detailed_legend,
                                 **style_mapping)
 
             else:
-                if db_scale:
-                    ssims = -10 * np.log10(1 - ssims)
-                axes.plot(bpps, ssims, styles[index][1], alpha=10 / (sum(dfc['selected'])))
+                axes.plot(x, y, styles[index][1], alpha=10 / (sum(dfc['selected'])))
 
     n_images = len(dfc.loc[dfc['selected'], 'image_id'].unique())
 
@@ -536,10 +544,196 @@ def plot_curve(plots, axes,
             t.set_text(t.get_text().replace('_', '-'))
 
     axes.set_xlim([-0.1, 3.1])
-    axes.set_ylim([ssim_min * 0.99, ssim_max])
+    axes.set_ylim([y_min * 0.99, y_max])
     # axes.set_ylim([0.75, 1])
     # axes.legend(loc='lower right')
     axes.set_title(title)
     axes.set_xlabel('Effective bpp')
     axes.set_ylabel(metric_label)
 
+
+def plot_bulk(plots, dirname, plot_images, metric, plot, baseline_count=3, add_legend=True, max_bpp=5,
+              draw_markers=1):
+    plot = coreutils.match_option(plot, ['fit', 'aggregate'])
+    if dirname.endswith('/') or dirname.endswith('\\'):
+        dirname = dirname[:-1]
+
+    # Load data and select images for plotting
+    df_all, labels = load_data(plots, dirname)
+    plot_images = plot_images if len(plot_images) > 0 else [-1] + df_all[0].image_id.unique().tolist()
+    print(plot_images)
+
+    images_x = int(np.ceil(np.sqrt(len(plot_images))))
+    images_y = int(np.ceil(len(plot_images) / images_x))
+
+    update_ylim = False
+    marker_legend = False
+
+    # Plot setup
+    func, fit_bounds = setup_fit(metric)
+    y_min, y_max, metric_label = setup_plot(metric)
+
+    # Setup drawing styles
+    styles = [['r-', 'rx'], ['b--', 'b+'], ['k:', 'k2'], ['g-', 'gx'], ['m-', 'gx'], ['m--', 'gx'], ['m-.', 'gx'],
+              ['m:', 'gx']]
+    avg_markers = ['', '', '', 'o', 'o', '2', '+', 'X', '^', '.']
+
+    # To retain consistent styles across plots, adjust the lists based on the number of baseline methods
+    if baseline_count < 3:
+        styles = styles[(3 - baseline_count):]
+        avg_markers = avg_markers[(3 - baseline_count):]
+
+    mse_labels = {}
+
+    fig, ax = plt.subplots(images_y, images_x, sharex=True, sharey=True)
+    fig.set_size_inches((images_x * 6, images_y * 4))
+
+    for image_id in plot_images:
+
+        if images_y > 1:
+            axes = ax[image_id // images_x, image_id % images_x]
+        elif images_x > 1:
+            axes = ax[image_id % images_x]
+        else:
+            axes = ax
+
+        # Select measurements for a specific image, if specified
+        for dfc in df_all:
+            if image_id >= 0:
+                dfc['selected'] = dfc['image_id'].apply(lambda x: x == image_id)
+            else:
+                dfc['selected'] = True
+
+        for index, dfc in enumerate(df_all):
+
+            x = dfc.loc[dfc['selected'], 'bpp'].values
+            y = dfc.loc[dfc['selected'], metric].values
+
+            X = np.linspace(max([0, x.min() * 0.9]), min([5, x.max() * 1.1]), 256)
+
+            if plot == 'fit':
+                # Fit individual images to a curve, then average the curves
+
+                if image_id >= 0:
+                    images = [image_id]
+                else:
+                    images = dfc.image_id.unique()
+
+                Y = np.zeros((len(images), len(X)))
+                mse_l = []
+
+                for image_no, imid in enumerate(images):
+
+                    x = dfc.loc[dfc['selected'] & (dfc['image_id'] == imid), 'bpp'].values
+                    y = dfc.loc[dfc['selected'] & (dfc['image_id'] == imid), metric].values
+
+                    # Allow for larger errors for lower SSIM values
+                    if metric in ['ssim', 'msssim']:
+                        sigma = np.abs(1 - y).reshape((-1,))
+                    else:
+                        sigma = np.ones_like(y).reshape((-1,))
+
+                    try:
+                        popt, pcov = curve_fit(func, x, y,
+                                               bounds=fit_bounds,
+                                               sigma=sigma,
+                                               maxfev=100000)
+                        y_est = func(x, *popt)
+                        mse = np.mean(np.power(y - y_est, 2))
+                        mse_l.append(mse)
+                        if mse > 0.1:
+                            print('WARNING Large MSE for {} img=#{} = {:.2f}'.format(labels[index], image_no, mse))
+                            # print('  bounds: ', fit_bounds)
+                            # print('  params: ', popt)
+                            # print('  X = {}'.format(list(x)))
+                            # print('  y = {}'.format(list(y)))
+
+                    except RuntimeError as err:
+                        print('ERROR', labels[index], 'image =', imid, 'bpp =', x, 'y =', y, 'err =', err)
+
+                    Y[image_no] = func(X, *popt)
+
+                if image_id < 0:
+                    print('Fit summary - MSE for {} av={:.2f} max={:.2f}'.format(labels[index], np.mean(mse_l),
+                                                                                 np.max(mse_l)))
+                mse_labels[labels[index]] = np.mean(mse_l)
+
+                yy = np.nanmean(Y, axis=0)
+                axes.plot(X, yy, styles[index][0],
+                          label='{} ({:.3f})'.format(labels[index], mse_labels[labels[index]]) if add_legend else None)
+                y_min = min([y_min, min(yy)]) if update_ylim else y_min
+
+            elif plot == 'aggregate':
+                # For each quality level (QF, #channels) find the average quality level
+
+                dfa = dfc.loc[dfc['selected']]
+
+                if 'n_features' in dfa:
+                    dfg = dfa.groupby('n_features')
+                else:
+                    dfg = dfa.groupby('quality')
+
+                x = dfg.mean()['bpp'].values
+                y = dfg.mean()[metric].values
+
+                axes.plot(x, y, styles[index][0], label=labels[index] if add_legend else None,
+                          marker=avg_markers[index], alpha=0.65)
+                y_min = min([y_min, min(y)]) if update_ylim else y_min
+
+            elif plot == 'none':
+                pass
+
+            else:
+                raise ValueError('Unsupported plot type!')
+
+            if draw_markers > 0:
+
+                if 'entropy_reg' in dfc:
+
+                    if image_id >= 0 or draw_markers >= 2:
+
+                        # No need to draw legend if multiple DCNs are plotted
+                        detailed_legend = 'full' if marker_legend and index == baseline_count else False
+
+                        style_mapping = {}
+
+                        if 'n_features' in dfc and len(dfc['n_features'].unique()) > 1:
+                            style_mapping['hue'] = 'n_features'
+
+                        if 'entropy_reg' in dfc and len(dfc['entropy_reg'].unique()) > 1:
+                            style_mapping['size'] = 'entropy_reg'
+
+                        if 'quantization' in dfc and len(dfc['quantization'].unique()) > 1:
+                            style_mapping['style'] = 'quantization'
+
+                        sns.scatterplot(data=dfc[dfc['selected']], x='bpp', y=metric,
+                                        palette="Set2", ax=axes, legend=detailed_legend,
+                                        **style_mapping)
+
+                else:
+
+                    if image_id >= 0:
+                        axes.plot(x, y, styles[index][1], alpha=0.65)
+
+        # Setup title
+        n_images = len(dfc.loc[dfc['selected'], 'image_id'].unique())
+        if n_images > 1:
+            title = '{} for {} images ({})'.format(plot, n_images, os.path.split(dirname)[-1])
+        else:
+            title = '\#{} : {}'.format(image_id, dfc.loc[dfc['selected'], 'filename'].unique()[0].replace('.png', ''))
+
+        # Fixes problems with rendering using the LaTeX backend
+        if add_legend:
+            for t in axes.legend().texts:
+                t.set_text(t.get_text().replace('_', '-'))
+
+        axes.set_xlim([-0.1, max_bpp + 0.1])
+        axes.set_ylim([y_min * 0.95, y_max])
+        axes.legend(loc='lower right')
+        axes.set_title(title)
+        if image_id // images_x == images_y - 1:
+            axes.set_xlabel('Effective bpp')
+        if image_id % images_x == 0:
+            axes.set_ylabel(metric_label)
+
+    return fig
