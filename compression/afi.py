@@ -23,6 +23,7 @@ dcn_presets = {
     'hq': './data/models/dcn/baselines/64c',
 }
 
+
 class AFIError(Exception):
     pass
 

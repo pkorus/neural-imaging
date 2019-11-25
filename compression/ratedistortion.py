@@ -1,4 +1,3 @@
-import io
 import os
 import tqdm
 import imageio
@@ -11,16 +10,19 @@ from pathlib import Path
 from skimage.measure import compare_ssim, compare_psnr
 from sewar.full_ref import msssim
 
-# For curve fitting and regression
 from scipy.optimize import curve_fit
-import uncertainties.unumpy as unp
-import uncertainties as unc
 
 from helpers import loading, utils, coreutils
 from compression import jpeg_helpers, afi, bpg_helpers
 
 
 def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=False):
+    """
+    Compute and return (as Pandas DF) the rate distortion curve for JPEG. The result is saved
+    as a CSV file in the source directory. If the file exists, the DF is loaded and returned.
+
+    Files are saved as JPEG using imageio.
+    """
 
     files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
     batch_x = loading.load_images(files, directory, load='y')
@@ -79,78 +81,90 @@ def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=F
 
 
 def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc=False):
+    """
+    Compute and return (as Pandas DF) the rate distortion curve for JPEG 2000. The result is saved
+    as a CSV file in the source directory. If the file exists, the DF is loaded and returned.
 
-        files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
-        batch_x = loading.load_images(files, directory, load='y')
-        batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
+    Files are saved as JPEG using glymur.
+    """
 
-        # Get trade-off for JPEG
-        quality_levels = np.arange(25, 45, 1)
-        df_jpeg_path = os.path.join(directory, 'jpeg2000.csv')
+    files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
+    batch_x = loading.load_images(files, directory, load='y')
+    batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
-        if os.path.isfile(df_jpeg_path) and not force_calc:
-            print('Restoring JPEG 2000 stats from {}'.format(df_jpeg_path))
-            df = pd.read_csv(df_jpeg_path, index_col=False)
-        else:
-            df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'msssim', 'msssim_db', 'bytes', 'bpp'])
+    # Get trade-off for JPEG
+    quality_levels = np.arange(25, 45, 1)
+    df_jpeg_path = os.path.join(directory, 'jpeg2000.csv')
 
-            with tqdm.tqdm(total=len(files) * len(quality_levels), ncols=120, desc='JP2k') as pbar:
+    if os.path.isfile(df_jpeg_path) and not force_calc:
+        print('Restoring JPEG 2000 stats from {}'.format(df_jpeg_path))
+        df = pd.read_csv(df_jpeg_path, index_col=False)
+    else:
+        df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'msssim', 'msssim_db', 'bytes', 'bpp'])
 
-                for image_id, filename in enumerate(files):
+        with tqdm.tqdm(total=len(files) * len(quality_levels), ncols=120, desc='JP2k') as pbar:
 
-                    # Read the original image
-                    image = batch_x[image_id]
+            for image_id, filename in enumerate(files):
 
-                    for qi, q in enumerate(quality_levels):
+                # Read the original image
+                image = batch_x[image_id]
 
-                        # TODO Use Glymur to save JPEG 2000 images to a temp file
-                        image_np = (255 * image.clip(0, 1)).astype(np.uint8)
-                        glymur.Jp2k('/tmp/image.jp2', data=image_np, psnr=[q])
-                        if effective_bytes:
-                            image_bytes = jpeg_helpers.jp2bytes('/tmp/image.jp2')
-                        else:
-                            image_bytes = os.path.getsize('/tmp/image.jp2')
-                        image_compressed = imageio.imread('/tmp/image.jp2').astype(np.float) / (2**8 - 1)
+                for qi, q in enumerate(quality_levels):
 
-                        # TODO Use Pillow to save JPEG 2000 images to a memory buffer
-                        # TODO This has been disabled
-                        # with io.BytesIO() as output:
-                        #     image_pillow = PIL.Image.fromarray((255*image.clip(0, 1)).astype(np.uint8))
-                        #     image_pillow.save(output, format='jpeg2000', quality_layers=[q])
-                        #     image_compressed = imageio.imread(output.getvalue()).astype(np.float) / (2**8 - 1)
-                        #     image_bytes = len(output.getvalue())
+                    # TODO Use Glymur to save JPEG 2000 images to a temp file
+                    image_np = (255 * image.clip(0, 1)).astype(np.uint8)
+                    glymur.Jp2k('/tmp/image.jp2', data=image_np, psnr=[q])
+                    if effective_bytes:
+                        image_bytes = jpeg_helpers.jp2bytes('/tmp/image.jp2')
+                    else:
+                        image_bytes = os.path.getsize('/tmp/image.jp2')
+                    image_compressed = imageio.imread('/tmp/image.jp2').astype(np.float) / (2**8 - 1)
 
-                        if write_files:
-                            image_dir = os.path.join(directory, os.path.splitext(filename)[0])
-                            if not os.path.isdir(image_dir):
-                                os.makedirs(image_dir)
+                    # TODO Use Pillow to save JPEG 2000 images to a memory buffer
+                    # TODO This has been disabled = their implementation seems to be invalid
+                    # with io.BytesIO() as output:
+                    #     image_pillow = PIL.Image.fromarray((255*image.clip(0, 1)).astype(np.uint8))
+                    #     image_pillow.save(output, format='jpeg2000', quality_layers=[q])
+                    #     image_compressed = imageio.imread(output.getvalue()).astype(np.float) / (2**8 - 1)
+                    #     image_bytes = len(output.getvalue())
 
-                            image_path = os.path.join(image_dir, 'jp2_q{:.1f}dB.png'.format(q))
-                            imageio.imwrite(image_path, (255*image_compressed).astype(np.uint8))
+                    if write_files:
+                        image_dir = os.path.join(directory, os.path.splitext(filename)[0])
+                        if not os.path.isdir(image_dir):
+                            os.makedirs(image_dir)
 
-                        msssim_value = msssim(image, image_compressed, MAX=1).real
+                        image_path = os.path.join(image_dir, 'jp2_q{:.1f}dB.png'.format(q))
+                        imageio.imwrite(image_path, (255*image_compressed).astype(np.uint8))
 
-                        df = df.append({'image_id': image_id,
-                                        'filename': filename,
-                                        'codec': 'jpeg2000',
-                                        'quality': q,
-                                        'ssim': compare_ssim(image, image_compressed, multichannel=True, data_range=1),
-                                        'psnr': compare_psnr(image, image_compressed, data_range=1),
-                                        'msssim': msssim_value,
-                                        'msssim_db': -10 * np.log10(1 - msssim_value),
-                                        'bytes': image_bytes,
-                                        'bpp': 8 * image_bytes / image.shape[0] / image.shape[1]
-                                        }, ignore_index=True)
+                    msssim_value = msssim(image, image_compressed, MAX=1).real
 
-                        pbar.set_postfix(image_id=image_id, quality=q)
-                        pbar.update(1)
+                    df = df.append({'image_id': image_id,
+                                    'filename': filename,
+                                    'codec': 'jpeg2000',
+                                    'quality': q,
+                                    'ssim': compare_ssim(image, image_compressed, multichannel=True, data_range=1),
+                                    'psnr': compare_psnr(image, image_compressed, data_range=1),
+                                    'msssim': msssim_value,
+                                    'msssim_db': -10 * np.log10(1 - msssim_value),
+                                    'bytes': image_bytes,
+                                    'bpp': 8 * image_bytes / image.shape[0] / image.shape[1]
+                                    }, ignore_index=True)
 
-            df.to_csv(df_jpeg_path, index=False)
+                    pbar.set_postfix(image_id=image_id, quality=q)
+                    pbar.update(1)
 
-        return df
+        df.to_csv(df_jpeg_path, index=False)
+
+    return df
 
 
 def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=False):
+    """
+    Compute and return (as Pandas DF) the rate distortion curve for BPG. The result is saved
+    as a CSV file in the source directory. If the file exists, the DF is loaded and returned.
+
+    The files are saved using the reference codec: https://bellard.org/bpg/
+    """
 
     files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
     batch_x = loading.load_images(files, directory, load='y')
@@ -218,6 +232,11 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
 
 
 def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
+    """
+    Compute and return (as Pandas DF) the rate distortion curve for the learned DCN codec.
+    The result is saved as a CSV file in the source directory. If the file exists, the DF
+    is loaded and returned.
+    """
 
     # Discover test files
     files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
@@ -291,7 +310,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
 def load_data(plots, dirname):
     """
-    Returns dataframes with numerical results for specified codecs [and settings]
+    Returns data frames with numerical results for specified codecs [and settings]
 
     Example definition (can be both a list or a dictionary):
 
@@ -372,7 +391,7 @@ def setup_fit(metric):
         # These bounds work well for baseline fitting
         fit_bounds = ([1e-4, 1e-2, -3, -0.5], [5, 15, 5, 0.5])
         # These bounds work better for optimized DCN codecs - there are some weird outliers in the data
-        fit_bounds = ([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1])
+        # fit_bounds = ([0.1, 1e-5, -1, 0], [3, 10, 7, 0.1])
 
         def func(x, a, b, c, d):
             return 1 / (1 + np.exp(- b * x ** a + c)) - d
@@ -383,11 +402,7 @@ def setup_fit(metric):
         # fit_bounds = ([1e-4, 1, 1e-2, -20], [20, 50, 1, 20])
 
         def func(x, a, b, c, d):
-            # return a * (x + b) ** c + d
             return a * np.log(np.clip(b * x ** c + d, a_min=1e-9, a_max=1e9))
-            # return a / (1 + np.exp(- b * x ** c + d))
-            # return a + b * x + c * x ** 2 + d * x **3
-            # return a * np.log(b * x ** c + d)
 
     return func, fit_bounds
 
@@ -460,16 +475,12 @@ def plot_curve(plots, axes,
 
                 try:
                     popt, pcov = curve_fit(func, x, y, bounds=fit_bounds, maxfev=10000, sigma=sigma)
-                    print(popt.round(2))
+                    print('[{}] Fit to {} data points:'.format(labels[index], len(x)), popt.round(2))
                     y_est = func(x, *popt)
                     mse = np.mean(np.power(y - y_est, 2))
                     mse_l.append(mse)
                     if mse > 0.5:
                         print('WARNING Large MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
-                        # print('  bounds: ', fit_bounds)
-                        # print('  params: ', popt)
-                        # print('  x = {}'.format(list(x)))
-                        # print('  y = {}'.format(list(y)))
 
                 except RuntimeError:
                     print('ERROR', labels[index], 'image =', image_id, 'bpp =', x, 'y =', y)
@@ -479,14 +490,12 @@ def plot_curve(plots, axes,
             if len(images) > 1:
                 print('Fit summary - MSE for {} av={:.2f} max={:.2f}'.format(labels[index], np.mean(mse_l), np.max(mse_l)))
 
-            # print(Y.tolist())
             yy = np.nanmean(Y, axis=0)
             axes.plot(X, yy, styles[index][0], label=labels[index] if add_legend else None)
             y_min = min([y_min, min(yy)]) if update_ylim else y_min
 
         elif plot == 'aggregate':
             # For each quality level (QF, #channels) find the average quality level
-
             dfa = dfc.loc[dfc['selected']]
 
             if 'n_features' in dfa:
@@ -545,8 +554,6 @@ def plot_curve(plots, axes,
 
     axes.set_xlim([-0.1, 3.1])
     axes.set_ylim([y_min * 0.99, y_max])
-    # axes.set_ylim([0.75, 1])
-    # axes.legend(loc='lower right')
     axes.set_title(title)
     axes.set_xlabel('Effective bpp')
     axes.set_ylabel(metric_label)
@@ -643,10 +650,6 @@ def plot_bulk(plots, dirname, plot_images, metric, plot, baseline_count=3, add_l
                         mse_l.append(mse)
                         if mse > 0.1:
                             print('WARNING Large MSE for {} img=#{} = {:.2f}'.format(labels[index], image_no, mse))
-                            # print('  bounds: ', fit_bounds)
-                            # print('  params: ', popt)
-                            # print('  X = {}'.format(list(x)))
-                            # print('  y = {}'.format(list(y)))
 
                     except RuntimeError as err:
                         print('ERROR', labels[index], 'image =', imid, 'bpp =', x, 'y =', y, 'err =', err)
@@ -665,7 +668,6 @@ def plot_bulk(plots, dirname, plot_images, metric, plot, baseline_count=3, add_l
 
             elif plot == 'aggregate':
                 # For each quality level (QF, #channels) find the average quality level
-
                 dfa = dfc.loc[dfc['selected']]
 
                 if 'n_features' in dfa:

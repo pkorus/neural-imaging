@@ -13,4 +13,3 @@ tikzplotlib
 sewar
 dahuffman
 python-Levenshtein
-uncertainties

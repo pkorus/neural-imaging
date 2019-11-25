@@ -2,8 +2,6 @@ import re
 import io
 import numpy as np
 import imageio
-import subprocess
-import scipy as sp
 from skimage.measure import compare_ssim
 from collections import OrderedDict
 from struct import unpack

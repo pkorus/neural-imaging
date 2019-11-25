@@ -1,6 +1,5 @@
 import os
 import tqdm
-import io
 import json
 import imageio
 import numpy as np
@@ -262,16 +261,11 @@ def train_dcn(tf_ops, training, data, directory='./data/models/dcn/playground/',
                 for key in ['loss', 'ssim', 'entropy']:
                     perf[key]['validation'].append(float(np.mean(caches[key]['validation'])))
 
-                # TODO Remove once verified
-                # perf['loss']['validation'].append(float(np.mean(caches['loss']['validation'])))
-                # perf['ssim']['validation'].append(float(np.mean(caches['ssim']['validation'])))
-
                 # Save current snapshot
                 indices = np.argsort(np.var(batch_x, axis=(1, 2, 3)))[::-1]
                 thumbs_pairs_all = np.concatenate((batch_x[indices[::2]], batch_y[indices[::2]]), axis=0)
                 thumbs_pairs_few = np.concatenate((batch_x[indices[:5]], batch_y[indices[:5]]), axis=0)
-                thumbs = (255 * plotting.thumbnails(thumbs_pairs_all, n_cols=training['batch_size'] // 2)).astype(
-                    np.uint8)
+                thumbs = (255 * plotting.thumbnails(thumbs_pairs_all, n_cols=training['batch_size'] // 2)).astype(np.uint8)
                 thumbs_few = (255 * plotting.thumbnails(thumbs_pairs_few, n_cols=5)).astype(np.uint8)
                 imageio.imsave(os.path.join(model_output_dirname, 'thumbnails-{:05d}.png'.format(epoch)), thumbs)
 
@@ -329,7 +323,6 @@ def train_dcn(tf_ops, training, data, directory='./data/models/dcn/playground/',
                 'lr': '{:.1e}'.format(learning_rate),
                 'ssim': '{:.2f}'.format(perf['ssim']['validation'][-1]),
                 'H': '{:.1f}'.format(np.mean(perf['entropy']['training'][-1:])),
-                # 'Qvar': np.var(np.convolve(codebook, [-1, 1], mode='valid')),
             }
 
             if dcn.scale_latent:
@@ -342,6 +335,7 @@ def train_dcn(tf_ops, training, data, directory='./data/models/dcn/playground/',
                 bV = np.var(prebn, axis=(0, 1, 2))
                 pM = dcn.sess.run(dcn.graph.get_tensor_by_name('{}/encoder/bn_0/moving_mean:0'.format(dcn.scoped_name)))
                 pV = dcn.sess.run(dcn.graph.get_tensor_by_name('{}/encoder/bn_0/moving_variance:0'.format(dcn.scoped_name)))
+
                 # Append summary
                 progress_dict['MVp'] = '{:.2f}/{:.2f}'.format(np.mean(pM), np.mean(pV))
                 progress_dict['MVb'] = '{:.2f}/{:.2f}'.format(np.mean(bM), np.mean(bV))
