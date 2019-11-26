@@ -115,14 +115,20 @@ def batch_training(nip_model, camera_names=None, root_directory=None, loss_metri
         # Load the dataset
         if nip_model == 'ONet':
             # TODO Dirty hack - if the NIP model is the dummy empty model, load RGB images only
-            data_directory = os.path.join(root_directory, 'rgb/', camera_name)
+            data_directory = os.path.join(root_directory, 'rgb', camera_name)
             patch_mul = 2
             load = 'y'
         else:
             # Otherwise, load (RAW, RGB) pairs for a specific camera
-            data_directory = os.path.join(root_directory, 'raw' 'training_data', camera_name)
+            data_directory = os.path.join(root_directory, 'raw', 'training_data', camera_name)
             patch_mul = 2
             load = 'xy'
+
+        # If the target root directory has no training images, fallback to use the default root
+        if not os.path.isdir(data_directory):
+            print('WARNING Training images not found in the target root directory - using default root as image source')
+            data_directory = data_directory.replace(root_directory, 'data/')
+            data_directory = data_directory.replace('//', '/')
 
         # Find available images
         data = dataset.IPDataset(data_directory, n_images=training['n_images'], v_images=training['v_images'], load=load, val_rgb_patch_size=patch_mul * training['patch_size'], val_n_patches=training['val_n_patches'])

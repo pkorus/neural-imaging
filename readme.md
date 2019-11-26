@@ -58,7 +58,7 @@ The model can be easily customized to use various NIP models, photo manipulation
 The following sections cover all training steps:
 
 - [pre-training of the NIP models for faithful photo development](docs/pretrain_nip.md),
-- [pre-training of the DCN for efficient lossy photo compression](docs/pretran_dcn.md),
+- [pre-training of the DCN for efficient lossy photo compression](docs/pretrain_dcn.md),
 - [joint fine-tuning of the NIP/DCN/FAN models for reliable image manipulation detection](docs/optimization.md).
 
 The optimization results are stored in JSON files (`training.json`) organized into a folder hierarchy (by default in `data/m/*`). The results can be [quickly visualized](docs/results.md) using the `results.py` script.

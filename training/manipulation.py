@@ -3,6 +3,7 @@
 
 # Basic imports
 import os
+import shutil
 import numpy as np
 import tqdm
 from collections import deque, OrderedDict
@@ -37,8 +38,8 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
     :param loss_metric: NIP loss metric: L2, L1 or SSIM
     """
     # Sanitize inputs
-    if patch_size < 32 or patch_size > 512:
-        raise ValueError('The patch size ({}) looks incorrect, typical values should be >= 32 and <= 512'.format(patch_size))
+    if patch_size < 16 or patch_size > 512:
+        raise ValueError('The patch size ({}) looks incorrect, typical values should be >= 16 and <= 512'.format(patch_size))
 
     trainable = trainable or {}
     
@@ -569,6 +570,8 @@ def train_manipulation_nip(tf_ops, training, distribution, data, directories=Non
     
     if isinstance(tf_ops['dcn'], compression.DCN) and joint_optimization[1]:
         tf_ops['dcn'].save_model(os.path.join(model_directory, tf_ops['dcn'].scoped_name), epoch)
+        shutil.copyfile(os.path.join(distribution['compression_params']['dirname'], tf_ops['dcn'].scoped_name, 'progress.json'),
+                        os.path.join(model_directory, tf_ops['dcn'].scoped_name, 'progress.json'))
         print(' dcn', end='')
     
     print('')  # \newline

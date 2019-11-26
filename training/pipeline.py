@@ -141,6 +141,10 @@ def train_nip_model(model, camera_name, n_epochs=10000, validation_loss_threshol
     # Set up training output
     out_directory = os.path.join(out_directory_root, camera_name, model.scoped_name)
 
+    if os.path.exists(out_directory) and not resume:
+        print('WARNING directory {} exists, skipping...'.format(out_directory))
+        return
+
     # Limit the number of checkpoints to 5
     model.saver.saver_def.max_to_keep = 5
     model.saver._max_to_keep = 5

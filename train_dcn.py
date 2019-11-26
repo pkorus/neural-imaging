@@ -31,7 +31,7 @@ def main():
                         help='training patch size')
     
     # Parameters of the DCN
-    parser.add_argument('--dcn', dest='dcn', action='store', help='specific DCN class name')
+    parser.add_argument('--dcn', dest='dcn', action='store', default='TwitterDCN', help='specific DCN class name')
     parser.add_argument('--params', dest='dcn_params', action='append', help='Extra parameters for DCN constructor (JSON string)')
     parser.add_argument('--param_list', dest='dcn_param_list', default=None, help='CSV file with DCN configurations')
     
