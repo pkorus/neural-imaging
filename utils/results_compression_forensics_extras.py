@@ -21,7 +21,7 @@ fig, axes = plotting.sub(6 * len(models), ncols=6)
 
 for model_id, model in enumerate(models):
 
-    dcn = afi.restore_model(model, patch_size=batch_x.shape[1])
+    dcn = codec.restore_model(model, patch_size=batch_x.shape[1])
     match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], axes[model_id*6:(model_id+1)*6])
     
     axes[model_id*6].set_ylabel(os.path.relpath(model, model_directory))
@@ -58,8 +58,8 @@ stats = OrderedDict()
 image_id = 1 # 32 # 28 for clic
 
 for model in models.keys():
-    dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
-    outputs[model], stats[model] = afi.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
+    dcn = codec.restore_model(models[model], patch_size=batch_x.shape[1])
+    outputs[model], stats[model] = codec.dcn_compress_n_stats(dcn, batch_x[image_id:image_id+1])
 
 print('# {}'.format(files[image_id]))
 for model in models.keys():

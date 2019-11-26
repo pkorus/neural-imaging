@@ -13,7 +13,7 @@ from sewar.full_ref import msssim
 from scipy.optimize import curve_fit
 
 from helpers import loading, utils, coreutils
-from compression import jpeg_helpers, afi, bpg_helpers
+from compression import jpeg_helpers, codec, bpg_helpers
 
 
 def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=False):
@@ -168,7 +168,7 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
 
     files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
     batch_x = loading.load_images(files, directory, load='y')
-    batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
+    batch_x = batch_x['y'].astypre(np.float32) / (2 ** 8 - 1)
 
     quality_levels = np.arange(10, 40, 1)
     df_jpeg_path = os.path.join(directory, 'bpg.csv')
@@ -260,13 +260,13 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
         for model_dir in model_dirs:
             print('Processing: {}'.format(model_dir))
-            dcn = afi.restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1])
+            dcn = codec.restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1])
 
             # Dump compressed images
             for image_id, filename in enumerate(files):
 
                 try:
-                    batch_y, image_bytes = afi.dcn_simulate_compression(dcn, batch_x[image_id:image_id + 1])
+                    batch_y, image_bytes = codec.simulate_compression(batch_x[image_id:image_id + 1], dcn)
                     batch_z = dcn.compress(batch_x[image_id:image_id + 1])
                     entropy = utils.entropy(batch_z, dcn.get_codebook())
                 except Exception as e:
@@ -475,7 +475,6 @@ def plot_curve(plots, axes,
 
                 try:
                     popt, pcov = curve_fit(func, x, y, bounds=fit_bounds, maxfev=10000, sigma=sigma)
-                    print('[{}] Fit to {} data points:'.format(labels[index], len(x)), popt.round(2))
                     y_est = func(x, *popt)
                     mse = np.mean(np.power(y - y_est, 2))
                     mse_l.append(mse)
@@ -641,10 +640,7 @@ def plot_bulk(plots, dirname, plot_images, metric, plot, baseline_count=3, add_l
                         sigma = np.ones_like(y).reshape((-1,))
 
                     try:
-                        popt, pcov = curve_fit(func, x, y,
-                                               bounds=fit_bounds,
-                                               sigma=sigma,
-                                               maxfev=100000)
+                        popt, pcov = curve_fit(func, x, y, bounds=fit_bounds, sigma=sigma, maxfev=100000)
                         y_est = func(x, *popt)
                         mse = np.mean(np.power(y - y_est, 2))
                         mse_l.append(mse)

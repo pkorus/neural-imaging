@@ -341,7 +341,7 @@ fig.savefig('fig_entropy_hp_{}.pdf'.format(distribution), bbox_inches='tight')
 
 # %% Real compression model and real images
 
-from compression import afi
+from compression import codec
 from helpers import dataset, utils
 
 dcn_presets = {
@@ -353,7 +353,7 @@ dcn_presets = {
 # %%
 
 data = dataset.IPDataset('../data/clic256', n_images=35, v_images=0, load='y')
-dcn = afi.restore_model(dcn_presets['8k'])
+dcn = codec.restore_model(dcn_presets['8k'])
 
 # %%
 

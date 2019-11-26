@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from skimage.measure import compare_ssim
 
 from helpers import plotting, dataset, coreutils, loading, utils
-from compression import jpeg_helpers, afi, ratedistortion
+from compression import jpeg_helpers, codec, ratedistortion
 
 supported_plots = ['batch', 'jpeg-match-ssim', 'jpeg-match-bpp', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off', 'bpg-trade-off']
 
@@ -19,7 +19,7 @@ supported_plots = ['batch', 'jpeg-match-ssim', 'jpeg-match-bpp', 'jpg-trade-off'
 def match_jpeg(model, batch_x, axes=None, match='ssim'):
 
     # Compress using DCN and get number of bytes
-    batch_y, bytes_dcn = afi.dcn_simulate_compression(model, batch_x)
+    batch_y, bytes_dcn = codec.simulate_compression(batch_x, model)
 
     ssim_dcn = compare_ssim(batch_x.squeeze(), batch_y.squeeze(), multichannel=True, data_range=1)
     bpp_dcn = 8 * bytes_dcn / np.prod(batch_x.shape[1:-1])
@@ -157,7 +157,7 @@ def main():
     args.plot = coreutils.match_option(args.plot, supported_plots)
 
     if args.plot == 'batch':
-        model, stats = afi.restore_model(args.dcn, args.patch_size, fetch_stats=True)
+        model, stats = codec.restore_model(args.dcn, args.patch_size, fetch_stats=True)
         print('Training stats:', stats)
 
         data = dataset.IPDataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
@@ -173,7 +173,7 @@ def main():
         batch_x = loading.load_images(files, args.data, load='y')
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
-        model = afi.restore_model(args.dcn, batch_x.shape[1])
+        model = codec.restore_model(args.dcn, batch_x.shape[1])
 
         fig = match_jpeg(model, batch_x, match='ssim')
         plt.show()
@@ -185,18 +185,18 @@ def main():
         batch_x = loading.load_images(files, args.data, load='y')
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
-        model = afi.restore_model(args.dcn, batch_x.shape[1])
+        model = codec.restore_model(args.dcn, batch_x.shape[1])
 
         fig = match_jpeg(model, batch_x, match='bpp')
         plt.show()
         plt.close()
 
     elif args.plot == 'jpg-trade-off':
-        df = ratedistortion.get_jpeg_df(args.data, write_files=False)
+        df = ratedistortion.get_jpeg_df(args.data, write_files=True)
         print(df.to_string())
 
     elif args.plot == 'jp2-trade-off':
-        df = ratedistortion.get_jpeg2k_df(args.data, write_files=False)
+        df = ratedistortion.get_jpeg2k_df(args.data, write_files=True)
         print(df.to_string())
 
     elif args.plot == 'dcn-trade-off':

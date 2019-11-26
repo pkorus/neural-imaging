@@ -12,7 +12,7 @@ from pathlib import Path
 from helpers import coreutils, dataset, results_data
 from training.manipulation import construct_models
 from training.validation import confusion
-from compression import afi
+from compression import codec
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -28,8 +28,8 @@ def validate_fan(output_directory, manipulations, data, patch=64, dcn_model=None
         compression_params['quality'] = jpeg_quality
         compression_params['rounding_approximation'] = 'soft'
     else:
-        if dcn_model in afi.dcn_presets:
-            dcn_model = afi.dcn_presets[dcn_model]
+        if dcn_model in codec.dcn_presets:
+            dcn_model = codec.dcn_presets[dcn_model]
         compression_params['dirname'] = dcn_model
 
     if jpeg_quality is not None:

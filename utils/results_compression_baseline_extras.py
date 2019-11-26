@@ -26,7 +26,7 @@ rc('text', usetex=True)
 
 from test_dcn import match_jpeg
 from helpers import plotting, loading, utils
-from compression import ratedistortion, afi
+from compression import ratedistortion, codec
 from training import compression
 
 dataset = '../data/clic512'

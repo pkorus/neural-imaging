@@ -33,7 +33,7 @@ rc('figure', titlesize=14)
 
 from test_dcn import match_jpeg
 from helpers import plotting, loading, utils
-from compression import ratedistortion, afi
+from compression import ratedistortion, codec
 from training import compression
 
 from misc import get_sample_images
@@ -90,7 +90,7 @@ for i, dataset in enumerate(datasets):
     images = get_sample_images(dataset)
     ratedistortion.plot_curve(plots, axes[i], dataset,
                               title=os.path.split(dataset.strip('/'))[-1],
-                              images=[], plot='fit',
+                              images=[], plot='agg', metric='ssim',
                               add_legend=i==0)
 
 fig.savefig('../var/results/fig_dcn_tradeoff_{}_{}.pdf'.format('all', 'ssim'), bbox_inches='tight')
@@ -130,7 +130,7 @@ models = ['16x16x16-r:soft-codebook-Q-{:.1f}bpf-S+-H+1.00'.format(latent_bpf),
           '16x16x16-r:soft-codebook-Q-{:.1f}bpf-S+-H+250.00'.format(latent_bpf)
           ]
 
-dcn = afi.restore_model(os.path.join(dirname, models[model_id]), patch_size=512)
+dcn = codec.restore_model(os.path.join(dirname, models[model_id]), patch_size=512)
 codebook = dcn.get_codebook()
 
 for im in images[image_id:image_id+1]:
@@ -176,7 +176,7 @@ fig, axes = plotting.sub(len(models), ncols=5)
 fig.set_size_inches((len(models)*4, 3*1))
 
 for i, model in enumerate(models):
-    dcn = afi.restore_model(os.path.join(dirname, model), patch_size=256)
+    dcn = codec.restore_model(os.path.join(dirname, model), patch_size=256)
     batch_z = dcn.compress(batch_x)
     fig = compression.visualize_distribution(dcn, batch_x, ax=axes[i], title=titles[i]+' :')
 
@@ -200,7 +200,7 @@ fig, axes = plotting.sub(len(models), ncols=len(models))
 fig.set_size_inches((len(models)*5, 3))
 
 for i, model in enumerate(models):
-    dcn = afi.restore_model(os.path.join(dirname, model), patch_size=256)
+    dcn = codec.restore_model(os.path.join(dirname, model), patch_size=256)
     batch_z = dcn.compress(batch_x)
     fig = compression.visualize_distribution(dcn, batch_x, ax=axes[i], title='$\lambda_H={}$ :'.format(*re.findall('H\+([0-9]+)', model)))
 
@@ -222,16 +222,16 @@ df = pd.DataFrame(columns=['model', 'image_id', 'entropy', 'entropy_min', 'entro
 
 for model in models:
 
-    dcn = afi.restore_model(model, patch_size=batch_x.shape[1])
+    dcn = codec.restore_model(model, patch_size=batch_x.shape[1])
     codebook = dcn.get_codebook()
 
     for id in range(batch_x.shape[0]):
 
         # Global compression
-        coded_fse = afi.global_compress(dcn, batch_x[id:id+1])
+        coded_fse = codec.global_compress(batch_x[id:id + 1], dcn)
     
         # Per-layer compression
-        layer_coded_fse = afi.afi_compress(dcn, batch_x[id:id+1])
+        layer_coded_fse = codec.compress(batch_x[id:id + 1], dcn)
     
         # Estimate entropy
         batch_z = dcn.compress(batch_x[id:id+1])
@@ -259,7 +259,7 @@ print(df.groupby('model').mean().to_string())
 image_id = 0
 model = '4k'
 
-dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+dcn = codec.restore_model(models[model], patch_size=batch_x.shape[1])
 fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], match='ssim')
 
 fig.savefig('fig_jpeg_match_model_{}_image_{}.pdf'.format(model, images[image_id]), bbox_inches='tight')
@@ -269,7 +269,7 @@ fig.savefig('fig_jpeg_match_model_{}_image_{}.pdf'.format(model, images[image_id
 image_id = 0
 model = '4k'
 
-dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+dcn = codec.restore_model(models[model], patch_size=batch_x.shape[1])
 fig = match_jpeg(dcn, batch_x[images[image_id]:images[image_id]+1], match='bpp')
 
 fig.savefig('fig_jpeg_bpp_match_model_{}_image_{}.pdf'.format(model, images[image_id]), bbox_inches='tight')
@@ -282,11 +282,11 @@ from skimage.measure import compare_ssim
 image_id = 1
 model = '4k'
 
-dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+dcn = codec.restore_model(models[model], patch_size=batch_x.shape[1])
 sample_x = batch_x[images[image_id]:images[image_id]+1]
 
 # Compress using DCN and get number of bytes
-sample_y, bytes_dcn = afi.dcn_simulate_compression(dcn, sample_x)
+sample_y, bytes_dcn = codec.simulate_compression(sample_x, dcn)
 
 ssim_dcn = compare_ssim(sample_x.squeeze(), sample_y.squeeze(), multichannel=True, data_range=1)
 bpp_dcn = 8 * bytes_dcn / np.prod(sample_x.shape[1:-1])

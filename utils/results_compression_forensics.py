@@ -32,7 +32,7 @@ rc('figure', titlesize=14)
 
 from test_dcn import match_jpeg
 from helpers import plotting, loading, utils
-from compression import ratedistortion, afi
+from compression import ratedistortion, codec
 from training import compression
 
 from misc import get_sample_images
@@ -93,8 +93,8 @@ titles = {
     }
 
 lcs = [0.1, 0.01, 0.005, 0.001]
-images = []
-metric = 'ssim'
+images = [25]
+metric = 'msssim_db'
 
 fig = plt.figure(figsize=(8, 6))
 axes = fig.gca()
@@ -110,10 +110,10 @@ ratedistortion.plot_curve(plots, axes, dataset,
 
 plots = OrderedDict()
 
-plots['dcn (b)'] = ('dcn-7-{}.csv'.format(ft_set), {'model_dir': '.*-basic/'.format(dcn_model)})
-plots['dcn (1.000)'] = ('dcn-7-{}.csv'.format(ft_set), {'model_dir': '.*k-1.0000/'.format(dcn_model)})
-plots['dcn (0.005)'] = ('dcn-7-{}.csv'.format(ft_set), {'model_dir': '.*k-0.0050/'.format(dcn_model)})
-plots['dcn (0.001)'] = ('dcn-7-{}.csv'.format(ft_set), {'model_dir': '.*k-0.0010/'.format(dcn_model)})
+plots['dcn (b)'] = ('dcn-7-{}-all-reps.csv'.format(ft_set), {'model_dir': '.*-basic/'.format(dcn_model)})
+plots['dcn (1.000)'] = ('dcn-7-{}-all-reps.csv'.format(ft_set), {'model_dir': '.*c-1.0000-./'.format(dcn_model)})
+plots['dcn (0.005)'] = ('dcn-7-{}-all-reps.csv'.format(ft_set), {'model_dir': '.*c-0.0050-./'.format(dcn_model)})
+plots['dcn (0.001)'] = ('dcn-7-{}-all-reps.csv'.format(ft_set), {'model_dir': '.*c-0.0010-./'.format(dcn_model)})
 
 ratedistortion.plot_curve(plots, axes, dataset,
                           title=titles[ft_set], images=images, metric=metric,
@@ -128,7 +128,7 @@ else:
     # axes.set_ylim([0.8, 1.00])
 axes.grid(True, linestyle=':')
 
-fig.savefig('dcn_forensics_tradeoff_{}_{}_{}_final.pdf'.format(dataset.split('/')[-1], metric, plot), bbox_inches='tight')
+# fig.savefig('dcn_forensics_tradeoff_{}_{}_{}_final.pdf'.format(dataset.split('/')[-1], metric, plot), bbox_inches='tight')
 
 # %%
 x = np.linspace(0.1, 3, 100)
@@ -213,7 +213,7 @@ models[0.001]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0010'.format(dcn_mod
 
 dcns = OrderedDict()
 for model in models.keys():
-    dcns[model] = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+    dcns[model] = codec.restore_model(models[model], patch_size=batch_x.shape[1])
 
 for image_id in get_sample_images(dataset):
 
@@ -235,8 +235,8 @@ for image_id in get_sample_images(dataset):
         else:
             model_label = model
     
-        # dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
-        outputs[model], stats[model] = afi.dcn_compress_n_stats(dcns[model], batch_x[image_id:image_id+1])
+        # dcn = codec.restore_model(models[model], patch_size=batch_x.shape[1])
+        outputs[model], stats[model] = codec.compress_n_stats(batch_x[image_id:image_id + 1], dcns[model])
         accuracies[model] = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, model_label), 'accuracy'].mean()
     
     all_labels = ['Original']
@@ -372,7 +372,7 @@ models[0.001]   = '../data/models/dcn/_forensics/7-rgb/{}-0.0010'.format(dcn_mod
 
 dcns = OrderedDict()
 for model in models.keys():
-    dcns[model] = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+    dcns[model] = codec.restore_model(models[model], patch_size=batch_x.shape[1])
 
 outputs = OrderedDict()
 
@@ -531,7 +531,7 @@ for model in [95, 90, 75, 50, 30]:
     else:
         model_label = model
 
-    # dcn = afi.restore_model(models[model], patch_size=batch_x.shape[1])
+    # dcn = codec.restore_model(models[model], patch_size=batch_x.shape[1])
     outputs[model], _ = jpeg_helpers.compress_batch(batch_x[image_id:image_id+1], model)
     # accuracies[model] = df_acc.loc[df_acc['scenario'] == '{}/{}'.format(dcn_model, model_label), 'accuracy'].mean()
 

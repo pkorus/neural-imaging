@@ -17,7 +17,7 @@ from models.forensics import FAN
 from models.jpeg import DJPG
 from models import compression
 
-from compression import afi
+from compression import codec
 
 # Helper functions
 from helpers import coreutils, tf_helpers
@@ -164,7 +164,7 @@ def construct_models(nip_model, patch_size=128, trainable=None, distribution=Non
             print('Channel compression: DCN from {dirname}'.format(**distribution['compression_params']))
             if 'dirname' in distribution['compression_params']:
                 model_directory = distribution['compression_params']['dirname']
-                dist_compression = afi.restore_model(model_directory, down_patch_size, sess=sess, graph=tf.get_default_graph(), x=imb_down, nip_input=model.x)
+                dist_compression = codec.restore_model(model_directory, down_patch_size, sess=sess, graph=tf.get_default_graph(), x=imb_down, nip_input=model.x)
             else:
                 # TODO Not tested yet
                 raise NotImplementedError('DCN models should be restored from a pre-training session!')
