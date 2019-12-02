@@ -14,7 +14,7 @@ More information can be found in papers listed below:
 2. P. Korus, N. Memon, *Neural Imaging Pipelines - the Scourge or Hope of Forensics?*, 2019, [arXiv:1902.10707](https://arxiv.org/abs/1902.10707)
 3. P. Korus, N. Memon, *Quantifying the Cost of Reliable Photo Authentication via High-Performance Learned Lossy Representations*, ICLR'20, [openreview](https://openreview.net/forum?id=HyxG3p4twS)
 
-A standalone version of the included lossy compression codec can be found in the [neural-image-compression](https://github.com/pkorus/neural-image-compression) repository.
+A standalone version of our lossy compression codec can be found in the [l3ic](https://github.com/pkorus/l3ic) repository.
 
 ## Change Log
 
