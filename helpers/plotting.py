@@ -114,14 +114,14 @@ def imsc(image, titles=None, figwidth=16, cmap='gray', ncols=None):
             return fig
 
         elif image.ndim == 3 and image.shape[-1] != 3:
-            
+                        
             def fetch_example(image, n):
-                return image[:,:,n]
+                return image[:, :, n]
             
             n_images = image.shape[-1]
 
             if n_images > 100:
-                image = np.swapaxes(image, 0, -1)
+                image = np.moveaxis(image, 0, -1)
                 n_images = image.shape[-1]
                                         
         elif image.ndim == 4 and (image.shape[-1] == 3 or image.shape[-1] == 1):
