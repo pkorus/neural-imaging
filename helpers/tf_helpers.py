@@ -44,7 +44,7 @@ def manipulation_median(x, kernel=3):
         patches = tf.reshape(patches, [tf.shape(patches)[0], tf.shape(patches)[1], tf.shape(patches)[2], tf.shape(patches)[3]//3, 3])
         return tf.contrib.distributions.percentile(patches, 50, axis=3)
 
-    
+
 def manipulation_gaussian(x, kernel, std, skip_clip=False):
     kernel = int(kernel)
     with tf.name_scope('gaussian_filter'):
@@ -72,7 +72,7 @@ def manipulation_sharpen(x, strength=1, hsv=True):
         if gk is None or gk.ndim != 2 or gk.shape[0] != gk.shape[1]:
             raise ValueError('Invalid filter! {}'.format(gk))
 
-        kernel = gk.shape[0]        
+        kernel = gk.shape[0]
         gfilter = repeat_2dfilter(gk, 3)
         if hsv:
             gfilter[:, :, 1:2, 1:2] = 0
@@ -92,9 +92,37 @@ def manipulation_sharpen(x, strength=1, hsv=True):
 
         return tf.clip_by_value(y, 0, 1)
 
+def residual(x, hsv=False):
+    with tf.name_scope('residual_filter'):
+
+        # Prepare the sharpening filter
+        gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 1, -0.1667], [-0.0833, -0.1667, -0.0833]])
+
+        if gk is None or gk.ndim != 2 or gk.shape[0] != gk.shape[1]:
+            raise ValueError('Invalid filter! {}'.format(gk))
+
+        kernel = gk.shape[0]
+        gfilter = repeat_2dfilter(gk, 3)
+        if hsv:
+            gfilter[:, :, 1:2, 1:2] = 0
+            gfilter[2, 2, 1:2, 1:2] = 1
+
+        gkk = tf.constant(gfilter, tf.float32)
+
+        y = tf.pad(x, [[0, 0], 2*[kernel//2], 2*[kernel//2], [0, 0]], 'REFLECT')
+
+        if hsv:
+            y = tf.image.rgb_to_hsv(y)
+
+        y = tf.nn.conv2d(y, gkk, [1, 1, 1, 1], 'VALID')
+
+        if hsv:
+            y = tf.image.hsv_to_rgb(y)
+
+        return y
 
 def memory_usage_tf(sess):
-    return sess.run(tf.contrib.memory_stats.BytesInUse())            
+    return sess.run(tf.contrib.memory_stats.BytesInUse())
 
 
 def memory_usage_tf_variables(global_vars=True):
@@ -108,7 +136,7 @@ def strip_consts(graph_def, max_const_size=32):
     """Strip large constant values from graph_def."""
     strip_def = tf.GraphDef()
     for n0 in graph_def.node:
-        n = strip_def.node.add() 
+        n = strip_def.node.add()
         n.MergeFrom(n0)
         if n.op == 'Const':
             tensor = n.attr['value'].tensor
@@ -121,7 +149,7 @@ def strip_consts(graph_def, max_const_size=32):
 def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungroup_gradients=False):
     if not graph_def:
         graph_def = tf.get_default_graph().as_graph_def()
-        
+
     """Visualize TensorFlow graph."""
     if hasattr(graph_def, 'as_graph_def'):
         graph_def = graph_def.as_graph_def()
@@ -151,35 +179,35 @@ def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungrou
 
 
 def quantization(x, scope, name, rounding='soft', approx_steps=1, codebook_tensor=None, v=50, gamma=25):
-    
+
     with tf.name_scope(scope):
-        
+
         if rounding is None:
             x = tf.round(x)
-        
+
         elif rounding == 'sin':
             x = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name=name)
-        
+
         elif rounding == 'soft':
             x_ = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name='{}_soft'.format(name))
             x = tf.add(tf.stop_gradient(tf.round(x) - x_), x_, name=name)
-        
+
         elif rounding == 'harmonic':
             xa = x - tf.sin(2 * np.pi * x) / np.pi
             for k in range(2, approx_steps):
                 xa += tf.pow(-1.0, k) * tf.sin(2 * np.pi * k * x) / (k * np.pi)
             x = tf.identity(xa, name=name)
-            
+
         elif rounding == 'identity':
             x = x
-            
+
         elif rounding == 'soft-codebook':
-            
+
             prec_dtype = tf.float64
             eps = 1e-72
-            
+
             assert(codebook_tensor.shape[0] == 1)
-            assert(codebook_tensor.shape[1] > 1)            
+            assert(codebook_tensor.shape[1] > 1)
 
             values = tf.reshape(x, (-1, 1))
 
@@ -191,24 +219,24 @@ def quantization(x, scope, name, rounding='soft', approx_steps=1, codebook_tenso
                 dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype)
                 dff = gamma * dff
                 weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
-            
+
             weights = (weights + eps) / (tf.reduce_sum(weights + eps, axis=1, keepdims=True))
-            
+
             assert(weights.shape[1] == np.prod(codebook_tensor.shape))
 
             soft = tf.reduce_mean(tf.matmul(weights, tf.transpose(tf.cast(codebook_tensor, dtype=prec_dtype))), axis=1)
             soft = tf.cast(soft, dtype=tf.float32)
-            soft = tf.reshape(soft, tf.shape(x))            
+            soft = tf.reshape(soft, tf.shape(x))
 
             hard = tf.gather(codebook_tensor, tf.argmax(weights, axis=1), axis=1)
-            hard = tf.reshape(hard, tf.shape(x))            
+            hard = tf.reshape(hard, tf.shape(x))
 
             x = tf.stop_gradient(hard - soft) + soft
             x = tf.identity(x, name=name)
-        
+
         else:
             raise ValueError('Unknown quantization! {}'.format(rounding))
-    
+
     return x
 
 
