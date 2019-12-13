@@ -163,7 +163,9 @@ class DJPG:
 
     def __repr__(self):
         if self.rounding_approximation == 'harmonic':
-            return 'DJPG(rounding_approximation={}, rounding_approximation_steps={})'.format(self.rounding_approximation, self.rounding_approximation_steps)
+            return 'DJPG(quality={}, rounding_approximation={}, rounding_approximation_steps={})'.format(self.init_quality, self.rounding_approximation, self.rounding_approximation_steps)
         else:
-            return 'DJPG(rounding_approximation={})'.format(self.rounding_approximation)
+            return 'DJPG(quality={}, rounding_approximation={})'.format(self.init_quality, self.rounding_approximation)
 
+    def summary(self):
+        return 'jpeg({}, rounding={})'.format(self.init_quality, self.rounding_approximation)

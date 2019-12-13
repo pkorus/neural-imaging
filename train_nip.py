@@ -21,9 +21,9 @@ def main():
     parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
     parser.add_argument('--cam', dest='camera', action='store', help='camera')
     parser.add_argument('--nip', dest='nips', action='append', help='add NIP for training (repeat if needed)')
-    parser.add_argument('--out', dest='out_dir', action='store', default='./data/raw/nip_model_snapshots',
+    parser.add_argument('--out', dest='out_dir', action='store', default='./data/models/nip',
                         help='output directory for storing trained NIP models')
-    parser.add_argument('--data', dest='data_dir', action='store', default='./data/raw/nip_training_data/',
+    parser.add_argument('--data', dest='data_dir', action='store', default='./data/raw/training_data/',
                         help='input directory with training data (.npy and .png pairs)')
     parser.add_argument('--patch', dest='patch_size', action='store', default=128, type=int,
                         help='training patch size (RGB)')

@@ -14,20 +14,44 @@ activation_mapping = {
 }
 
 
-def tf_median(x, kernel):
+def manipulation_resample(x, factor=0.5):
+    with tf.name_scope('resample'):
+        im_res = tf.image.resize_images(x, [tf.shape(x)[1] * int(factor) // 100, tf.shape(x)[1] * int(factor) // 100], method=tf.image.ResizeMethod.BILINEAR)
+        return tf.image.resize_images(im_res, [tf.shape(x)[1], tf.shape(x)[1]], tf.image.ResizeMethod.BILINEAR)
+        # im_res = tf.image.resize_images(x, [tf.shape(x)[1] * factor, tf.shape(x)[1] * factor], method=tf.image.ResizeMethod.BILINEAR)
+        # return tf.image.resize_images(im_res, [tf.shape(x)[1], tf.shape(x)[1]], tf.image.ResizeMethod.BILINEAR)
+
+
+def manipulation_awgn(x, strength=0.025):
+    with tf.name_scope('awgn'):
+        im_awgn = x + strength * tf.random.normal(tf.shape(x))
+        im_awgn = quantization(255.0 * im_awgn, 'quantization', 'quantized', 'soft')
+        return im_awgn / 255.0
+
+
+def manipulation_gamma(x, strength=2.0):
+    with tf.name_scope('gamma'):
+        im_gamma = tf.pow(x, strength, name='squared')
+        im_gamma = quantization(255.0 * im_gamma, 'quantization', 'quantized', 'soft')
+        return tf.pow(tf.clip_by_value(im_gamma, 1, 255) / 255.0, 1/strength, name='sqrt')
+
+
+def manipulation_median(x, kernel=3):
+    kernel = int(kernel)
     with tf.name_scope('median_filter'):
         xp = tf.pad(x, [[0, 0], 2*[kernel//2], 2*[kernel//2], [0, 0]], 'REFLECT')
         patches = tf.extract_image_patches(xp, [1, kernel, kernel, 1], [1, 1, 1, 1], 4*[1], 'VALID')
         patches = tf.reshape(patches, [tf.shape(patches)[0], tf.shape(patches)[1], tf.shape(patches)[2], tf.shape(patches)[3]//3, 3])
         return tf.contrib.distributions.percentile(patches, 50, axis=3)
 
-    
-def tf_gaussian(x, kernel, sigma, skip_clip=False):
+
+def manipulation_gaussian(x, kernel, std, skip_clip=False):
+    kernel = int(kernel)
     with tf.name_scope('gaussian_filter'):
-        gk = gkern(kernel, sigma)
+        gk = gkern(kernel, std)
         gfilter = np.zeros((kernel, kernel, 3, 3))
         for r in range(3):
-            gfilter[:,:,r,r] = gk
+            gfilter[:, :, r, r] = gk
         gkk = tf.constant(gfilter, tf.float32)
         xp = tf.pad(x, [[0, 0], 2*[kernel//2], 2*[kernel//2], [0, 0]], 'REFLECT')
         y = tf.nn.conv2d(xp, gkk, [1, 1, 1, 1], 'VALID')
@@ -37,21 +61,18 @@ def tf_gaussian(x, kernel, sigma, skip_clip=False):
             return tf.clip_by_value(y, 0, 1)
 
 
-def tf_sharpen(x, filter=None, hsv=True):
+def manipulation_sharpen(x, strength=1, hsv=True):
     with tf.name_scope('sharpen_filter'):
-        if filter == 2:
-            gk = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-        elif filter == 1:
-            gk = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-        elif filter == 0:
-            gk = np.array([[-0.1667, -0.6667, -0.1667], [-0.6667, 4.3333, -0.6667], [-0.1667, -0.6667, -0.1667]])
-        else:
-            gk = None
+
+        # Prepare the sharpening filter
+        gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 0, -0.1667], [-0.0833, -0.1667, -0.0833]])
+        gk = strength * gk / np.abs(gk.sum())
+        gk[1, 1] = strength + 1
 
         if gk is None or gk.ndim != 2 or gk.shape[0] != gk.shape[1]:
-            raise ValueError('Invalid filter!')
+            raise ValueError('Invalid filter! {}'.format(gk))
 
-        kernel = gk.shape[0]        
+        kernel = gk.shape[0]
         gfilter = repeat_2dfilter(gk, 3)
         if hsv:
             gfilter[:, :, 1:2, 1:2] = 0
@@ -71,9 +92,37 @@ def tf_sharpen(x, filter=None, hsv=True):
 
         return tf.clip_by_value(y, 0, 1)
 
+def residual(x, hsv=False):
+    with tf.name_scope('residual_filter'):
+
+        # Prepare the sharpening filter
+        gk = np.array([[-0.0833, -0.1667, -0.0833], [-0.1667, 1, -0.1667], [-0.0833, -0.1667, -0.0833]])
+
+        if gk is None or gk.ndim != 2 or gk.shape[0] != gk.shape[1]:
+            raise ValueError('Invalid filter! {}'.format(gk))
+
+        kernel = gk.shape[0]
+        gfilter = repeat_2dfilter(gk, 3)
+        if hsv:
+            gfilter[:, :, 1:2, 1:2] = 0
+            gfilter[2, 2, 1:2, 1:2] = 1
+
+        gkk = tf.constant(gfilter, tf.float32)
+
+        y = tf.pad(x, [[0, 0], 2*[kernel//2], 2*[kernel//2], [0, 0]], 'REFLECT')
+
+        if hsv:
+            y = tf.image.rgb_to_hsv(y)
+
+        y = tf.nn.conv2d(y, gkk, [1, 1, 1, 1], 'VALID')
+
+        if hsv:
+            y = tf.image.hsv_to_rgb(y)
+
+        return y
 
 def memory_usage_tf(sess):
-    return sess.run(tf.contrib.memory_stats.BytesInUse())            
+    return sess.run(tf.contrib.memory_stats.BytesInUse())
 
 
 def memory_usage_tf_variables(global_vars=True):
@@ -87,7 +136,7 @@ def strip_consts(graph_def, max_const_size=32):
     """Strip large constant values from graph_def."""
     strip_def = tf.GraphDef()
     for n0 in graph_def.node:
-        n = strip_def.node.add() 
+        n = strip_def.node.add()
         n.MergeFrom(n0)
         if n.op == 'Const':
             tensor = n.attr['value'].tensor
@@ -100,7 +149,7 @@ def strip_consts(graph_def, max_const_size=32):
 def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungroup_gradients=False):
     if not graph_def:
         graph_def = tf.get_default_graph().as_graph_def()
-        
+
     """Visualize TensorFlow graph."""
     if hasattr(graph_def, 'as_graph_def'):
         graph_def = graph_def.as_graph_def()
@@ -129,65 +178,65 @@ def show_graph(graph_def=None, width=1200, height=800, max_const_size=32, ungrou
     display(HTML(iframe))
 
 
-def quantization(x, scope, name, rounding='soft', approx_steps=5, codebook_tensor=None, soft_quantization_sigma=1):
-    
+def quantization(x, scope, name, rounding='soft', approx_steps=1, codebook_tensor=None, v=50, gamma=25):
+
     with tf.name_scope(scope):
-        
+
         if rounding is None:
             x = tf.round(x)
-        
+
         elif rounding == 'sin':
             x = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name=name)
-        
+
         elif rounding == 'soft':
             x_ = tf.subtract(x, tf.sin(2 * np.pi * x) / (2 * np.pi), name='{}_soft'.format(name))
             x = tf.add(tf.stop_gradient(tf.round(x) - x_), x_, name=name)
-        
+
         elif rounding == 'harmonic':
             xa = x - tf.sin(2 * np.pi * x) / np.pi
             for k in range(2, approx_steps):
                 xa += tf.pow(-1.0, k) * tf.sin(2 * np.pi * k * x) / (k * np.pi)
-            x = xa
-            
+            x = tf.identity(xa, name=name)
+
         elif rounding == 'identity':
             x = x
-            
+
         elif rounding == 'soft-codebook':
-            
+
             prec_dtype = tf.float64
-            v = 100
             eps = 1e-72
-            
+
             assert(codebook_tensor.shape[0] == 1)
-            assert(codebook_tensor.shape[1] > 1)            
+            assert(codebook_tensor.shape[1] > 1)
 
             values = tf.reshape(x, (-1, 1))
 
             if v <= 0:
                 # Gaussian soft quantization
-                weights = tf.exp(-soft_quantization_sigma * tf.pow(tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype), 2)) 
+                weights = tf.exp(-gamma * tf.pow(tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype), 2))
             else:
                 # t-Student soft quantization
                 dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook_tensor, dtype=prec_dtype)
-                dff = soft_quantization_sigma * dff
+                dff = gamma * dff
                 weights = tf.pow((1 + tf.pow(dff, 2)/v), -(v+1)/2)
-            
-            weights = (weights + eps) / (eps + tf.reduce_sum(weights, axis=1, keepdims=True))
-            
+
+            weights = (weights + eps) / (tf.reduce_sum(weights + eps, axis=1, keepdims=True))
+
             assert(weights.shape[1] == np.prod(codebook_tensor.shape))
 
             soft = tf.reduce_mean(tf.matmul(weights, tf.transpose(tf.cast(codebook_tensor, dtype=prec_dtype))), axis=1)
             soft = tf.cast(soft, dtype=tf.float32)
-            soft = tf.reshape(soft, tf.shape(x))            
+            soft = tf.reshape(soft, tf.shape(x))
 
             hard = tf.gather(codebook_tensor, tf.argmax(weights, axis=1), axis=1)
-            hard = tf.reshape(hard, tf.shape(x))            
+            hard = tf.reshape(hard, tf.shape(x))
 
-            x = tf.stop_gradient(hard - soft) +  soft
-        
+            x = tf.stop_gradient(hard - soft) + soft
+            x = tf.identity(x, name=name)
+
         else:
             raise ValueError('Unknown quantization! {}'.format(rounding))
-    
+
     return x
 
 
@@ -220,3 +269,40 @@ def nm(x):
     w0 = tf.Variable(1.0, name='w0')
     w1 = tf.Variable(0.0, name='w1')
     return w0*x + w1*slim.batch_norm(x) # the parameter "is_training" in slim.batch_norm does not seem to help so I do not use it
+
+
+def entropy(values, codebook, v=50, gamma=25):
+
+    # For Gaussian, the best parameters are v=0 and gamma=5
+    # for t-Student, the best parameters are v=50 and gamma=25
+
+    # t-Student degrees of freedom
+    eps = 1e-72
+    prec_dtype = tf.float64
+
+    assert (codebook.shape[0] == 1)
+    assert (codebook.shape[1] > 1)
+
+    values = tf.reshape(values, (-1, 1))
+
+    # Compute soft-quantization
+    if v <= 0:
+        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
+        weights = tf.exp(-gamma * tf.pow(dff, 2))
+    else:
+        # t-Student-like distance measure with heavy tails
+        dff = tf.cast(values, dtype=prec_dtype) - tf.cast(codebook, dtype=prec_dtype)
+        dff = gamma * dff
+        weights = tf.pow((1 + tf.pow(dff, 2) / v), -(v + 1) / 2)
+
+    weights = (weights + eps) / (tf.reduce_sum(weights + eps, axis=1, keepdims=True))
+    assert (weights.shape[1] == np.prod(codebook.shape))
+
+    # Compute soft histogram
+    histogram = tf.reduce_mean(weights, axis=0)
+    histogram = tf.clip_by_value(histogram, 1e-9, tf.float32.max)
+    histogram = histogram / tf.reduce_sum(histogram)
+    entropy = - tf.reduce_sum(histogram * tf.log(histogram)) / 0.6931  # 0.6931 - log(2)
+    entropy = tf.cast(entropy, tf.float32)
+
+    return entropy, histogram, weights

@@ -1,7 +1,6 @@
-import io
-import imageio
 import numpy as np
-import scipy.stats as st
+from scipy import signal
+
 
 _numeric_types = {int, float, bool, np.bool, np.float, np.float16, np.float32, np.float64,
                            np.int, np.int8, np.int32, np.int16, np.int64,
@@ -217,16 +216,11 @@ def bilin_kernel(kernel=3):
     return dmf
 
 
-def gkern(kernlen=21, nsig=3):
+def gkern(kernlen=5, std=0.83):
     """Returns a 2D Gaussian kernel array."""
-
-    interval = (2*nsig + 1.) / kernlen
-    x = np.linspace(-nsig-interval/2., nsig+interval/2., kernlen+1)
-    kern1d = np.diff(st.norm.cdf(x))
-    kernel_raw = np.sqrt(np.outer(kern1d, kern1d))
-    kernel = kernel_raw/kernel_raw.sum()
-
-    return kernel
+    gkern1d = signal.gaussian(kernlen, std=std)
+    gkern2d = np.outer(gkern1d, gkern1d)
+    return gkern2d / gkern2d.sum()
 
 
 def jpeg_qtable(quality, channel=0):
@@ -322,3 +316,53 @@ def is_nan(value):
 
     return False
 
+
+def qhist(values, code_book, density=False):
+    code_book_edges = bin_egdes(code_book)
+    return np.histogram(values.reshape((-1, )), bins=code_book_edges, density=density)[0]
+
+
+def entropy(batch_z, code_book):
+    counts = qhist(batch_z, code_book)
+    counts = counts.clip(min=1)
+    probs = counts / counts.sum()
+    return - np.sum(probs * np.log2(probs))
+
+
+def bin_egdes(code_book):
+    max_float = np.abs(code_book).max() * 2
+    code_book_edges = np.convolve(code_book, [0.5, 0.5], mode='valid')
+    code_book_edges = np.concatenate((-np.array([max_float]), code_book_edges, np.array([max_float])), axis=0)
+    return code_book_edges
+
+
+def batch_gamma(batch_p, gamma=None):
+    if gamma is None:
+        gamma = np.array(np.random.uniform(low=0.25, high=3, size=(len(batch_p), 1, 1, 1)))
+    elif type(gamma) is float:
+        gamma = gamma * np.ones((len(batch_p), 1, 1, 1))
+
+    return np.power(batch_p, 1/gamma).clip(0, 1)
+
+
+def crop_middle(image, patch=128):
+    image = image.squeeze()
+
+    xx = (image.shape[0] - patch) // 2
+    yy = (image.shape[1] - patch) // 2
+
+    if image.ndim == 2:
+        return image[xx:(xx+patch), yy:(yy+patch)]
+    elif image.ndim == 3:
+        return image[xx:(xx + patch), yy:(yy + patch), :]
+    else:
+        raise ValueError('Invalid image size!')
+
+
+def dct_mask(size=128, band=0.1, sigma=1):
+    x = np.arange(size).reshape((-1, 1)).repeat(size, axis=1)
+    y = np.arange(size).reshape((1, -1)).repeat(size, axis=0)
+    m = np.exp(-sigma * np.abs(np.power(x + y - band * (size*2 - 1), 2)))
+    m[0, 0] = 0
+    m = m / m.sum()
+    return m
