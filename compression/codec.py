@@ -81,8 +81,8 @@ def compare(dcn, batch_x):
 
     # Compress each image
     data = bytes(indices.astype(np.uint8))
-    coded_fse = pyfse.easy_compress(data)
-    decoded_fse = pyfse.easy_decompress(coded_fse, int(np.prod(indices.shape)))
+    coded_fse = pyfse.compress(data)
+    decoded_fse = pyfse.decompress(coded_fse, int(np.prod(indices.shape)))
 
     # Check sanity
     assert data == decoded_fse, 'Entropy decoding error'
@@ -143,7 +143,7 @@ def compress(batch_x, model, verbose=False):
 
         try:
             # Compress layer with FSE
-            coded_layer = pyfse.easy_compress(bytes(indices.astype(np.uint8)))
+            coded_layer = pyfse.compress(bytes(indices.astype(np.uint8)))
         except pyfse.FSESymbolRepetitionError:
             # All bytes are identical, fallback to RLE
             coded_layer = np.uint16(len(indices)).tobytes() + np.uint8(indices[0]).tobytes()
@@ -173,7 +173,7 @@ def compress(batch_x, model, verbose=False):
     layer_lengths = np.array([len(x) for x in coded_layers], dtype=np.uint16)
 
     try:
-        coded_lengths = pyfse.easy_compress(layer_lengths.tobytes())
+        coded_lengths = pyfse.compress(layer_lengths.tobytes())
         if verbose: print('[l3ic encoder]', 'FSE coded lengths')
     except pyfse.FSENotCompressibleError:
         # If the FSE coded stream is empty - it is not compressible - save natively
@@ -224,7 +224,7 @@ def decompress(stream, model=None, verbose=False):
         if verbose:
             print('[l3ic decoder]', 'Decoding FSE L')
             print('[l3ic decoder]', 'Decoding from', coded_layer_lengths)
-        layer_lengths_bytes = pyfse.easy_decompress(coded_layer_lengths)
+        layer_lengths_bytes = pyfse.decompress(coded_layer_lengths)
         layer_lengths = np.frombuffer(layer_lengths_bytes, dtype=np.uint16)
     else:
         if verbose:
@@ -259,7 +259,7 @@ def decompress(stream, model=None, verbose=False):
                 # If the data could not have been compressed, just read the raw stream
                 layer_data = coded_layer
             else:
-                layer_data = pyfse.easy_decompress(coded_layer, 4 * latent_x * latent_y)
+                layer_data = pyfse.decompress(coded_layer, 4 * latent_x * latent_y)
         except pyfse.FSEException as e:
             print('[l3ic decoder]', 'ERROR while decoding layer', n)
             print('[l3ic decoder]', 'Stream of size', len(coded_layer), 'bytes =', coded_layer)
@@ -281,7 +281,7 @@ def global_compress(dcn, batch_x):
     # Naive FSE compression of the entire latent repr.
     batch_z = dcn.compress(batch_x)
     indices, distortion = vq(batch_z.reshape((-1)), dcn.get_codebook())
-    return pyfse.easy_compress(bytes(indices.astype(np.uint8)))
+    return pyfse.compress(bytes(indices.astype(np.uint8)))
 
 
 def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=None, x=None, nip_input=None):
