@@ -25,7 +25,7 @@ A standalone version of our lossy compression codec can be found in the [l3ic](h
 The toolbox was written in Python 3. Follow the standard procedure to install dependencies.
 
 ```bash
-> git clone https://github.com/pkorus/neural-imaging && cd neural-imaging.git
+> git clone https://github.com/pkorus/neural-imaging && cd neural-imaging
 > pip3 install -r requirements.txt
 > mkdir -p data/{raw,rgb}
 > git submodule init
