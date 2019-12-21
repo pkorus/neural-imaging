@@ -1,47 +1,76 @@
 {
   "train-nip": {
     "log": "train-nip.log",
-    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 100 --out {root}/nip_snapshots",
+    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 40:20:1 --epochs 400 --out {root}/models/nip/ --patch 64",
     "files": [
-      "nip_snapshots/{}/inet/progress.json",
-      "nip_snapshots/{}/inet/inet-99.meta",
-      "nip_snapshots/{}/inet/inet-99.index"
+      "models/nip/{}/inet/progress.json",
+      "models/nip/{}/inet/inet-399.meta",
+      "models/nip/{}/inet/inet-399.index"
     ],
     "performance" : {
-      "file": "nip_snapshots/{}/inet/progress.json",
+      "file": "models/nip/{}/inet/progress.json",
       "values": {
-        "Performance/psnr": 40
+        "performance/psnr/validation": 40
       }
     }
   },
   "resume-nip": {
     "log": "resume-nip.log",
-    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 400 --out {root}/nip_snapshots --resume",
+    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 40:20:1 --epochs 800 --out {root}/models/nip --patch 64 --resume",
     "files": [
-      "nip_snapshots/{}/inet/progress.json",
-      "nip_snapshots/{}/inet/inet-399.meta",
-      "nip_snapshots/{}/inet/inet-399.index"
+      "models/nip/{}/inet/progress.json",
+      "models/nip/{}/inet/inet-799.meta",
+      "models/nip/{}/inet/inet-799.index"
     ],
     "performance": {
-      "file": "nip_snapshots/{}/inet/progress.json",
+      "file": "models/nip/{}/inet/progress.json",
       "values": {
-        "Performance/psnr": 41
+        "performance/psnr/validation": 41
       }
     }
   },
   "train-manipulation": {
     "log": "train-manipulation.log",
-    "command": "python3 train_manipulation.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 51 --dir {root}/manipulation --end 1 --nip-dir {root}/nip_snapshots --reg 0.1",
+    "command": "python3 train_manipulation.py --cam \"{cam}\" --nip INet --split 40:20:1 --epochs 201 --dir {root}/m/nip --end 1 --nip-dir {root}/models/nip --ln 0.1 --ds none --patch 64 --train nip",
     "files": [
-      "manipulation/{}/INet/lr-0.1000/000/training.json",
-      "manipulation/{}/INet/lr-0.1000/000/models/fan/fan-50.meta",
-      "manipulation/{}/INet/lr-0.1000/000/models/inet/inet-50.meta"
+      "m/nip/{}/INet/ln-0.1000/000/training.json",
+      "m/nip/{}/INet/ln-0.1000/000/models/fan/fan-200.meta"
     ],
     "performance" : {
-      "file": "manipulation/{}/INet/lr-0.1000/000/training.json",
+      "file": "m/nip/{}/INet/ln-0.1000/000/training.json",
       "values": {
-        "nip/validation/psnr": 40,
-        "forensics/validation/accuracy": 0.2
+        "forensics/validation/accuracy": 0.40
+      }
+    }
+  },
+  "train-dcn": {
+    "log": "train-dcn.log",
+    "command": "python3 train_dcn.py --split 200:50:1 --epochs 200 --param_list data/config/twitter.csv --out {root}/models/dcn --patch 32 --data data/rgb/native12k/ --group 1",
+    "files": [
+      "models/dcn/TwitterDCN-512D/4x4x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00/twitterdcn/progress.json",
+      "models/dcn/TwitterDCN-512D/4x4x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00/twitterdcn/twitterdcn-200.meta",
+      "models/dcn/TwitterDCN-512D/4x4x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00/twitterdcn/twitterdcn-200.index"
+    ],
+    "performance" : {
+      "file": "models/dcn/TwitterDCN-512D/4x4x32-r:soft-codebook-Q-5.0bpf-S+-H+250.00/twitterdcn/progress.json",
+      "values": {
+        "performance/ssim/validation": 0.5
+      }
+    }
+  },
+  "train-manipulation-dcn": {
+    "log": "train-manipulation-dcn.log",
+    "command": "python3 train_manipulation.py --cam native12k --nip ONet --split 40:20:1 --epochs 201 --dir {root}/m/dcn+ --end 1 --lc 0.1 --ds none --patch 32 --train dcn --dcn 32c",
+    "files": [
+      "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000//training.json",
+      "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000/models/fan/fan-200.meta",
+      "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000/models/twitterdcn/twitterdcn-200.meta",
+      "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000/models/twitterdcn/progress.json"
+    ],
+    "performance" : {
+      "file": "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000//training.json",
+      "values": {
+        "forensics/validation/accuracy": 0.25
       }
     }
   }

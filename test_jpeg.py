@@ -17,7 +17,7 @@ DEFAULT_IMAGE = 'docs/schematic_overview.png'
 
 def test_output(image, jpeg_quality=50, rounding_approximation=None):
 
-    jpg = DJPG(rounding_approximation=rounding_approximation, rounding_approximation_steps=5)
+    jpg = DJPG(rounding_approximation=rounding_approximation)
     print(jpg)
 
     batch_x = np.expand_dims(image, 0)
@@ -27,7 +27,7 @@ def test_output(image, jpeg_quality=50, rounding_approximation=None):
 
     batch_j = np.zeros_like(batch_x)
     for n in range(n_images):
-        io.imwrite('/tmp/patch_{}.jpg'.format(n), (batch_x[n].squeeze()).astype(np.uint8), quality=jpeg_quality)
+        io.imwrite('/tmp/patch_{}.jpg'.format(n), (batch_x[n].squeeze()).astype(np.uint8), quality=jpeg_quality, subsampling='4:4:4')
         batch_j[n] = io.imread('/tmp/patch_{}.jpg'.format(n))
 
     for n in range(n_images):
@@ -45,7 +45,7 @@ def test_output(image, jpeg_quality=50, rounding_approximation=None):
 
 def test_quality(image, rounding_approximation=None, n_quality_levels=91):
 
-    jpg = DJPG(rounding_approximation=rounding_approximation, rounding_approximation_steps=5)
+    jpg = DJPG(rounding_approximation=rounding_approximation)
     print(jpg)
 
     batch_x = np.expand_dims(image[0:1024, 0:1024, :], 0)
@@ -92,7 +92,7 @@ def main():
                         help='patch size (default 256)')
     parser.add_argument('--quality', dest='quality', action='store', type=int, default=50,
                         help='the quality level or number of levels for evaluation')
-    parser.add_argument('--round', dest='round', action='store', default=None,
+    parser.add_argument('--round', dest='round', action='store', default='soft',
                         help='rounding approximation mode: sin, soft, harmonic')
 
     args = parser.parse_args()

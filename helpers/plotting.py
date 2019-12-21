@@ -57,7 +57,7 @@ def imarray(image, n_images, fetch_hook, titles, figwidth=16, cmap='gray', ncols
     Function for plotting arrays of images. Not intended to be used directly. See 'imsc' for typical use cases.
     """
     
-    if n_images > 100:
+    if n_images > 128:
         raise RuntimeError('The number of subplots exceeds reasonable limits ({})!'.format(n_images))                            
             
     subplot_x = ncols or int(np.ceil(np.sqrt(n_images)))
@@ -68,14 +68,14 @@ def imarray(image, n_images, fetch_hook, titles, figwidth=16, cmap='gray', ncols
         
     if titles is not None and len(titles) != n_images:
         raise RuntimeError('Provided titles ({}) do not match the number of images ({})!'.format(len(titles), n_images))
-            
-    fig = plot.figure(tight_layout=True, figsize=(figwidth, figwidth * (subplot_y / subplot_x)))
+
+    fig = plot.figure(figsize=(figwidth, figwidth * (subplot_y / subplot_x)))
     plot.ioff()
             
     for n in range(n_images):
         ax = fig.add_subplot(subplot_y, subplot_x, n + 1)
         quickshow(fetch_hook(image, n), titles[n] if titles is not None else None, axes=ax, cmap=cmap)
-        
+
     return fig
     
 
@@ -114,14 +114,14 @@ def imsc(image, titles=None, figwidth=16, cmap='gray', ncols=None):
             return fig
 
         elif image.ndim == 3 and image.shape[-1] != 3:
-            
+                        
             def fetch_example(image, n):
-                return image[:,:,n]
+                return image[:, :, n]
             
             n_images = image.shape[-1]
 
             if n_images > 100:
-                image = np.swapaxes(image, 0, -1)
+                image = np.moveaxis(image, 0, -1)
                 n_images = image.shape[-1]
                                         
         elif image.ndim == 4 and (image.shape[-1] == 3 or image.shape[-1] == 1):
@@ -155,21 +155,25 @@ def quickshow(x, label=None, *, axes=None, cmap='gray'):
     in the title will be replaced with '(height x width) -> [min intensity - max intensity]'.
     """
     
-    label = label or '{}'
+    label = label if label is not None else '{}'
     
     x = x.squeeze()
     
-    if '{}' in label:
-        label = label.replace('{}', '({}x{}) -> [{:.2f} - {:.2f}]'.format(*x.shape[0:2], np.min(x), np.max(x)))
+    if any(ptn in label for ptn in ['{}', '()', '{}']):
+        label = label.replace('{}', '() / []')
+        label = label.replace('()', '({}x{})'.format(*x.shape[0:2]))
+        label = label.replace('[]', '[{:.2f} - {:.2f}]'.format(np.min(x), np.max(x)))
         
     if axes is None:
         plt.imshow(x, cmap=cmap)
-        plt.title(label)
+        if len(label) > 0:
+            plt.title(label)
         plt.xticks([])
         plt.yticks([])
     else:
         axes.imshow(x, cmap=cmap)
-        axes.set_title(label)
+        if len(label) > 0:
+            axes.set_title(label)
         axes.set_xticks([])
         axes.set_yticks([])        
 

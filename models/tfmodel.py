@@ -31,8 +31,9 @@ class TFModel(object):
         self.reset_performance_stats()        
 
     def reset_performance_stats(self):
-        self.train_perf = {'loss': []}
-        self.valid_perf = {'loss': []}
+        self.performance = {
+            'loss': {'training': [], 'validation': []},
+        }
 
     def init(self):
         with self.graph.as_default():

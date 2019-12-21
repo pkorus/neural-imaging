@@ -9,6 +9,8 @@ Lightweight Python module with commonly used helper functions.
 import sys
 import os
 import re
+from functools import reduce
+import Levenshtein
 
 
 def listdir(path, regex='.*\..*', dirs_only=False):
@@ -24,15 +26,31 @@ def listdir(path, regex='.*\..*', dirs_only=False):
         return [f for f in candidates if os.path.isdir( os.path.join(path, f))]
 
 
+def splitall(path):
+    allparts = []
+    while 1:
+        parts = os.path.split(path)
+        if parts[0] == path:  # sentinel for absolute paths
+            allparts.insert(0, parts[0])
+            break
+        elif parts[1] == path: # sentinel for relative paths
+            allparts.insert(0, parts[1])
+            break
+        else:
+            path = parts[0]
+            allparts.insert(0, parts[1])
+    return allparts
+
+
 def match_option(x, options):
-    matching = [y for y in options if y.startswith(x)]
     
-    if len(matching) == 0:
-        return None
-    elif len(matching) == 1:
-        return matching[0]
-    else: 
-        return matching
+    start_match = [y.startswith(x) for y in options]
+    
+    if sum(start_match) == 1:
+        return options[start_match.index(True)]
+    else:
+        distances = [Levenshtein.distance(x, y) for y in options]
+        return options[distances.index(min(distances))]
 
 
 def logCall(func):
@@ -185,3 +203,25 @@ def is_interactive():
     except:
         import __main__ as main
         return not hasattr(main, '__file__')
+
+
+def getkey(data, key, default=None):
+    try:
+        return reduce(lambda c, k: c.get(k, {}), key.split('/'), data)
+    except KeyError:
+        return default
+
+
+def remove_commons(names):
+    names = [x for x in names]
+    prefix = os.path.commonprefix(names)
+    postfix = os.path.commonprefix([x[::-1] for x in names])[::-1]
+
+    if not prefix.endswith('/'):
+        prefix = ''
+
+    if not postfix.startswith('/'):
+        postfix = ''
+
+    return [x.replace(prefix, '').replace(postfix, '') for x in names]
+
