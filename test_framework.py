@@ -4,40 +4,23 @@ import sys
 import json
 import shutil
 import argparse
-import subprocess
-from helpers import coreutils
+
+from helpers import utils, tf_helpers
 
 OK_STR = '\033[92m ok \033[00m'
 MISS_STR = '\033[91m missing \033[00m'
 FAIL_STR = '\033[91m failed \033[00m'
 
-def shell(command, log=None):
 
-    print('\n> {}\n'.format(command))
+def run_test(test_name, config, args):
 
-    if log is None:
-        p = subprocess.Popen(command, shell=True)
+    if not args.verbose:
+        log_path = os.path.join(args.root_dir, test_name)
     else:
-        print('  log: {}'.format(log))
-        p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        log_path = None
 
-    p.wait()
-
-    # Dump stdout
-    if log is not None:
-        with open(log, 'w') as f:
-            f.write('# STDOUT\n')
-            f.write(p.stdout.read().decode('utf-8'))
-            f.write('# STDERR\n')
-            f.write(p.stderr.read().decode('utf-8').replace('\r', '\n'))
-
-    return p.returncode
-
-
-def run_test(config, args):
-
-    code = shell(config['command'].format(cam=args.camera, root=args.root_dir), os.path.join(args.root_dir, config['log']) if not args.verbose else None)
-    print('  exit code: {}\n'.format(code))
+    code = utils.shell(config['command'].format(cam=args.camera, root=args.root_dir), log_path, verbosity=1)
+    print('\n  Exit code: {}\n'.format(code))
 
     if code != 0:
         print('ERROR non-zero return code for {}'.format('nip-training'))
@@ -60,15 +43,15 @@ def run_test(config, args):
     with open(training_log) as f:
         perf = json.load(f)
         for key, expected_value in config['performance']['values'].items():
-            obtained_value = coreutils.getkey(perf, key)[-1]
+            obtained_value = utils.get(perf, key, sep='/')[-1]
             print('    {:70s} {:5.2f} > {:5.2f} [{}]'.format(key, obtained_value, expected_value, OK_STR if obtained_value > expected_value else FAIL_STR))
 
 
 def main():
     parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
     parser.add_argument('--cam', dest='camera', action='store', help='camera', default='D90')
-    parser.add_argument('--dir', dest='root_dir', action='store', default='/tmp/neural-imaging-framework',
-                        help='output directory for temporary results, default: /tmp/neural-imaging-framework')
+    parser.add_argument('--dir', dest='root_dir', action='store', default='/tmp/neural-imaging',
+                        help='output directory for temporary results, default: /tmp/neural-imaging')
     parser.add_argument('--verbose', dest='verbose', action='store_true', default=False,
                         help='print the output of tested tools, default: false')
     parser.add_argument('--keep', dest='keep', action='store_true', default=False,
@@ -78,11 +61,15 @@ def main():
 
     args = parser.parse_args()
 
-    with open('tests/framework.json') as f:
+    utils.setup_logging()
+    tf_helpers.disable_warnings()
+    tf_helpers.print_versions()
+
+    with open('config/tests/framework.json') as f:
         settings = json.load(f)
 
     if os.path.exists(args.root_dir) and not args.keep:
-        print('> deleting {}'.format(args.root_dir))
+        print('\n> deleting {}'.format(args.root_dir))
         shutil.rmtree(args.root_dir)
 
     if not os.path.exists(args.root_dir):
@@ -94,7 +81,7 @@ def main():
         tests = args.tests.split(',')
 
     for test in tests:
-        run_test(settings[test], args)
+        run_test(test, settings[test], args)
 
 
 if __name__ == "__main__":

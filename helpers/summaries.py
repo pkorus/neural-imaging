@@ -1,4 +1,7 @@
+# -*- coding: utf-8 -*-
 """
+Helper functions for logging complex data in TF summaries.
+
 Adapted from Michael Gygli's snippets: 
 https://gist.github.com/gyglim/1f8dfb1b5c82627ae3efcfbbadb9f514
 """

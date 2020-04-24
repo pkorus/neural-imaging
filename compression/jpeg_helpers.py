@@ -2,10 +2,12 @@ import re
 import io
 import numpy as np
 import imageio
-from skimage.measure import compare_ssim
+
 from collections import OrderedDict
 from struct import unpack
 from jpylyzer import jpylyzer
+
+from helpers import metrics
 
 app_markers = (0xffe0, 0xffe1, 0xffe2, 0xffe3, 0xffe4, 0xffe5, 0xffe6, 0xffe7, 0xffe8, 0xffe9, 0xffea, 0xffeb, 0xffec,
                0xffed, 0xffee, 0xffef)
@@ -35,7 +37,7 @@ def match_quality(image, target=0.95, match='ssim', subsampling='4:4:4'):
 
     def get_ssim(q):
         image_j = compress_batch(image, q, subsampling=subsampling)[0].squeeze()
-        c_ssim = compare_ssim(image, image_j, multichannel=True, data_range=1)
+        c_ssim = metrics.ssim(image, image_j)
         return c_ssim - target
 
     def get_bpp(q):
@@ -150,6 +152,7 @@ class JPEGMarkerStats:
         else:
             raise ValueError('Image not supported! Supported: str, bytes')
 
+        self._quantization_tables = {}
         self._process(image)
         self.shape = imageio.imread(image).shape
 
@@ -160,6 +163,7 @@ class JPEGMarkerStats:
             marker, = unpack("B", data[0:1])
             # get the complete table of 64 elements in one go
             self.blocks['DQT:{}'.format(marker & 0xf)] = self.l_decode
+            self._quantization_tables[marker & 0xf] = np.frombuffer(data[1:65], np.uint8)[zigzag(8).ravel()].reshape((8, 8))
             # remove the quantization table chunk
             data = data[65:]
 
@@ -244,3 +248,63 @@ class JPEGMarkerStats:
 
     def get_bpp(self):
         return 8 * self.blocks['EOI'] / self.shape[0] / self.shape[1]
+
+
+def zigzag(n):
+    def compare(xy):
+        x, y = xy
+        return (x + y, -y if (x + y) % 2 else y)
+    xs = range(n)
+    zz = np.zeros((n, n), dtype=np.uint16)
+    for n, (x, y) in enumerate(sorted(((x, y) for x in xs for y in xs), key=compare)):
+        zz[x, y] = n
+    return zz
+
+
+def jpeg_qtable(quality, channel=0):
+    """
+    Return a DCT quantization matrix for a given quality level.
+    :param quality: JPEG quality level (1-100)
+    :param channel: 0 for luminance, >0 for chrominance channels
+    """
+
+    # Sanitize
+    quality = np.maximum(np.minimum(100, quality), 1)
+
+    # Convert to linear quality scale
+    quality = 5000 / quality if quality < 50 else 200 - quality*2
+
+    if channel == 0:
+        # This is table 0 (the luminance table):
+        t = [[16,  11,  10,  16,  24,  40,  51,  61],
+             [12,  12,  14,  19,  26,  58,  60,  55],
+             [14,  13,  16,  24,  40,  57,  69,  56],
+             [14,  17,  22,  29,  51,  87,  80,  62],
+             [18,  22,  37,  56,  68, 109, 103,  77],
+             [24,  35,  55,  64,  81, 104, 113,  92],
+             [49,  64,  78,  87, 103, 121, 120, 101],
+             [72,  92,  95,  98, 112, 100, 103,  99]]
+        t = np.array(t, np.float32)
+
+    else:
+        # This is table 1 (the chrominance table):
+        t = [[17,  18,  24,  47,  99,  99,  99,  99],
+             [18,  21,  26,  66,  99,  99,  99,  99],
+             [24,  26,  56,  99,  99,  99,  99,  99],
+             [47,  66,  99,  99,  99,  99,  99,  99],
+             [99,  99,  99,  99,  99,  99,  99,  99],
+             [99,  99,  99,  99,  99,  99,  99,  99],
+             [99,  99,  99,  99,  99,  99,  99,  99],
+             [99,  99,  99,  99,  99,  99,  99,  99]]
+        t = np.array(t, np.float32)
+
+    t = np.floor((t * quality + 50)/100)
+    t[t < 1] = 1
+    t[t > 255] = 255
+
+    return t
+
+
+def jpeg_qf_estimation(q_mtx, channel=0):
+    errors = [np.mean(np.abs(jpeg_qtable(qf, channel) - q_mtx)) for qf in range(1, 101)]
+    return np.argmin(errors) + 1

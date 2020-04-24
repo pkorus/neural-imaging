@@ -1,124 +1,106 @@
+# -*- coding: utf-8 -*-
+"""
+Implementation of classic and neural image signal processors. The module provides:
+
+- an abstract NIPModel class that sets up a common framework for ISP models
+- Several neural ISPs: INet, DNet, UNet
+- A trivial ONet model which serves as a NULL-ISP (allows to pass RGB-RGB pairs through the pipeline),
+- A ClassicISP class with a standard ISP (standard steps + neural demosaicing)
+
+"""
+import os
 import sys
+import json
 import inspect
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib.slim as slim
 
+from collections import OrderedDict
+
+import helpers.raw
 from models.tfmodel import TFModel
-from helpers.utils import upsampling_kernel, bilin_kernel, gamma_kernels
-from helpers.tf_helpers import lrelu, upsample_and_concat
+from models import layers
+from helpers import tf_helpers, paramspec, utils
+from helpers.kernels import upsampling_kernel, gamma_kernels, bilin_kernel
 
 
 class NIPModel(TFModel):
     """
-    Abstract class for implementing neural imaging pipelines. Specific classes are expected to implement the
-    'construct_model' method that builds the model, and 'parameters' method which lists its parameters. See existing
-    classes for examples.
+    Abstract class for implementing neural imaging pipelines. Specific classes are expected to
+    implement the 'construct_model' method that builds the model. See existing classes for examples.
     """
 
-    def __init__(self, sess=None, graph=None, loss_metric='L2', patch_size=None, label=None, reuse_placeholders=None, **kwargs):
+    def __init__(self, loss_metric='L2', patch_size=None, in_channels=4, **kwargs):
         """
         Base constructor with common setup.
 
-        :param sess: TF session or None (creates a new one)
-        :param graph: TF graph or None (creates a new one)
         :param loss_metric: loss metric for NIP optimization (L2, L1, SSIM)
         :param patch_size: Optionally patch size can be given to fix placeholder dimensions (can be None)
-        :param label: A string prefix for the model (useful when multiple NIPs are used in a single TF graph)
-        :param reuse_placeholders: Give a dictionary with 'x' and 'y' keys if multiple NIPs should use the same inputs
+        :param in_channels: number of channels in the input RAW image (defaults to 4 for RGGB)
         :param kwargs: Additional arguments for specific NIP implementations
         """
-        super().__init__(sess, graph, label)
-
-        # Initialize input placeholders and run 'construct_model' to build the model and
-        # setup its output as self.y
-        self.y = None  # This will be set up later by child classes
-
-        if reuse_placeholders is not None:
-            self.x = reuse_placeholders['x']
-            self.y_gt = reuse_placeholders['y']
-        else:
-            with self.graph.as_default():
-                self.x = tf.placeholder(tf.float32, shape=(None, patch_size, patch_size, 4), name='x')
-                self.y_gt = tf.placeholder(tf.float32, shape=(None, 2 * patch_size if patch_size is not None else None, 2 * patch_size if patch_size is not None else None, 3), name='y')
-        
+        super().__init__()
+        self.x = tf.keras.Input(dtype=tf.float32, shape=(patch_size, patch_size, in_channels), name='x')
+        self.in_channels = in_channels
         self.construct_model(**kwargs)
+        self._has_attributes(['y', '_model'])
 
         # Configure loss and model optimization
         self.loss_metric = loss_metric
         self.construct_loss(loss_metric)
+        self.optimizer = tf.keras.optimizers.Adam()
 
     def construct_loss(self, loss_metric):
-        with self.graph.as_default():
-            with tf.name_scope('nip_optimization'):
-                # Detect whether non-clipped image is available (better training stability)
-                y = self.yy if hasattr(self, 'yy') else self.y
-                
-                # The loss
-                if loss_metric == 'L2':
-                    self.loss = tf.reduce_mean(tf.pow(255.0*y - 255.0*self.y_gt, 2.0))
-                elif loss_metric == 'L1':
-                    self.loss = tf.reduce_mean(tf.abs(255.0*y - 255.0*self.y_gt))
-                elif loss_metric == 'SSIM':
-                    self.loss = 255 * (1 - tf.image.ssim_multiscale(y, self.y_gt, 1.0))
-                else:
-                    raise ValueError('Unsupported loss metric!')
+        if loss_metric == 'L2':
+            self.loss = tf_helpers.mse
+        elif loss_metric == 'L1':
+            self.loss = tf_helpers.mae
+        elif loss_metric == 'SSIM':
+            self.loss = tf_helpers.ssim_loss
+        elif loss_metric == 'MS-SSIM':
+            self.loss = tf_helpers.msssim_loss
+        else:
+            raise ValueError('Unsupported loss metric!')
 
-                # In case the model used batch norm
-                update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-                with tf.control_dependencies(update_ops):
-                    # Learning rate
-                    self.lr = tf.placeholder(tf.float32, name='nip_learning_rate')
-
-                    # Create the optimizer and make sure only the parameters of the current model are updated
-                    self.adam = tf.train.AdamOptimizer(learning_rate=self.lr, name='nip_adam{}'.format(self.scoped_name))
-                    if len(self.parameters) > 0:
-                        self.opt = self.adam.minimize(self.loss, var_list=self.parameters)
-                    else:
-                        self.opt = None
-    
     def construct_model(self):
         """
-        Constructs the NIP model. The method should use self.x as RAW image input, and set self.y as the model output.
-        The output is expected to be clipped to [0,1]. For better optimization stability, the model can set self.yy to
-        non-clipped output (will be used for gradient computation).
+        Constructs the NIP model. The model should be a tf.keras.Model instance available via the
+        self._model attribute. The method should use self.x as RAW image input, and set self.y as
+        the model output. The output is expected to be clipped to [0,1]. For better optimization
+        stability, it's better not to backpropagate through clipping:
 
-        A string prefix (self.scoped_name) should be used for variables / named scopes to facilitate using multiple NIPs
-        in a single TF graph.
+        self.y = tf.stop_gradient(tf.clip_by_value(y, 0, 1) - y) + y
+        self._model = tf.keras.Model(inputs=[self.x], outputs=[self.y])
         """
         raise NotImplementedError()
 
-    def training_step(self, batch_x, batch_y, learning_rate):
+    def training_step(self, batch_x, batch_y, learning_rate=None):
         """
         Make a single training step and return the loss.
         """
-        with self.graph.as_default():
-            feed_dict = {
-                    self.x: batch_x,
-                    self.y_gt: batch_y,
-                    self.lr: learning_rate
-            }
-            if hasattr(self, 'is_training'):
-                feed_dict[self.is_training] = True
-                
-            _, loss = self.sess.run([self.opt, self.loss], feed_dict=feed_dict)
-            return loss
-        
-    def process(self, batch_x, is_training=False):
+        with tf.GradientTape() as tape:
+
+            batch_Y = self._model(batch_x)
+            loss = self.loss(batch_Y, batch_y)
+
+        if learning_rate is not None: self.optimizer.lr.assign(learning_rate)
+        grads = tape.gradient(loss, self._model.trainable_weights)
+
+        if any(np.sum(np.isnan(x)) > 0 for x in grads):
+            raise RuntimeError('∇ NaNs: {}'.format({p.name: np.mean(np.isnan(x)) for x, p in zip(grads, self._model.trainable_weights)}))
+
+        self.optimizer.apply_gradients(zip(grads, self._model.trainable_weights))
+        return loss.numpy()
+
+    def process(self, batch_x, training=False):
         """
         Develop RAW input and return RGB image.
         """
         if batch_x.ndim == 3:
             batch_x = np.expand_dims(batch_x, 0)
 
-        with self.graph.as_default():
-            feed_dict = {self.x: batch_x}
-            if hasattr(self, 'is_training'):
-                feed_dict[self.is_training] = is_training
+        return self._model(batch_x, training)
 
-            y = self.sess.run(self.y, feed_dict=feed_dict)
-            return y
-    
     def reset_performance_stats(self):
         self.performance = {
             'loss': {'training': [], 'validation': []},
@@ -127,112 +109,169 @@ class NIPModel(TFModel):
             'dmse': {'validation': []}
         }
 
+    def get_hyperparameters(self):
+        p = {'in_channels': self.in_channels}
+        if hasattr(self, '_h'):
+            p.update(self._h.to_json())
+        return p
+
+    @property
+    def _input_description(self):
+        return utils.format_patch_shape(self.patch_size_raw)
+
+    @property
+    def _output_description(self):
+        return utils.format_patch_shape(self.patch_size_rgb)
+
+    @property
+    def patch_size_raw(self):
+        return self.x.shape[1:] if hasattr(self.y, 'shape') else None
+
+    @property
+    def patch_size_rgb(self):
+        return self.y.shape[1:] if hasattr(self.y, 'shape') else None
+
+    def summary(self):
+        return '{:s} : {} -> {}'.format(super().summary(), self._input_description, self._output_description)
+
+    def load_model(self, dirname):
+        if '/' not in dirname:
+            dirname = os.path.join('data/models/nip', dirname)
+        super().load_model(dirname)
+
+    def save_model(self, dirname, epoch=0, quiet=False):
+        if '/' not in dirname:
+            dirname = os.path.join('data/models/nip', dirname)
+        super().save_model(dirname, epoch=epoch, quiet=quiet)
+
 
 class UNet(NIPModel):
     """
-    The UNet model, adapted from https://github.com/cchen156/Learning-to-See-in-the-Dark
+    The UNet model, rewritten from scratch for TF 2.x
+    Originally adapted from https://github.com/cchen156/Learning-to-See-in-the-Dark
     """
-        
-    def construct_model(self):
-        with self.graph.as_default():            
-            conv1 = slim.conv2d(self.x, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv1_1'.format(self.scoped_name))
-            conv1 = slim.conv2d(conv1, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv1_2'.format(self.scoped_name))
-            pool1 = slim.max_pool2d(conv1, [2, 2], padding='SAME', scope='{}/max_pool_1'.format(self.scoped_name))
 
-            conv2 = slim.conv2d(pool1, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv2_1'.format(self.scoped_name))
-            conv2 = slim.conv2d(conv2, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv2_2'.format(self.scoped_name))
-            pool2 = slim.max_pool2d(conv2, [2, 2], padding='SAME', scope='{}/max_pool_2'.format(self.scoped_name))
+    def construct_model(self, **kwargs):
+        # Define and validate hyper-parameters
+        self._h = paramspec.ParamSpec({
+            'n_steps': (5, int, (2, 6)),
+            'activation': ('leaky_relu', str, set(tf_helpers.activation_mapping.keys()))
+        })
 
-            conv3 = slim.conv2d(pool2, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv3_1'.format(self.scoped_name))
-            conv3 = slim.conv2d(conv3, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv3_2'.format(self.scoped_name))
-            pool3 = slim.max_pool2d(conv3, [2, 2], padding='SAME', scope='{}/max_pool_3'.format(self.scoped_name))
+        self._h.update(**kwargs)
+        lrelu = tf_helpers.activation_mapping[self._h.activation]
 
-            conv4 = slim.conv2d(pool3, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv4_1'.format(self.scoped_name))
-            conv4 = slim.conv2d(conv4, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv4_2'.format(self.scoped_name))
-            pool4 = slim.max_pool2d(conv4, [2, 2], padding='SAME', scope='{}/max_pool_4'.format(self.scoped_name))
+        _layers = OrderedDict()
+        _tensors = OrderedDict()
+        _tensors['ep0'] = self.x
 
-            conv5 = slim.conv2d(pool4, 512, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv5_1'.format(self.scoped_name))
-            conv5 = slim.conv2d(conv5, 512, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv5_2'.format(self.scoped_name))
+        # Construct the encoder
+        for n in range(1, self._h.n_steps + 1):
+            _layers['ec{}1'.format(n)] = tf.keras.layers.Conv2D(32 * 2**(n-1), [3, 3], activation=lrelu, padding='SAME')
+            _layers['ec{}2'.format(n)] = tf.keras.layers.Conv2D(32 * 2**(n-1), [3, 3], activation=lrelu, padding='SAME')
+            _tensors['ec{}1'.format(n)] = _layers['ec{}1'.format(n)](_tensors['ep{}'.format(n-1)])
+            _tensors['ec{}2'.format(n)] = _layers['ec{}2'.format(n)](_tensors['ec{}1'.format(n)])
 
-            up6 = upsample_and_concat(conv5, conv4, 256, 512, name='weights', scope='{}/upsample_1'.format(self.scoped_name))
-            conv6 = slim.conv2d(up6, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv6_1'.format(self.scoped_name))
-            conv6 = slim.conv2d(conv6, 256, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv6_2'.format(self.scoped_name))
+            if n < self._h.n_steps:
+                _layers['ep{}'.format(n)] = tf.keras.layers.MaxPool2D([2, 2], padding='SAME')
+                _tensors['ep{}'.format(n)]  = _layers['ep{}'.format(n)](_tensors['ec{}2'.format(n)])
 
-            up7 = upsample_and_concat(conv6, conv3, 128, 256, name='weights', scope='{}/upsample_2'.format(self.scoped_name))
-            conv7 = slim.conv2d(up7, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv7_1'.format(self.scoped_name))
-            conv7 = slim.conv2d(conv7, 128, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv7_2'.format(self.scoped_name))
+        # Easy access to encoder output via a recursive relation
+        _tensors['dc02'] = _tensors['ec{}2'.format(self._h.n_steps)]
 
-            up8 = upsample_and_concat(conv7, conv2, 64, 128, name='weights', scope='{}/upsample_3'.format(self.scoped_name))
-            conv8 = slim.conv2d(up8, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv8_1'.format(self.scoped_name))
-            conv8 = slim.conv2d(conv8, 64, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv8_2'.format(self.scoped_name))
+        # Construct the decoder
+        for n in range(1, self._h.n_steps):
+            _layers['dct{}'.format(n)] = tf.keras.layers.Conv2DTranspose(32 * 2**(self._h.n_steps - n - 1), [2, 2], [2, 2], padding='SAME')
+            _layers['dcat{}'.format(n)] = tf.keras.layers.Concatenate()
+            _layers['dc{}1'.format(n)] = tf.keras.layers.Conv2D(32 * 2**(self._h.n_steps - n - 1), [3, 3], activation=lrelu, padding='SAME')
+            _layers['dc{}2'.format(n)] = tf.keras.layers.Conv2D(32 * 2**(self._h.n_steps - n - 1), [3, 3], activation=lrelu, padding='SAME')
 
-            up9 = upsample_and_concat(conv8, conv1, 32, 64, name='weights', scope='{}/upsample_4'.format(self.scoped_name))
-            conv9 = slim.conv2d(up9, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv9_1'.format(self.scoped_name))
-            conv9 = slim.conv2d(conv9, 32, [3, 3], rate=1, activation_fn=lrelu, scope='{}/conv9_2'.format(self.scoped_name))
+            _tensors['dct{}'.format(n)] = _layers['dct{}'.format(n)](_tensors['dc{}2'.format(n-1)])
+            _tensors['dcat{}'.format(n)] = _layers['dcat{}'.format(n)]([_tensors['dct{}'.format(n)], _tensors['ec{}2'.format(self._h.n_steps - n)]])
+            _tensors['dc{}1'.format(n)] = _layers['dc{}1'.format(n)](_tensors['dcat{}'.format(n)])
+            _tensors['dc{}2'.format(n)] = _layers['dc{}2'.format(n)](_tensors['dc{}1'.format(n)])
 
-            conv10 = slim.conv2d(conv9, 12, [1, 1], rate=1, activation_fn=None, scope='{}/conv10'.format(self.scoped_name))
+        # Final step to render the RGB image
+        _layers['dc{}'.format(self._h.n_steps)] = tf.keras.layers.Conv2D(12, [3, 3], padding='SAME')
+        _tensors['dc{}'.format(self._h.n_steps)] =_layers['dc{}'.format(self._h.n_steps)](_tensors['dc{}2'.format(self._h.n_steps - 1)])
+        _tensors['dts'] = tf.nn.depth_to_space(_tensors['dc{}'.format(self._h.n_steps)], 2)
 
-            with tf.name_scope('{}'.format(self.scoped_name)):
-                self.yy = tf.depth_to_space(conv10, 2)
-            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))            
+        # Add NIP outputs
+        y = _tensors['dts']
+        # self.y = tf.clip_by_value(_tensors['dts'], 0, 1)
+        self.y = tf.stop_gradient(tf.clip_by_value(y, 0, 1) - y) + y
+
+        # Construct the Keras model
+        self._model = tf.keras.Model(inputs=[self.x], outputs=[self.y], name='unet')
+
+    @property
+    def model_code(self):
+        return f'{self.class_name}_{self._h.n_steps}'
 
 
 class INet(NIPModel):
     """
     A neural pipeline which replicates the steps of a standard imaging pipeline.
     """
-    
+
     def construct_model(self, random_init=False, kernel=5, trainable_upsampling=False, cfa_pattern='gbrg'):
-        self.trainable_upsampling = trainable_upsampling
-        self.cfa_pattern = cfa_pattern
 
-        with self.graph.as_default():
-            with tf.variable_scope('{}'.format(self.scoped_name)):
+        self._h = paramspec.ParamSpec({
+            'random_init': (False, bool, None),
+            'kernel': (5, int, (3, 11)),
+            'trainable_upsampling': (False, bool, None),
+            'cfa_pattern': ('gbrg', str, {'gbrg', 'rggb', 'bggr'})
+        })
+        params = locals()
+        self._h.update(**{k: params[k] for k in self._h.keys() if k in params})
 
-                # Initialize the upsampling kernel
-                upk = upsampling_kernel(cfa_pattern)
+        # Initialize the upsampling kernel
+        upk = upsampling_kernel(self._h.cfa_pattern)
 
-                if random_init:
-                    # upk = np.random.normal(0, 0.1, (4, 12))
-                    dmf = np.random.normal(0, 0.1, (kernel, kernel, 3, 3))
-                    gamma_d1k = np.random.normal(0, 0.1, (3, 12))
-                    gamma_d1b = np.zeros((12, ))
-                    gamma_d2k = np.random.normal(0, 0.1, (12, 3))
-                    gamma_d2b = np.zeros((3,))
-                    srgbk = np.eye(3)
-                else:    
-                    # Prepare demosaicing kernels (bilinear)
-                    dmf = bilin_kernel(kernel)
+        if self._h.random_init:
+            # upk = np.random.normal(0, 0.1, (4, 12))
+            dmf = np.random.normal(0, 0.1, (self._h.kernel, self._h.kernel, 3, 3))
+            gamma_d1k = np.random.normal(0, 0.1, (3, 12))
+            gamma_d1b = np.zeros((12, ))
+            gamma_d2k = np.random.normal(0, 0.1, (12, 3))
+            gamma_d2b = np.zeros((3,))
+            srgbk = np.eye(3)
+        else:
+            # Prepare demosaicing kernels (bilinear)
+            dmf = bilin_kernel(self._h.kernel)
 
-                    # Prepare gamma correction kernels (obtained from a pre-trained toy model)
-                    gamma_d1k, gamma_d1b, gamma_d2k, gamma_d2b = gamma_kernels()
+            # Prepare gamma correction kernels (obtained from a pre-trained toy model)
+            gamma_d1k, gamma_d1b, gamma_d2k, gamma_d2b = gamma_kernels()
 
-                    # Example sRGB conversion table
-                    srgbk = np.array([[ 1.82691061, -0.65497452, -0.17193617],
-                                      [-0.00683982,  1.33216381, -0.32532394],
-                                      [ 0.06269717, -0.40055895,  1.33786178]]).transpose()
+            # Example sRGB conversion table
+            srgbk = np.array([[ 1.82691061, -0.65497452, -0.17193617],
+                                [-0.00683982,  1.33216381, -0.32532394],
+                                [ 0.06269717, -0.40055895,  1.33786178]]).transpose()
 
-                # Up-sample the input back the full resolution
-                with tf.variable_scope('upsampling'):
-                    h12 = tf.layers.conv2d(self.x, 12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, name='conv_h12', trainable=trainable_upsampling)
+        # Up-sample the input back the full resolution
+        h12 = tf.keras.layers.Conv2D(12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, trainable=self._h.trainable_upsampling)(self.x)
 
-                # Demosaicing
-                with tf.variable_scope('demosaicing'):
-                    pad = (kernel - 1) // 2
-                    bayer = tf.depth_to_space(h12, 2)
-                    bayer = tf.pad(bayer, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
-                    rgb = tf.layers.conv2d(bayer, 3, kernel, kernel_initializer=tf.constant_initializer(dmf), use_bias=False, activation=None, name='conv_demo', padding='VALID')
+        # Demosaicing
+        pad = (self._h.kernel - 1) // 2
+        bayer = tf.nn.depth_to_space(h12, 2)
+        bayer = tf.pad(bayer, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
+        rgb = tf.keras.layers.Conv2D(3, self._h.kernel, kernel_initializer=tf.constant_initializer(dmf), use_bias=False, activation=None, padding='VALID')(bayer)
 
-                # Color space conversion
-                with tf.variable_scope('rgb2sRGB'):
-                    srgb = tf.layers.conv2d(rgb, 3, 1, kernel_initializer=tf.constant_initializer(srgbk), use_bias=False, activation=None, name='conv_sRGB')
+        # Color space conversion
+        srgb = tf.keras.layers.Conv2D(3, 1, kernel_initializer=tf.constant_initializer(srgbk), use_bias=False, activation=None)(rgb,)
 
-                # Gamma correction
-                with tf.variable_scope('gamma'):
-                    rgb_g0 = tf.layers.conv2d(srgb, 12, 1, kernel_initializer=tf.constant_initializer(gamma_d1k), bias_initializer=tf.constant_initializer(gamma_d1b), use_bias=True, activation=tf.nn.tanh, name='conv_encode')
-                    self.yy = tf.layers.conv2d(rgb_g0, 3, 1, kernel_initializer=tf.constant_initializer(gamma_d2k), bias_initializer=tf.constant_initializer(gamma_d2b), use_bias=True, activation=None, name='conv_decode')
-            
-            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))
+        # Gamma correction
+        rgb_g0 = tf.keras.layers.Conv2D(12, 1, kernel_initializer=tf.constant_initializer(gamma_d1k), bias_initializer=tf.constant_initializer(gamma_d1b), use_bias=True, activation=tf.keras.activations.tanh)(srgb)
+        y = tf.keras.layers.Conv2D(3, 1, kernel_initializer=tf.constant_initializer(gamma_d2k), bias_initializer=tf.constant_initializer(gamma_d2b), use_bias=True, activation=None)(rgb_g0)
+
+        # self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))
+        self.y = tf.stop_gradient(tf.clip_by_value(y, 0, 1) - y) + y
+        self._model = tf.keras.Model(inputs=[self.x], outputs=[self.y])
+
+    @property
+    def model_code(self):
+        return '{c}_{cfa}{tu}{r}_{k}x{k}'.format(c=self.class_name, cfa=self._h.cfa_pattern, k=self._h.kernel,
+            tu='T' if self._h.trainable_upsampling else '', r='R' if self._h.random_init else '')
 
 
 class DNet(NIPModel):
@@ -243,63 +282,240 @@ class DNet(NIPModel):
 
     def construct_model(self, n_layers=15, kernel=3, n_features=64):
 
-        with self.graph.as_default():
-                        
-            with tf.name_scope('{}'.format(self.scoped_name)):
-                k_initializer = tf.variance_scaling_initializer
+        self._h = paramspec.ParamSpec({
+            'n_layers': (15, int, (1, 32)),
+            'kernel': (3, int, (3, 11)),
+            'n_features': (64, int, (4, 128)),
+        })
+        params = locals()
+        self._h.update(**{k: params[k] for k in self._h.keys() if k in params})
 
-                # Initialize the upsampling kernel
-                upk = upsampling_kernel()
+        k_initializer = tf.keras.initializers.VarianceScaling
 
-                # Padding size
-                pad = (kernel - 1) // 2
+        # Initialize the upsampling kernel
+        upk = upsampling_kernel()
 
-                # Convolutions on the sub-sampled input tensor
-                deep_x = self.x
-                for r in range(n_layers):
-                    deep_y = tf.layers.conv2d(deep_x, 12 if r == n_layers - 1 else n_features, kernel, activation=tf.nn.relu, name='{}/conv{}'.format(self.scoped_name, r), padding='VALID', kernel_initializer=k_initializer) #
-                    print('CNN layer out: {}'.format(deep_y.shape))
-                    deep_x = tf.pad(deep_y, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
+        # Padding size
+        pad = (self._h.kernel - 1) // 2
 
-                # Up-sample the input
-                h12 = tf.layers.conv2d(self.x, 12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, name='{}/conv_h12'.format(self.scoped_name), trainable=False)
-                bayer = tf.depth_to_space(h12, 2, name="{}/upscaled_bayer".format(self.scoped_name))
+        # Convolutions on the sub-sampled input tensor
+        deep_x = self.x
+        for r in range(self._h.n_layers):
+            deep_y = tf.keras.layers.Conv2D(12 if r == self._h.n_layers - 1 else self._h.n_features, self._h.kernel, activation=tf.keras.activations.relu, padding='VALID', kernel_initializer=k_initializer)(deep_x)
+            deep_x = tf.pad(deep_y, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
 
-                # Upscale the conv. features and concatenate with the input RGB channels
-                features = tf.depth_to_space(deep_x, 2, name='{}/upscaled_features'.format(self.scoped_name))
-                bayer_features = tf.concat((features, bayer), axis=3)            
+        # Up-sample the input
+        h12 = tf.keras.layers.Conv2D(12, 1, kernel_initializer=tf.constant_initializer(upk), use_bias=False, activation=None, trainable=False)(self.x)
+        bayer = tf.nn.depth_to_space(h12, 2)
 
-                print('Final deep X: {}'.format(deep_x.shape))
-                print('Bayer shape: {}'.format(bayer.shape))
-                print('Features shape: {}'.format(features.shape))
-                print('Concat shape: {}'.format(bayer_features.shape))
+        # Upscale the conv. features and concatenate with the input RGB channels
+        features = tf.nn.depth_to_space(deep_x, 2)
+        bayer_features = tf.concat((features, bayer), axis=3)
 
-                # Project the concatenated 6-D features (R G B bayer from input + 3 channels from convolutions)
-                pu = tf.layers.conv2d(bayer_features, n_features, kernel, kernel_initializer=k_initializer, use_bias=True, activation=tf.nn.relu, name='{}/conv_postupscale'.format(self.scoped_name), padding='VALID', bias_initializer=tf.zeros_initializer)
+        # Project the concatenated 6-D features (R G B bayer from input + 3 channels from convolutions)
+        pu = tf.keras.layers.Conv2D(self._h.n_features, self._h.kernel, kernel_initializer=k_initializer, use_bias=True, activation=tf.keras.activations.relu, padding='VALID', bias_initializer=tf.zeros_initializer)(bayer_features)
 
-                print('Post upscale: {}'.format(pu.shape))
+        # Final 1x1 conv to project each 64-D feature vector into the RGB colorspace
+        pu = tf.pad(pu, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
 
-                # Final 1x1 conv to project each 64-D feature vector into the RGB colorspace
-                pu = tf.pad(pu, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
-                rgb = tf.layers.conv2d(pu, 3, 1, kernel_initializer=tf.ones_initializer, use_bias=False, activation=None, name='{}/conv_final'.format(self.scoped_name), padding='VALID')            
+        y = tf.keras.layers.Conv2D(3, 1, kernel_initializer=tf.ones_initializer, use_bias=False, activation=None, padding='VALID')(pu)
+        # self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))
+        self.y = tf.stop_gradient(tf.clip_by_value(y, 0, 1) - y) + y
+        self._model = tf.keras.Model(inputs=[self.x], outputs=[self.y])
 
-                print('RGB affine: {}'.format(rgb.shape))
-
-                self.yy = rgb
-                print('Y: {}'.format(self.yy.shape))
-
-            self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))
-
-
-supported_models = [name for name, obj in inspect.getmembers(sys.modules[__name__]) if type(obj) is type and issubclass(obj, NIPModel) and name != 'NIPModel']
+    @property
+    def model_code(self):
+        return '{c}_{k}x{k}_{l}x{f}f'.format(c=self.class_name, k=self._h.kernel,
+            f=self._h.n_features, l=self._h.n_layers)
 
 
 class ONet(NIPModel):
     """
-    Dummy pipeline for RGB manipulation training.
+    Dummy pipeline for RGB training.
     """
 
     def construct_model(self):
-            self.x = self.y_gt
-            self.yy = self.y_gt
-            self.y = self.y_gt
+        patch_size = 2 * self.x.shape[1]
+        self.x = tf.keras.Input(dtype=tf.float32, shape=(patch_size, patch_size, 3))
+        self.y = tf.identity(self.x)
+        self._model = tf.keras.Model(inputs=self.x, outputs=self.y)
+
+
+class __TensorISP():
+    """
+    Toy ISP implemented in Tensorflow. This class is intended for debugging and testing - for
+    use in most situations, please use a more flexible 'ClassicISP' which integrates with
+    the rest of the framework.
+    """
+
+    def process(self, x, srgb_mat=None, cfa_pattern='gbrg', brightness='percentile'):
+
+        kernel = 5
+
+        # Initialize upsampling and demosaicing kernels
+        upk = upsampling_kernel(cfa_pattern).reshape((1, 1, 4, 12))
+        dmf = bilin_kernel(kernel)
+
+        # Setup sRGB color conversion
+        if srgb_mat is None:
+            srgb_mat = np.eye(3)
+        srgb_mat = srgb_mat.T.reshape((1, 1, 3, 3))
+
+        # Demosaicing & color space conversion
+        pad = (kernel - 1) // 2
+        h12 = tf.nn.conv2d(x, upk, [1, 1, 1, 1], 'SAME')
+        bayer = tf.nn.depth_to_space(h12, 2)
+        bayer = tf.pad(bayer, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
+        rgb = tf.nn.conv2d(bayer, dmf, [1, 1, 1, 1], 'VALID')
+
+        # RGB -> sRGB
+        rgb = tf.nn.conv2d(rgb, srgb_mat, [1, 1, 1, 1], 'SAME')
+
+        # Brightness correction
+        if brightness is not None:
+            if brightness == 'percentile':
+                percentile = 0.5
+                rgb -= np.percentile(rgb, percentile)
+                rgb /= np.percentile(rgb, 100 - percentile)
+            elif brightness == 'shift':
+                mult = 0.25 / tf.reduce_mean(rgb)
+                rgb *= mult
+            else:
+                raise ValueError('Brightness normalization not recognized!')
+
+        # Gamma correction
+        y = rgb
+        y = tf.stop_gradient(tf.clip_by_value(y, 0, 1) - y) + y
+        y = tf.pow(y, 1/2.2)
+
+        return y
+
+
+class _ClassicISP(tf.keras.Model):
+    """
+    A flexible version of a classic camera ISP.
+    """
+
+    def __init__(self, srgb_mat=None, kernel=5, c_filters=(3,), cfa_pattern='gbrg', residual=False, brightness=None, **kwargs):
+        super().__init__()
+
+        up = upsampling_kernel(cfa_pattern).reshape((1, 1, 4, 12)).astype(np.float32)
+        self._upsampling_kernel = tf.convert_to_tensor(up)
+
+        if srgb_mat is None:
+            srgb_mat = np.eye(3, dtype=np.float32)
+
+        self._srgb_mat = tf.convert_to_tensor(srgb_mat.T.reshape((1, 1, 3, 3)))
+        self._demosaicing = layers.DemosaicingLayer(c_filters, kernel, 'leaky_relu', residual)
+        self._brightness = brightness
+
+    def call(self, inputs, training=False):
+        h12 = tf.nn.conv2d(inputs, self._upsampling_kernel, [1, 1, 1, 1], 'SAME')
+        bayer = tf.nn.depth_to_space(h12, 2)
+
+        rgb = self._demosaicing(bayer)
+        rgb = tf.nn.conv2d(rgb, self._srgb_mat, [1, 1, 1, 1], 'SAME')
+
+        # Brightness correction
+        if self._brightness == 'percentile':
+            percentile = 0.5
+            rgb -= np.percentile(rgb, percentile)
+            rgb /= np.percentile(rgb, 100 - percentile)
+        elif self._brightness == 'shift':
+            mult = 0.25 / tf.reduce_mean(rgb)
+            rgb *= mult
+
+        # Gamma correction
+        y = rgb
+        y = tf.stop_gradient(tf.clip_by_value(y, 1.0/255, 1) - y) + y
+        y = tf.pow(y, 1/2.2)
+        return y
+
+
+class ClassicISP(NIPModel):
+    """
+    A tensorflow implementation of a simple camera ISP. The model expects RAW Bayer stacks
+    with 4 channels (RGGB) as input, and replicates steps of a simple pipeline:
+
+    - upsample half-resolution RGGB stacks to full-resolution RGB Bayer images
+    - demosaicing (simple CNN model)
+    - RGB -> sRGB color conversion (based on conversion tables from the camera)
+    - [optional brightness normalization]
+    - gamma correction
+
+    See also: helpers.raw_api.unpack
+    """
+
+    def construct_model(self, srgb_mat=None, kernel=5, c_filters=(), cfa_pattern='gbrg', residual=True, brightness=None):
+
+        self._h = paramspec.ParamSpec({
+            'kernel': (5, int, (3, 11)),
+            'c_filters': ((), tuple, paramspec.numbers_in_range(int, 1, 1024)),
+            'cfa_pattern': ('gbrg', str, {'gbrg', 'rggb', 'bggr'}),
+            'residual': (True, bool, None)
+        })
+        params = locals()
+        self._h.update(**{k: params[k] for k in self._h.keys() if k in params})
+        self._model = _ClassicISP(**self._h.to_dict())
+        self.y = None
+
+    def set_cfa_pattern(self, cfa_pattern):
+        if cfa_pattern is not None:
+            cfa_pattern = cfa_pattern.lower()
+            up = upsampling_kernel(cfa_pattern).reshape((1, 1, 4, 12)).astype(np.float32)
+            self._model._upsampling_kernel = tf.convert_to_tensor(up)
+            self._h.update(cfa_pattern=cfa_pattern)
+
+    def set_srgb_conversion(self, srgb_mat):
+        if srgb_mat is not None:
+            srgb = srgb_mat.T.reshape((1, 1, 3, 3)).astype(np.float32)
+            self._model._srgb_mat = tf.convert_to_tensor(srgb)
+
+    def process(self, batch_x, training=False, cfa_pattern=None, srgb_mat=None):
+        if batch_x.ndim == 3:
+            batch_x = np.expand_dims(batch_x, 0)
+
+        self.set_cfa_pattern(cfa_pattern)
+        self.set_srgb_conversion(srgb_mat)
+        return self._model(batch_x, training)
+
+    @property
+    def model_code(self):
+        return 'ClassicISP_{cfa}_{k}x{k}_{fs}-{of}{r}'.format(fs='-'.join(['{:d}'.format(x) for x in self._h.c_filters]), of=3, k=self._h.kernel, cfa=self._h.cfa_pattern, r='R' if self._h.residual else '')
+
+    def set_camera(self, camera):
+        """ Sets both CFA and sRGB based on camera presets from 'config/cameras.json' """
+        with open('config/cameras.json') as f:
+            cameras = json.load(f)
+        self.set_cfa_pattern(cameras[camera]['cfa'])
+        self.set_srgb_conversion(np.array(cameras[camera]['srgb']))
+
+    @classmethod
+    def restore(cls, dir_name='data/models/isp/ClassicISP_auto_3x3_32-32-32-32-3R/', *, camera=None, cfa=None, srgb=None, patch_size=128):
+        isp = super().restore(dir_name)
+
+        if camera is not None:
+            isp.set_camera(camera)
+
+        if cfa is not None:
+            isp.set_cfa_pattern(cfa)
+
+        if srgb is not None:
+            isp.set_srgb_conversion(cfa)
+
+        return isp
+
+    def summary(self):
+        nf = len(self._h.c_filters)
+        fs = self._h.c_filters[0] if len(set(self._h.c_filters)) == 1 else '*'
+        k = self._h.kernel
+        return f'{self.class_name}[{self._h.cfa_pattern}] + CNN demosaicing [{nf}+1 layers : {k}x{k}x{fs} -> 1x1x3]'
+
+    def summary_compact(self):
+        nf = len(self._h.c_filters)
+        fs = self._h.c_filters[0] if len(set(self._h.c_filters)) == 1 else '*'
+        k = self._h.kernel
+        return f'{self.class_name}[{self._h.cfa_pattern}, {nf}+1 conv2D {k}x{k}x{fs} > 1x1x3]'
+
+
+supported_models = [name for name, obj in inspect.getmembers(sys.modules[__name__]) if type(obj) is type and issubclass(obj, NIPModel) and name != 'NIPModel']

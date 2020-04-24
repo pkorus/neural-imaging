@@ -1,27 +1,15 @@
+
 import io
-import os
-import json
 import numpy as np
 from scipy import cluster
 from collections import Counter
-from pathlib import Path
 
 from scipy.cluster.vq import vq
 from skimage.measure import compare_ssim, compare_psnr
 
+import helpers.stats
 from pyfse import pyfse
 from models import compression
-from helpers import utils
-
-
-dcn_presets = {
-    '16c': './data/models/dcn/baselines/16c',
-    '32c': './data/models/dcn/baselines/32c',
-    '64c': './data/models/dcn/baselines/64c',
-    'lq': './data/models/dcn/baselines/16c',
-    'mq': './data/models/dcn/baselines/32c',
-    'hq': './data/models/dcn/baselines/64c',
-}
 
 
 class L3ICError(Exception):
@@ -54,7 +42,7 @@ def compress_n_stats(batch_x, dcn):
         batch_y[image_id], image_bytes = simulate_compression(batch_x[image_id:image_id + 1], dcn)
         batch_z = dcn.compress(batch_x[image_id:image_id + 1])
         stats['bytes'][image_id] = image_bytes
-        stats['entropy'][image_id] = utils.entropy(batch_z, dcn.get_codebook())
+        stats['entropy'][image_id] = helpers.stats.entropy(batch_z, dcn.get_codebook())
         stats['ssim'][image_id] = compare_ssim(batch_x[image_id], batch_y[image_id], multichannel=True, data_range=1)
         stats['psnr'][image_id] = compare_psnr(batch_x[image_id], batch_y[image_id], data_range=1)
         stats['bpp'][image_id] = 8 * image_bytes / batch_x[image_id].shape[0] / batch_x[image_id].shape[1]
@@ -122,7 +110,7 @@ def compress(batch_x, model, verbose=False):
     image_stream = io.BytesIO()
 
     # Get latent space representation
-    batch_z = model.compress(batch_x)
+    batch_z = model.compress(batch_x).numpy()
     latent_shape = np.array(batch_z.shape[1:], dtype=np.uint8)
 
     # Write latent space shape to the bytestream
@@ -236,11 +224,11 @@ def decompress(stream, model=None, verbose=False):
 
     # Get the correct DCN model
     if model is None:
-        model = compression.DCN('{}c'.format(n_latent))
+        model = restore('{}c'.format(n_latent))
 
-    if model.n_latent != n_latent:
+    if model.latent_shape[-1] != n_latent:
         print('[l3ic decoder]', 'WARNING', 'the specified model ({}c) does not match the coded stream ({}c) - switching'.format(model.n_latent, n_latent))
-        model = compression.DCN('{}c'.format(n_latent))
+        model = restore('{}c'.format(n_latent))
 
     code_book = model.get_codebook()
     
@@ -274,72 +262,29 @@ def decompress(stream, model=None, verbose=False):
         print('[l3ic decoder]', 'Layer {} hist:'.format(n), layer_stats)
 
     # Use the DCN decoder to decompress the RGB image
-    return model.decompress(batch_z)
+    return model.decompress(batch_z).numpy()
 
 
 def global_compress(dcn, batch_x):
     # Naive FSE compression of the entire latent repr.
-    batch_z = dcn.compress(batch_x)
+    batch_z = dcn.compress(batch_x).numpy()
     indices, distortion = vq(batch_z.reshape((-1)), dcn.get_codebook())
     return pyfse.compress(bytes(indices.astype(np.uint8)))
 
 
-def restore_model(dir_name, patch_size=128, fetch_stats=False, sess=None, graph=None, x=None, nip_input=None):
+def restore(dir_name, patch_size=None, fetch_stats=False):
     """
-    Utility function to restore a DCN model from a training directory. By default,
-    a standalone instance is created. Can also be used for chaining when sess,
-    graph, x, nip_input are provided.
+    Utility function to simplify restoration of DCN models. Essentially a wrapper over `tfmodel.restore`.
 
-    :param dir_name: directory with a trained model (with progress.json)
-    :param patch_size: input patch size (scalar)
-    :param fetch_stats: return a tuple (model, training_stats)
-    :param sess: existing TF session of None
-    :param graph: existing TF graph or None
-    :param x: input to the model
-    :param nip_input: input to the NIP model (useful for chaining)
+    Instead of writing:
+    -------------------
+    from models import compression
+    tfmodel.restore('data/models/dcn/baselines/16c/', compression, key='codec')
+
+    Just use:
+    ---------
+    from compression import codec
+    codec.restore('16c')
     """
-    training_progress_path = None
-
-    if dir_name in dcn_presets:
-        dir_name = dcn_presets[dir_name]
-
-    if dir_name is None:
-        raise ValueError('dcn directory cannot be None')
-
-    if not os.path.exists(dir_name):
-        raise ValueError('Directory {} does not exist!'.format(dir_name))
-
-    for filename in Path(dir_name).glob('**/progress.json'):
-        training_progress_path = str(filename)
-
-    if training_progress_path is None:
-        raise FileNotFoundError('Could not find a DCN model snapshot (json+checkpoint) in {}'.format(dir_name))
-
-    with open(training_progress_path) as f:
-        training_progress = json.load(f)
-
-    parameters = training_progress['dcn']['args']
-    parameters['patch_size'] = patch_size
-    parameters['default_val_is_train'] = False
-
-    if x is not None:
-        parameters['x'] = x
-    if nip_input is not None:
-        parameters['nip_input'] = nip_input
-
-    model = getattr(compression, training_progress['dcn']['model'])(sess, graph, **parameters)
-    model.load_model(dir_name)
-    print('Loaded model: {}'.format(model.model_code))
-
-    if fetch_stats:
-
-        # TODO Entropy is fetched from training measurements instead of validation (didn't get recorded)
-        stats = {
-            'loss': np.round(training_progress['performance']['loss']['validation'][-1], 3),
-            'entropy': np.round(training_progress['performance']['entropy']['training'][-1], 3),
-            'ssim': np.round(training_progress['performance']['ssim']['validation'][-1], 3)
-        }
-
-        return model, stats
-    else:
-        return model
+    from models import tfmodel
+    return tfmodel.restore(dir_name, compression, key='codec', patch_size=patch_size, fetch_stats=fetch_stats)

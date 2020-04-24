@@ -1,301 +1,54 @@
-import numpy as np
-from scipy import signal
+# -*- coding: utf-8 -*-
+"""
+General helper functions.
 
+Example functionality:
+----------------------
+- check if working in an interactive environment (ipython / jupyter notebook)
+- configure toolbox-wide logging
+- test and print functions for numbers
+- printing a concise dict summary - omits tensor values (only shapes are shown)
+- fuzzy-match a string to a list of options
+- recursively find a key in a dictionary
+
+"""
+import re
+import subprocess
+import sys
+from functools import reduce
+
+import Levenshtein
+import numpy as np
+
+from loguru import logger
 
 _numeric_types = {int, float, bool, np.bool, np.float, np.float16, np.float32, np.float64,
                            np.int, np.int8, np.int32, np.int16, np.int64,
                            np.uint, np.uint8, np.uint32, np.uint16, np.uint64}
 
 
-def ma_gaussian(x, y, step_size=0.05, width=10):
-    """Moving average with Gaussian averaging"""
-    bin_centers = np.arange(np.min(x), np.max(x) - 0.5*step_size, step_size) + 0.5*step_size
-    bin_avg = np.zeros(len(bin_centers))
-
-    # We're going to weight with a Gaussian function
-    def gaussian(x, amp=1, mean=0, sigma=1):
-        return amp*np.exp(-(x-mean)**2/(2*sigma**2))
-
-    for index in range(0,len(bin_centers)):
-        bin_center = bin_centers[index]
-        weights = gaussian(x, mean=bin_center, sigma=width)
-        bin_avg[index] = np.average(y, weights=weights)
-
-    return bin_centers, bin_avg
-
-
-def ma_conv(x, n=10):
-    """Moving average with simple box filter."""
-
-    if len(x) == 0:
-        return np.array([])
-
-    if n == 0:
-        n = (len(x) // 10)
-
-    fn = 2*n + 1
-
-    return np.convolve(np.pad(x, n, 'edge'), np.ones((fn,))/fn, mode='valid')
-
-
-def normalize(x, perc=0):
+def setup_logging(filename=None, long_date=False):
     """
-    Normalize the input array to [0, 1]. Optionally, cut top and bottom outliers (based on percentiles).
+    Configure the logger to a compact format.
+    :param filename: add an additional sink to the given file
+    :param long_date: flag to choose a full or compact date format
     """
-    if perc == 0:
-        return ((x - np.min(x)) / (np.max(x) - np.min(x) + 1e-9)).clip(0, 1)
+
+    if long_date:
+        log_format = '{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}'
     else:
-        mn = np.percentile(x, perc)
-        mx = np.percentile(x, 100 - perc)
-        return ((x - mn) / (mx - mn + 1e-9)).clip(0, 1)
+        log_format = '{time:HH:mm:ss} | {level} | {message}'
 
+    config = {
+        "handlers": [
+            {"sink": sys.stderr, "format": log_format}
+        ],
+    }
 
-def split_dataset(files, n_test=0.1, n_valid=0.1):
-    """
-    Split a list of files into training, testing and validation sets.
-    """
-    n_images = len(files)
-    n_test = n_test if n_test > 1 else np.floor(n_images * n_test)
-    n_valid = n_valid if n_valid > 1 else np.floor(n_images * n_valid)
-    n_train = n_images - n_test - n_valid
-    
-    randomized_indices = np.random.permutation(n_images)
-    
-    files = np.array(files)
-    
-    files_train = files[randomized_indices[0:n_train]]
-    files_test = files[randomized_indices[n_train:n_train+n_test]]
-    files_valid = files[randomized_indices[-n_valid:]]
-    
-    # Sanity check
-    if len([x for x in files_test if x in files_train]) > 0:
-        raise ValueError('Test file also in training set!')
+    if filename is not None:
+        config['handlers'].append({"sink": "file.log", "serialize": True})
 
-    if len([x for x in files_valid if x in files_train]) > 0:
-        raise ValueError('Validation file also in training set!')
-        
-    return files_train.tolist(), files_test.tolist(), files_valid.tolist()
-
-
-def stack_bayer(image_rgb, cfa_pattern):
-    """
-    Return a RGGB Bayer stack sampled from a RGB image according to a given CFA configuration.
-    :param image_rgb: 3-D numpy array (h, w, 3:rgb)
-    :param cfa_pattern: 'GBRG', 'RGGB' or 'BGGR'
-    """
-
-    if cfa_pattern.upper() == 'GBRG':
-        r = image_rgb[1::2, 0::2, 0]
-        g1 = image_rgb[0::2, 0::2, 1]
-        g2 = image_rgb[1::2, 1::2, 1]
-        b = image_rgb[0::2, 1::2, 2]
-        
-    elif cfa_pattern.upper() == 'RGGB':
-        r = image_rgb[0::2, 0::2, 0]
-        g1 = image_rgb[0::2, 1::2, 1]
-        g2 = image_rgb[1::2, 0::2, 1]
-        b = image_rgb[1::2, 1::2, 2]
-        
-    elif cfa_pattern.upper() == 'BGGR':
-        r = image_rgb[1::2, 1::2, 0]
-        g1 = image_rgb[0::2, 1::2, 1]
-        g2 = image_rgb[1::2, 0::2, 1]
-        b = image_rgb[0::2, 0::2, 1]
-    
-    return np.dstack([r, g1, g2, b])
-
-
-def merge_bayer(bayer_stack, cfa_pattern):
-    """
-    Merge a RGGB Bayer stack into a RGB image.
-    :param bayer_stack: a 3-D numpy array (h/2, w/2, 4:rggb)
-    :param cfa_pattern: 'GBRG', 'RGGB' or 'BGGR'
-    """
-    if bayer_stack.ndim == 4:
-        
-        if bayer_stack.shape[0] != 1:
-            raise ValueError('4-D arrays are not supported!')
-        
-        bayer_stack = bayer_stack[0, :, :, :]
-    
-    assert bayer_stack.ndim == 3
-    
-    H = bayer_stack.shape[0]
-    W = bayer_stack.shape[1]
-    
-    image_rgb = np.zeros((2*H, 2*W, 3), dtype=bayer_stack.dtype)
-        
-    if cfa_pattern == 'GBRG':    
-        image_rgb[1::2, 0::2, 0] = bayer_stack[:, :, 0]
-        image_rgb[0::2, 0::2, 1] = bayer_stack[:, :, 1]
-        image_rgb[1::2, 1::2, 1] = bayer_stack[:, :, 2]
-        image_rgb[0::2, 1::2, 2] = bayer_stack[:, :, 3]
-        
-    elif cfa_pattern == 'RGGB':    
-        image_rgb[0::2, 0::2, 0] = bayer_stack[:, :, 0]
-        image_rgb[0::2, 1::2, 1] = bayer_stack[:, :, 1]
-        image_rgb[1::2, 0::2, 1] = bayer_stack[:, :, 2]
-        image_rgb[1::2, 1::2, 2] = bayer_stack[:, :, 3]
-        
-    elif cfa_pattern == 'BGGR':    
-        image_rgb[1::2, 1::2, 0] = bayer_stack[:, :, 0]
-        image_rgb[0::2, 1::2, 1] = bayer_stack[:, :, 1]
-        image_rgb[1::2, 0::2, 1] = bayer_stack[:, :, 2]
-        image_rgb[0::2, 0::2, 1] = bayer_stack[:, :, 3]
-    
-    return image_rgb
-
-
-def upsampling_kernel(cfa_pattern='gbrg'):
-    """
-    Possible initializations of up-sampling kernels for matching the 12-feature-layer format needed by depth-to-space.
-    (Ideally, this should match the CFA pattern of the camera).
-    :param cfa_pattern: 'GBRG'
-    """
-
-    # TODO Implement other CFA patterns
-    if cfa_pattern.upper() == 'GBRG':
-        #                R  G  B  R  G  B  R  G  B  R  G  B
-        #                1  1  1  2  2  2  3  3  3  4  4  4
-        upk = np.array([[0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],                 
-                        [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-                        [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
-                       ])
-    else:
-        raise ValueError('Unsupported CFA pattern: {}'.format(cfa_pattern))
-        
-    return upk
-
-
-def gamma_kernels():
-    """
-    Pre-trained kernels of a toy neural network for approximation of gamma correction.
-    """
-    gamma_dense1_kernel = np.array([2.9542332, 17.780445, 0.6280197, 0.40384966])
-    gamma_dense1_bias = np.array([0.4047071, 1.1489044, -0.17624384, 0.47826886])
-
-    gamma_dense2_kernel = np.array([0.44949612, 0.78081024, 0.97692937, -0.24265033])
-    gamma_dense2_bias = np.array([-0.4702738])
-
-    gamma_d1k = np.zeros((3, 12))
-    gamma_d1b = np.zeros((12, ))
-    gamma_d2k = np.zeros((12, 3))
-    gamma_d2b = np.zeros((3,))
-
-    for r in range(3):
-        gamma_d1k[r, r*4:r*4+4] = gamma_dense1_kernel
-        gamma_d1b[r*4:r*4+4] = gamma_dense1_bias
-        gamma_d2k[r*4:r*4+4, r] = gamma_dense2_kernel
-        gamma_d2b[r] = gamma_dense2_bias
-    
-    return gamma_d1k, gamma_d1b, gamma_d2k, gamma_d2b
-
-
-def bilin_kernel(kernel=3):
-    """
-    Bilinear demosaicing kernels.
-    """
-    g_kern = np.array([[0, 1/4., 0], [1/4., 1, 1/4.], [0, 1/4., 0]])
-    rb_kern = np.array([[1/4., 1/2., 1/4.], [1/2., 1, 1/2.], [1/4., 1/2., 1/4.]])
-
-    G_kern = np.zeros((3,3,3), np.float32)
-    G_kern[:, :, 1] = g_kern
-
-    R_kern = np.zeros((3,3,3), np.float32)
-    R_kern[:, :, 0] = rb_kern
-
-    B_kern = np.zeros((3,3,3), np.float32)
-    B_kern[:, :, 2] = rb_kern
-
-    dmf = np.stack((R_kern, G_kern, B_kern), axis=3)
-    if kernel > 3:         
-        pad = (kernel - 3) // 2
-        dmf = np.pad(dmf, ((pad, pad), (pad, pad), (0, 0), (0, 0)), 'constant', constant_values=0)
-        
-    return dmf
-
-
-def gkern(kernlen=5, std=0.83):
-    """Returns a 2D Gaussian kernel array."""
-    gkern1d = signal.gaussian(kernlen, std=std)
-    gkern2d = np.outer(gkern1d, gkern1d)
-    return gkern2d / gkern2d.sum()
-
-
-def jpeg_qtable(quality, channel=0):
-    """
-    Return a DCT quantization matrix for a given quality level.
-    :param quality: JPEG quality level (1-100)
-    :param channel: 0 for luminance, >0 for chrominance channels
-    """
-
-    # Sanitize
-    quality = np.maximum(np.minimum(100, quality), 1)
-    
-    # Convert to linear quality scale
-    quality = 5000 / quality if quality < 50 else 200 - quality*2
-    
-    if channel == 0:
-        # This is table 0 (the luminance table):
-        t = [[16,  11,  10,  16,  24,  40,  51,  61], 
-             [12,  12,  14,  19,  26,  58,  60,  55],
-             [14,  13,  16,  24,  40,  57,  69,  56],
-             [14,  17,  22,  29,  51,  87,  80,  62],
-             [18,  22,  37,  56,  68, 109, 103,  77],
-             [24,  35,  55,  64,  81, 104, 113,  92],
-             [49,  64,  78,  87, 103, 121, 120, 101],
-             [72,  92,  95,  98, 112, 100, 103,  99]]
-        t = np.array(t, np.float32)
-    
-    else:
-        # This is table 1 (the chrominance table):
-        t = [[17,  18,  24,  47,  99,  99,  99,  99],
-             [18,  21,  26,  66,  99,  99,  99,  99],
-             [24,  26,  56,  99,  99,  99,  99,  99],
-             [47,  66,  99,  99,  99,  99,  99,  99],
-             [99,  99,  99,  99,  99,  99,  99,  99],
-             [99,  99,  99,  99,  99,  99,  99,  99],
-             [99,  99,  99,  99,  99,  99,  99,  99],
-             [99,  99,  99,  99,  99,  99,  99,  99]]
-        t = np.array(t, np.float32)    
-    
-    t = np.floor((t * quality + 50)/100)    
-    t[t < 1] = 1    
-    t[t > 255] = 255
-
-    return t
-
-
-def repeat_2dfilter(f, channels):
-    rf = np.zeros((f.shape[0], f.shape[1], channels, channels))
-
-    for r in range(channels):
-        rf[:, :, r, r] = f
-
-    return rf
-
-
-def center_mask_2dfilter(f_size, channels):
-    indicator = np.zeros((f_size, f_size, channels, channels))
-
-    for r in range(channels):
-        indicator[f_size // 2, f_size // 2, r, r] = 1
-
-    return indicator
-
-
-def slidingwindow(arr, window):
-    if arr.ndim != 3:
-        raise ValueError('The input array needs to be 3-D - (h,w,c)!')
-    n_windows = (arr.shape[0] // window) * (arr.shape[1] // window)
-    batch = np.zeros((n_windows, window, window, arr.shape[-1]), dtype=arr.dtype)
-    window_id = 0
-    for x in range(arr.shape[1] // window):
-        for y in range(arr.shape[0] // window):
-            batch[window_id] = arr[y*window:(y+1)*window, x*window:(x+1)*window, :]
-            window_id += 1
-    return batch
+    logger.configure(**config)
 
 
 def is_number(value):
@@ -307,7 +60,6 @@ def is_numeric_type(t):
 
 
 def is_nan(value):
-
     if value is None:
         return True
 
@@ -317,52 +69,225 @@ def is_nan(value):
     return False
 
 
-def qhist(values, code_book, density=False):
-    code_book_edges = bin_egdes(code_book)
-    return np.histogram(values.reshape((-1, )), bins=code_book_edges, density=density)[0]
+def is_vector(data):
 
-
-def entropy(batch_z, code_book):
-    counts = qhist(batch_z, code_book)
-    counts = counts.clip(min=1)
-    probs = counts / counts.sum()
-    return - np.sum(probs * np.log2(probs))
-
-
-def bin_egdes(code_book):
-    max_float = np.abs(code_book).max() * 2
-    code_book_edges = np.convolve(code_book, [0.5, 0.5], mode='valid')
-    code_book_edges = np.concatenate((-np.array([max_float]), code_book_edges, np.array([max_float])), axis=0)
-    return code_book_edges
-
-
-def batch_gamma(batch_p, gamma=None):
-    if gamma is None:
-        gamma = np.array(np.random.uniform(low=0.25, high=3, size=(len(batch_p), 1, 1, 1)))
-    elif type(gamma) is float:
-        gamma = gamma * np.ones((len(batch_p), 1, 1, 1))
-
-    return np.power(batch_p, 1/gamma).clip(0, 1)
-
-
-def crop_middle(image, patch=128):
-    image = image.squeeze()
-
-    xx = (image.shape[0] - patch) // 2
-    yy = (image.shape[1] - patch) // 2
-
-    if image.ndim == 2:
-        return image[xx:(xx+patch), yy:(yy+patch)]
-    elif image.ndim == 3:
-        return image[xx:(xx + patch), yy:(yy + patch), :]
+    if isinstance(data, list) and all(is_number(x) for x in data):
+        return True
+    elif isinstance(data, np.ndarray) and data.ndim == 1:
+        return True
     else:
-        raise ValueError('Invalid image size!')
+        return False
 
 
-def dct_mask(size=128, band=0.1, sigma=1):
-    x = np.arange(size).reshape((-1, 1)).repeat(size, axis=1)
-    y = np.arange(size).reshape((1, -1)).repeat(size, axis=0)
-    m = np.exp(-sigma * np.abs(np.power(x + y - band * (size*2 - 1), 2)))
-    m[0, 0] = 0
-    m = m / m.sum()
-    return m
+def format_number_order(n):
+    n = float(n)
+    suffix = ('', 'k', 'M', 'B', 'T')
+    idx = max(0, min(len(suffix)-1, int(np.floor(0 if n == 0 else np.log10(abs(n))/3))))
+    return f'{n / 10**(3 * idx):.0f}{suffix[idx]}'
+
+
+def format_number(x, digits=3):
+    if np.isnan(x):
+        return 'nan'
+
+    if np.isinf(x):
+        return '∞'
+
+    try:
+        if isinstance(x, float) and x != 0:
+            w = max(0, int(np.floor(np.log10(np.abs(x))))) + (digits - 1)
+            p = max(0, - np.int(np.floor(np.log10(np.abs(x))))) + (digits - 1)
+            return f'{x:{w}.{p}f}'
+        else:
+            return f'{x}'
+    except:
+        return '?'
+
+
+def match_option(x, options, regexp=False):
+
+    if regexp:
+        matches = [y for y in options if re.match(x, y)]
+        if len(matches) == 1:
+            return matches[0]
+        else:
+            raise ValueError(f'No regexp match: "{x}" to any of {options}!')
+
+    else:
+        start_match = [y.startswith(x) or x.startswith(y) for y in options]
+
+        if sum(start_match) == 1:
+            return options[start_match.index(True)]
+        else:
+            distances = [Levenshtein.distance(x, y) for y in options]
+            return options[distances.index(min(distances))]
+
+
+def logCall(func):
+    """
+    Decorator to print function call details - parameters names and effective values
+    """
+    def wrapper(*func_args, **func_kwargs):
+        arg_names = func.__code__.co_varnames[:func.__code__.co_argcount]
+        args = func_args[:len(arg_names)]
+        defaults = func.__defaults__ or ()
+        args = args + defaults[len(defaults) - (func.__code__.co_argcount - len(args)):]
+        params = list(zip(arg_names, args))
+        args = func_args[len(arg_names):]
+
+        if args:
+            params.append(('args', args))
+
+        if func_kwargs:
+            params.append(('kwargs', func_kwargs))
+
+        # Print function call
+        print('@> ' + func.__name__ + ' (' + ', '.join('%s = %r' % p for p in params) + ' )')
+
+        # Actual function call
+        return func(*func_args, **func_kwargs)
+
+    return wrapper
+
+
+def mockCall(func):
+    """
+    Decorator to print function call details but skip the actual call.
+    """
+    def wrapper(*func_args, **func_kwargs):
+        arg_names = func.__code__.co_varnames[:func.__code__.co_argcount]
+        args = func_args[:len(arg_names)]
+        defaults = func.__defaults__ or ()
+        args = args + defaults[len(defaults) - (func.__code__.co_argcount - len(args)):]
+        params = list(zip(arg_names, args))
+        args = func_args[len(arg_names):]
+
+        if args:
+            params.append(('args', args))
+
+        if func_kwargs:
+            params.append(('kwargs', func_kwargs))
+
+        # Print function call
+        print('@! ' + func.__name__ + ' (' + ', '.join('%s = %r' % p for p in params) + ' )')
+
+    return wrapper
+
+
+def is_interactive():
+    """
+    Checks whether you're working in an interactive terminal (e.g., Jupyter notebook)
+    """
+    try:
+        __IPYTHON__
+        return True
+    except:
+        import __main__ as main
+        return not hasattr(main, '__file__')
+
+
+def get(data, key, default=None, sep='.'):
+    try:
+        return reduce(lambda c, k: c.get(k, {}), key.split(sep), data)
+    except KeyError:
+        return default
+
+
+def join_args(args, sep=','):
+    return sep.join('{}={}'.format(k, '"{}"'.format(v) if isinstance(v, str) else v) for k, v in args.items())
+
+
+def printd(d, indent=2, level=1):
+    """ Prints a concise summary of a dict-like object (arrays/tensors are not displayed - only their shape) """
+    if len(d) == 0:
+        print('{}')
+        return
+
+    print('{')
+
+    width = max([len(f'{k}') for k in d.keys()])
+    has_dicts = any([isinstance(d[k], dict) for k in d.keys()])
+
+    for k, v in d.items():
+
+        # Print the key (align to the left if there are nested dicts, otherwise to the right)
+        print((indent*level)*' ', end='')
+        if has_dicts:
+            print(f'{k:<{width}}: ', end='')
+        else:
+            print(f'{k:>{width}}: ', end='')
+
+        # Print the values, depending on their type
+        if isinstance(v, dict):
+            printd(v, indent=indent, level=level + 1)
+
+        elif hasattr(v, 'shape'):
+            if v.ndim == 0:
+                print(f'{v:.3f} (0-d array)')
+            elif len(v) == 0:
+                print(f'empty array')
+            else:
+                print(f'array {v.shape} ∈ [{v.min():.3f}, {v.max():.3f}]')
+
+        elif isinstance(v, str):
+            print('"{}"'.format(v))
+
+        elif isinstance(v, list):
+            if len(v) < 5:
+                print(v)
+            else:
+                print(f'list of {len(v)} items: [{format_number(v[0])}, ..., {format_number(v[-1])}]')
+
+        elif isinstance(v, tuple):
+            if len(v) < 5:
+                print(v)
+            else:
+                print(f'tuple of {len(v)} items: ({format_number(v[0])}, ..., {format_number(v[-1])})')
+
+        else:
+            if isinstance(v, float) or isinstance(v, int):
+                print(format_number(v))
+            else:
+                print(v)
+
+    print((indent*(level-1))*' ', end='')
+    print('}')
+
+
+def format_patch_shape(patch_size):
+    if patch_size is None:
+        return '?'
+    elif any(x is None for x in patch_size):
+        return '(rgb)' if patch_size[-1] == 3 else '(raw)'
+    else:
+        return '×'.join(str(x) for x in patch_size)
+
+
+def shell(command, log=None, verbosity=2):
+
+    if verbosity == 2:
+        logger.info(f'>> {command}')
+    elif verbosity == 1:
+        if log is not None:
+            print(f'\n>> {command} \\')
+            print(f'   1> {log}.stdout 2> {log}.stderr')
+        else:
+            print(f'\n>> {command}\n')
+
+    if log is None:
+        p = subprocess.Popen(command, shell=True)
+    else:
+        p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    outs, errs = p.communicate()
+
+    with open(f'{log}.stdout', 'w') as fo:
+        for line in outs.decode('utf-8').splitlines():
+            fo.write(f'{line}\n')
+
+    with open(f'{log}.stderr', 'w') as fe:
+        for line in errs.decode('utf-8').replace('\r', '\n').splitlines():
+            fe.write(f'{line}\n')
+
+    p.wait()
+    return p.returncode

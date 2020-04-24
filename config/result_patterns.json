@@ -1,0 +1,3 @@
+{
+    "manipulation_classification": ["{camera}", "{isp}", "{reg_isp}", "{reg_codec}", "{run}", "training.json"]
+}

@@ -1,11 +1,17 @@
+# -*- coding: utf-8 -*-
+"""
+Helper functions for finding & loading images and extracting patches.
+"""
 import os
 import numpy as np
 import tqdm
 import imageio
-from helpers import coreutils
+from helpers import fsutil
+
+from loguru import logger
 
 
-def discover_files(data_directory, n_images=120, v_images=30, extension='png', randomize=0):
+def discover_images(data_directory, n_images=120, v_images=30, extension='png', randomize=0):
     """
     Find available images and split them into training / validation sets.
     :param data_directory: directory
@@ -15,8 +21,8 @@ def discover_files(data_directory, n_images=120, v_images=30, extension='png', r
     :param randomize: whether to shuffle files before the split
     """
 
-    files = coreutils.listdir(data_directory, '.*\.{}$'.format(extension))
-    print('In total {} files available'.format(len(files)), flush=True)
+    files = fsutil.listdir(data_directory, '.*\\.{}$'.format(extension))
+    logger.debug(f'{data_directory}: in total {len(files)} files available')
 
     if randomize:
         np.random.seed(randomize)
@@ -49,6 +55,7 @@ def load_images(files, data_directory, extension='png', load='xy'):
     n_images = len(files)
 
     if n_images == 0:
+        logger.warning('No images to load!')
         return {k: np.zeros(shape=(1, 1, 1, 1)) for k in load}
     
     # Check image resolution
@@ -58,81 +65,151 @@ def load_images(files, data_directory, extension='png', load='xy'):
     
     data = {}
     
-    if 'x' in load: data['x'] = np.zeros((n_images, *resolutions, 4), dtype=np.uint16)
-    if 'y' in load: data['y'] = np.zeros((n_images, 2 * resolutions[0], 2 * resolutions[1], 3), dtype=np.uint8)
+    if 'x' in load:
+        data['x'] = np.zeros((n_images, *resolutions, 4), dtype=np.uint16)
+    if 'y' in load:
+        data['y'] = np.zeros((n_images, 2 * resolutions[0], 2 * resolutions[1], 3), dtype=np.uint8)
 
     with tqdm.tqdm(total=n_images, ncols=100, desc='Loading images') as pbar:
 
         for i, file in enumerate(files):
             npy_file = file.replace('.{}'.format(extension), '.npy')
-            try:
-                if 'x' in data: data['x'][i, :, :, :] = np.load(os.path.join(data_directory, npy_file))
-                if 'y' in data: data['y'][i, :, :, :] = imageio.imread(os.path.join(data_directory, file), pilmode='RGB')
-            except Exception as e:
-                print('Error: {} - {}'.format(file, e))
+
+            if 'x' in data:
+                data['x'][i] = np.load(os.path.join(data_directory, npy_file))
+            if 'y' in data:
+                data['y'][i] = imageio.imread(os.path.join(data_directory, file), pilmode='RGB')
+
             pbar.update(1)
 
         return data
 
     
-def load_patches(files, data_directory, patch_size=128, n_patches=100, discard_flat=False, extension='png', load='xy'):
+def load_patches(files, data_directory, patch_size=128, n_patches=100, discard='flat-aggressive', extension='png', load='xy'):
     """
     Sample (raw, rgb) pairs or random patches from given images.
+
     :param files: list of available images
     :param data_directory: directory path
     :param patch_size: patch size (in the raw image - rgb patches will be twice as big)
     :param n_patches: number of patches per image
-    :param discard_flat: remove flat patches
-    :param extension: file extension of rgb images
+    :param discard: strategy for discarding nonsuitable patches
+    :param extension: file extension of RGB images
     :param load: what data to load - string: 'xy' (load both raw and rgb), 'x' (load only raw) or 'y' (load only rgb)
     """
     v_images = len(files)
+    max_attempts = 100
+    discard_label = '(random)' if discard is None else '({})'.format(discard)
     data = {}
+
     if 'x' in load: data['x'] = np.zeros((v_images * n_patches, patch_size, patch_size, 4), dtype=np.uint16)
     if 'y' in load: data['y'] = np.zeros((v_images * n_patches, 2 * patch_size, 2 * patch_size, 3), dtype=np.uint8)
 
-    with tqdm.tqdm(total=v_images * n_patches, ncols=100, desc='Loading patches') as pbar:
-
-        vpatch_id = 0
+    with tqdm.tqdm(total=v_images * n_patches, ncols=100, desc='Loading patches {}'.format(discard_label)) as pbar:
 
         for i, file in enumerate(files):
             npy_file = file.replace('.{}'.format(extension), '.npy')
+
             if 'x' in data: image_x = np.load(os.path.join(data_directory, npy_file))
             if 'y' in data: image_y = imageio.imread(os.path.join(data_directory, file), pilmode='RGB')
 
-            if 'x' in data:
-                H, W = image_x.shape[0:2]
-            elif 'y' in data:
-                H, W = (x // 2 for x in image_y.shape[0:2])
-
             # Sample random patches
-            panic_counter = 100 * n_patches
-
             for b in range(n_patches):
-                found = False
 
-                while not found: 
-                    xx = np.random.randint(0, W - patch_size) if W - patch_size > 0 else 0
-                    yy = np.random.randint(0, H - patch_size) if H - patch_size > 0 else 0
-                    
-                    if 'x' in data: data['x'][vpatch_id] = image_x[yy:yy + patch_size, xx:xx + patch_size, :]
-                    if 'y' in data: data['y'][vpatch_id] = image_y[(2*yy):2*(yy + patch_size), (2*xx):2*(xx + patch_size), :]
+                xx, yy = sample_patch(image_y, 2 * patch_size, discard, max_attempts)
+                rx, ry = xx // 2, yy // 2
 
-                    # Check if the found patch is acceptable:
-                    # - eliminate empty patches
-                    if discard_flat and 'y' in data:
-                        patch_variance = np.var(data['y'][vpatch_id])
-                        if patch_variance < 1e-2:
-                            panic_counter -= 1
-                            found = False if panic_counter > 0 else True
-                        elif patch_variance < 0.02:
-                            found = np.random.uniform() > 0.5
-                        else:
-                            found = True
-                    else:
-                        found = True
-                        
-                vpatch_id += 1    
+                if 'x' in data:
+                    data['x'][i * n_patches + b] = image_x[ry:ry + patch_size, rx:rx + patch_size, :]
+                if 'y' in data:
+                    data['y'][i * n_patches + b] = image_y[yy:yy + 2*patch_size, xx:xx + 2*patch_size, :]
+
                 pbar.update(1)
 
         return data
+
+
+def sample_patch(rgb_image, rgb_patch_size=128, discard=None, max_attempts=25):
+    """
+    Sample a single patch from a full-resolution image. Sampling can be fully random or can follow a discarding policy.
+    The following DISCARD modes are available:
+
+        - flat - attempts to discard flat patches based on patch variance (not strict)
+        - flat-aggressive - a more aggressive version that avoids patches with variance < 0.01
+        - dark-n-textured - avoid dark (mean < 0.35) and textured patches (variance > 0.005)
+
+    :param rgb_image: full resolution RGB image
+    :param rgb_patch_size: integer, self-explanatory
+    :param discard: discard policy
+    :param max_attempts: maximum number of sampling attempts (if unsuccessful)
+    :return: a tuple with (x, y) coordinates
+    """
+    xx, yy = 0, 0
+
+    max_x = rgb_image.shape[1] - rgb_patch_size
+    max_y = rgb_image.shape[0] - rgb_patch_size
+
+    need_normalization = rgb_image.max() > 1
+
+    if max_x > 0 or max_y > 0:
+        found = False
+        panic_counter = max_attempts
+
+        while not found:
+            # Sample a random patch - the number needs to be even to ensure proper Bayer alignment
+            xx = 2 * (np.random.randint(0, max_x) // 2) if max_x > 0 else 0
+            yy = 2 * (np.random.randint(0, max_y) // 2) if max_y > 0 else 0
+
+            if not discard:
+                found = True
+                continue
+
+            patch = rgb_image[yy:yy + rgb_patch_size, xx:xx + rgb_patch_size]
+            if need_normalization:
+                patch = patch.astype(np.float) / 255
+            patch_variance = np.var(patch)
+            patch_intensity = np.mean(patch)
+
+            # Check if the sampled patch is acceptable
+            if discard == 'flat':
+
+                if patch_variance < 0.005:
+                    panic_counter -= 1
+                    found = False if panic_counter > 0 else True
+                elif patch_variance < 0.01:
+                    found = np.random.uniform() > 0.5
+                else:
+                    found = True
+
+            elif discard == 'flat-aggressive':
+
+                if patch_variance < 0.02:
+                    if panic_counter == max_attempts or patch_variance > best_patch[-1]:
+                        best_patch = (xx, yy, patch_variance)
+                    panic_counter -= 1
+                    found = False if panic_counter > 0 else True
+                    if found:
+                        xx, yy, patch_variance = best_patch
+                else:
+                    found = True
+
+            elif discard == 'dark-n-textured':
+
+                if 0 < patch_variance < 0.005 and 0.35 < patch_intensity < 0.99:
+                    found = True
+                else:
+                    if panic_counter == max_attempts or (patch_variance < 2 * best_patch[-1]
+                                                         and patch_intensity > 1.1 * best_patch[-2]):
+                        best_patch = (xx, yy, patch_intensity, patch_variance)
+                    panic_counter -= 1
+                    found = False if panic_counter > 0 else True
+                    if found:
+                        xx, yy, patch_intensity, patch_variance = best_patch
+
+            elif discard is None:
+                found = True
+
+            else:
+                raise ValueError('Unrecognized discard mode: {}'.format(discard))
+
+    return xx, yy

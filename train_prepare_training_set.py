@@ -8,7 +8,7 @@ import sys
 import logging
 import tqdm
 import argparse
-from helpers import raw_api, coreutils
+from helpers import raw, fsutil
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('data')
@@ -35,7 +35,7 @@ def prepare_training_set(camera, target_pipeline, dev_settings, n_images=150, ro
     print('Out Directory: {}'.format(out_directory))
 
     # List RAW files and find the ones with horizontal orientation
-    raw_filenames = coreutils.listdir(raw_directory, '.*\.{}$'.format(EXTENSIONS))
+    raw_filenames = fsutil.listdir(raw_directory, '.*\.{}$'.format(EXTENSIONS))
     log.info('Camera {} matched {:,} RAW images'.format(camera, len(raw_filenames)))
 
     raw_filenames_selected = []
@@ -69,15 +69,15 @@ def prepare_training_set(camera, target_pipeline, dev_settings, n_images=150, ro
 
         try:
             if not os.path.exists(out_npy):
-                image_bayer = raw_api.stacked_bayer(os.path.join(raw_directory, nef_file), use_wb=True)
+                image_bayer = raw.unpack(os.path.join(raw_directory, nef_file))[0]
                 image_bayer = ((2**16 - 1) * image_bayer).astype(np.uint16)
                 np.save(out_npy, image_bayer)
 
             if not os.path.exists(out_png):
                 if target_pipeline == 'auto':
-                    rgb = raw_api.process_auto(os.path.join(raw_directory, nef_file))
+                    rgb = raw.process_auto(os.path.join(raw_directory, nef_file))
                 elif target_pipeline == 'manual':
-                    rgb = 255 * raw_api.process(os.path.join(raw_directory, nef_file), **dev_settings)
+                    rgb = 255 * raw.process(os.path.join(raw_directory, nef_file), **dev_settings)
                 else:
                     raise ValueError('Unsupported develop mode!')
                 imageio.imwrite(out_png, rgb.astype(np.uint8))
@@ -91,7 +91,7 @@ def prepare_training_set(camera, target_pipeline, dev_settings, n_images=150, ro
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Prepares training pairs (raw inputs in *.npy and optimization targets in *.png) for a given camera')
+    parser = argparse.ArgumentParser(description='Prepare training pairs (raw inputs in *.npy and optimization targets in *.png) for a given camera')
     parser.add_argument('--cam', dest='camera', action='store', help='camera')
     parser.add_argument('--target', dest='target', action='store', default='manual',
                         help='target for optimization (manual or auto)')

@@ -7,7 +7,7 @@ import logging
 import argparse
 import tensorflow as tf
 
-from helpers import coreutils
+from helpers import fsutil
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('data')
@@ -39,7 +39,7 @@ def develop_images(camera, pipeline, n_images=0, root_dir='./data', model_dir='n
     import numpy as np
     import imageio
     import tqdm
-    from helpers import raw_api
+    from helpers import raw
     from models import pipelines
 
     print('Camera: {}'.format(camera))
@@ -49,7 +49,7 @@ def develop_images(camera, pipeline, n_images=0, root_dir='./data', model_dir='n
     print('Out Directory: {}'.format(out_directory))
 
     # %% Process Bayer stacks with the given pipeline
-    npy_filenames = coreutils.listdir(nip_directory, '.*\.{}$'.format(extensions))
+    npy_filenames = fsutil.listdir(nip_directory, '.*\.{}$'.format(extensions))
     log.info('Camera {} matched {:,} Bayer stacks'.format(camera, len(npy_filenames)))
 
     manual_dev_settings = {'use_srgb': True, 'use_gamma': True, 'brightness': None}
@@ -84,9 +84,9 @@ def develop_images(camera, pipeline, n_images=0, root_dir='./data', model_dir='n
         if not os.path.exists(out_png):
             # Process with the desired pipeline
             if pipeline == 'libRAW':
-                rgb = raw_api.process_auto(raw_file)
+                rgb = raw.process_auto(raw_file)
             elif pipeline == 'Python':
-                rgb = 255 * raw_api.process(raw_file, **manual_dev_settings)
+                rgb = 255 * raw.process(raw_file, **manual_dev_settings)
                 rgb = rgb.astype(np.uint8)
             else:
                 # Find the cached Bayer stack

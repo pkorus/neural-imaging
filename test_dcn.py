@@ -4,13 +4,16 @@ import os
 import sys
 import argparse
 
+import helpers.image
+import helpers.stats
+import helpers.utils
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage.measure import compare_ssim
 
-from helpers import plotting, dataset, coreutils, loading, utils
+from helpers import plots, dataset, fsutil, loading, utils, metrics
 from compression import jpeg_helpers, codec, ratedistortion
 
 supported_plots = ['batch', 'jpeg-match-ssim', 'jpeg-match-bpp', 'jpg-trade-off', 'jp2-trade-off', 'dcn-trade-off', 'bpg-trade-off']
@@ -21,7 +24,7 @@ def match_jpeg(model, batch_x, axes=None, match='ssim'):
     # Compress using DCN and get number of bytes
     batch_y, bytes_dcn = codec.simulate_compression(batch_x, model)
 
-    ssim_dcn = compare_ssim(batch_x.squeeze(), batch_y.squeeze(), multichannel=True, data_range=1)
+    ssim_dcn = metrics.ssim(batch_x.squeeze(), batch_y.squeeze()).mean()
     bpp_dcn = 8 * bytes_dcn / np.prod(batch_x.shape[1:-1])
     target = ssim_dcn if match == 'ssim' else bpp_dcn
 
@@ -36,13 +39,13 @@ def match_jpeg(model, batch_x, axes=None, match='ssim'):
 
     # Compress using JPEG
     batch_j, bytes_jpeg = jpeg_helpers.compress_batch(batch_x[0], jpeg_quality, effective=True)
-    ssim_jpeg = compare_ssim(batch_x.squeeze(), batch_j.squeeze(), multichannel=True, data_range=1)
+    ssim_jpeg = metrics.ssim(batch_x.squeeze(), batch_j.squeeze()).mean()
     bpp_jpg = 8 * bytes_jpeg / np.prod(batch_x.shape[1:-1])
 
     # Get stats
     code_book = model.get_codebook()
-    batch_z = model.compress(batch_x)
-    counts = utils.qhist(batch_z, code_book)
+    batch_z = model.compress(batch_x).numpy()
+    counts = helpers.stats.hist(batch_z, code_book)
     counts = counts.clip(min=1)
     probs = counts / counts.sum()
     entropy = - np.sum(probs * np.log2(probs))
@@ -67,22 +70,22 @@ def match_jpeg(model, batch_x, axes=None, match='ssim'):
 
     # Plot results
     if axes is None:
-        fig, axes = plotting.sub(6, ncols=3)
+        fig, axes = plots.sub(6, ncols=3)
         fig.set_size_inches(12, 10)
         fig.tight_layout()
     else:
         fig = axes[0].figure
 
     # Plot full-resolution
-    plotting.quickshow(batch_x, 'Original ({0}x{0})'.format(batch_x.shape[1]), axes=axes[0])
-    plotting.quickshow(batch_y, 'DCN ssim:{:.2f} bpp:{:.2f}'.format(ssim_dcn, bpp_dcn), axes=axes[1])
-    plotting.quickshow(batch_j, 'JPEG {} ssim:{:.2f} bpp:{:.2f}'.format(jpeg_quality, ssim_jpeg, bpp_jpg), axes=axes[2])
+    plots.image(batch_x, 'Original ({0}x{0})'.format(batch_x.shape[1]), axes=axes[0])
+    plots.image(batch_y, 'DCN ssim:{:.2f} bpp:{:.2f}'.format(ssim_dcn, bpp_dcn), axes=axes[1])
+    plots.image(batch_j, 'JPEG {} ssim:{:.2f} bpp:{:.2f}'.format(jpeg_quality, ssim_jpeg, bpp_jpg), axes=axes[2])
 
     # Plot zoom
     crop_size = max([64, batch_x.shape[1] // 4])
-    plotting.quickshow(utils.crop_middle(batch_x, crop_size), 'Original crop ({0}x{0})'.format(crop_size), axes=axes[3])
-    plotting.quickshow(utils.crop_middle(batch_y, crop_size), 'DCN crop ({0}x{0})'.format(crop_size), axes=axes[4])
-    plotting.quickshow(utils.crop_middle(batch_j, crop_size), 'JPEG crop ({0}x{0})'.format(crop_size), axes=axes[5])
+    plots.image(helpers.image.crop_middle(batch_x, crop_size), 'Original crop ({0}x{0})'.format(crop_size), axes=axes[3])
+    plots.image(helpers.image.crop_middle(batch_y, crop_size), 'DCN crop ({0}x{0})'.format(crop_size), axes=axes[4])
+    plots.image(helpers.image.crop_middle(batch_j, crop_size), 'JPEG crop ({0}x{0})'.format(crop_size), axes=axes[5])
 
     return fig
 
@@ -90,8 +93,8 @@ def match_jpeg(model, batch_x, axes=None, match='ssim'):
 def show_example(model, batch_x):
 
     # Compress and decompress model
-    batch_z = model.compress(batch_x)
-    batch_y = model.decompress(batch_z)
+    batch_z = model.compress(batch_x).numpy()
+    batch_y = model.decompress(batch_z).numpy()
 
     # Get empirical histogram of the latent representation
     codebook = model.get_codebook()
@@ -108,13 +111,14 @@ def show_example(model, batch_x):
     hist_emp = hist_emp / hist_emp.sum()
 
     # Get TF histogram estimate based on soft quantization
-    hist = model.get_tf_histogram(batch_x)
+    hist = helpers.stats.hist(batch_z, codebook)
+    hist = hist / hist.sum()
 
     # Entropy
     entropy = - np.sum(hist * np.log2(hist))
     entropy_emp = - np.sum(hist_emp * np.log2(hist_emp))
 
-    fig, axes = plotting.sub(2, ncols=1)
+    fig, axes = plots.sub(2, ncols=1)
     fig.set_size_inches(12, 10)
     
     axes[0].plot(bin_centers, hist_emp / hist_emp.max(), 'r-')
@@ -127,11 +131,11 @@ def show_example(model, batch_x):
     # Thumbnails
     indices = np.argsort(np.var(batch_x, axis=(1, 2, 3)))[::-1]
     thumbs_pairs_few = np.concatenate((batch_x[indices], batch_y[indices]), axis=0)
-    thumbs_few = (255 * plotting.thumbnails(thumbs_pairs_few, n_cols=len(batch_x))).astype(np.uint8)
+    thumbs_few = (255 * plots.thumbnails(thumbs_pairs_few, ncols=len(batch_x))).astype(np.uint8)
 
-    ssim_values = [compare_ssim(batch_x[i], batch_y[i], multichannel=True) for i in range(len(batch_x))]
+    ssim_values = [metrics.ssim(batch_x[i], batch_y[i]).mean() for i in range(len(batch_x))]
 
-    plotting.quickshow(thumbs_few, 'Sample reconstructions, ssim={:.3f}'.format(np.mean(ssim_values)), axes=axes[1])
+    plots.image(thumbs_few, 'Sample reconstructions, ssim={:.3f}'.format(np.mean(ssim_values)), axes=axes[1])
 
     fig.tight_layout()
     return fig
@@ -154,13 +158,13 @@ def main():
     args = parser.parse_args()
 
     # Match the current
-    args.plot = coreutils.match_option(args.plot, supported_plots)
+    args.plot = helpers.utils.match_option(args.plot, supported_plots)
 
     if args.plot == 'batch':
-        model, stats = codec.restore_model(args.dcn, args.patch_size, fetch_stats=True)
+        model, stats = codec.restore(args.dcn, args.patch_size, fetch_stats=True)
         print('Training stats:', stats)
 
-        data = dataset.IPDataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
+        data = dataset.Dataset(args.data, load='y', n_images=0, v_images=args.images, val_rgb_patch_size=args.patch_size)
         batch_x = data.next_validation_batch(0, args.images)
 
         fig = show_example(model, batch_x)
@@ -168,24 +172,24 @@ def main():
         plt.close()
 
     elif args.plot == 'jpeg-match-ssim':
-        files, _ = loading.discover_files(args.data, n_images=-1, v_images=0)
+        files, _ = loading.discover_images(args.data, n_images=-1, v_images=0)
         files = files[args.image_id:args.image_id+1]
         batch_x = loading.load_images(files, args.data, load='y')
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
-        model = codec.restore_model(args.dcn, batch_x.shape[1])
+        model = codec.restore(args.dcn, batch_x.shape[1])
 
         fig = match_jpeg(model, batch_x, match='ssim')
         plt.show()
         plt.close()
 
     elif args.plot == 'jpeg-match-bpp':
-        files, _ = loading.discover_files(args.data, n_images=-1, v_images=0)
+        files, _ = loading.discover_images(args.data, n_images=-1, v_images=0)
         files = files[args.image_id:args.image_id+1]
         batch_x = loading.load_images(files, args.data, load='y')
         batch_x = batch_x['y'].astype(np.float32) / (2**8 - 1)
 
-        model = codec.restore_model(args.dcn, batch_x.shape[1])
+        model = codec.restore(args.dcn, batch_x.shape[1])
 
         fig = match_jpeg(model, batch_x, match='bpp')
         plt.show()

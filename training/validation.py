@@ -2,52 +2,43 @@ import os
 import types
 import json
 import numpy as np
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+
 from collections import OrderedDict
-from helpers import utils, plotting
-from skimage.measure import compare_ssim, compare_psnr
+
+import helpers.stats
+from helpers import utils, plots, metrics
+
 from models.pipelines import NIPModel
 from models.compression import DCN
+from models.jpeg import JPEG
+
+from loguru import logger
 
 
-def confusion(fan, data, label_generator, label_multiplier=1):
-    """
-    Generates a confusion matrix for the FAN model on the validation set.
+def validate_jpeg(jpeg, data, batch_size=1):
+    
+    if not isinstance(jpeg, JPEG):
+        raise ValueError('Codec needs to be as instance of {} but is {}'.format(JPEG, jpeg.class_name))
 
-    :param fan: FAN model
-    :param data: the dataset (instance of IPDataset)
-    :param label_generator: a lambda function which generates GT class labels given the size of the batch
-    :param label_multiplier:
-    :return: 2-D numpy array with the confusion matrix
-    """
-
-    batch_size = np.minimum(10, data.count_validation)
+    batch_size = np.minimum(batch_size, data.count_validation)
     n_batches = data.count_validation // batch_size
-    n_classes = fan.n_classes
-    
-    conf = np.zeros((n_classes, n_classes))
-    
-    for batch in range(n_batches):
 
-        batch_x = data.next_validation_batch(batch, batch_size)
+    results = {k: [] for k in ('psnr', 'ssim', 'entropy')}
+
+    for batch_id in range(n_batches):
+        batch_x = data.next_validation_batch(batch_id, batch_size)
         if isinstance(batch_x, tuple):
-            batch_x = batch_x[0]
+            batch_x = batch_x[-1]
 
-        if isinstance(label_generator, types.FunctionType):
-            batch_y = label_generator(len(batch_x))
-        else:
-            batch_y = label_generator[(batch * batch_size * label_multiplier):(batch + 1) * batch_size * label_multiplier]
+        batch_y, entropy = jpeg.process(batch_x, return_entropy=True)
+        batch_y = batch_y.numpy()
 
-        predicted_labels = fan.process(batch_x)
+        results['ssim'].append(metrics.batch(batch_x, batch_y, metrics.ssim))
+        results['psnr'].append(metrics.batch(batch_x, batch_y, metrics.psnr))
+        results['entropy'].append(entropy)
 
-        for c in range(n_classes):
-            for c_ in range(n_classes):
-                conf[c, c_] += np.sum((batch_y == c) * (predicted_labels == c_))
-
-    if n_batches * batch_size != data.count_validation:
-        print('WARNING Not enough images to fill the last batch ({})'.format(batch_size))
-
-    return conf / (n_batches * batch_size)
+    return {k: float(np.mean(v)) for k, v in results.items()}
 
 
 def validate_dcn(dcn, data, save_dir=False, epoch=0, show_ref=False):
@@ -56,7 +47,8 @@ def validate_dcn(dcn, data, save_dir=False, epoch=0, show_ref=False):
     If requested, plot compressed images to a JPEG image.
 
     :param dcn: the DCN model
-    :param data: the dataset (instance of IPDataset)
+    :param data: the dataset (instance of Dataset)
+    :param data: the dataset (instance of Dataset)
     :param save_dir: path to the directory where figures should be generated
     :param epoch: epoch counter to be appended to the output filename
     :param show_ref: whether to show only the compressed image or also the input image as reference
@@ -70,28 +62,25 @@ def validate_dcn(dcn, data, save_dir=False, epoch=0, show_ref=False):
     batch_x = data.next_validation_batch(0, data.count_validation)
     if isinstance(batch_x, tuple):
         batch_x = batch_x[-1]
-    batch_z = dcn.compress(batch_x, direct=True)
-    batch_y = dcn.process(batch_x, direct=True)
+    batch_y, entropy = dcn.process(batch_x, return_entropy=True)
+    entropy = float(entropy.numpy())
 
-    # Compute quality measures and entropy statistics
-    codebook = dcn.get_codebook()
-    
-    ssims = [compare_ssim(batch_x[b], batch_y[b], multichannel=True, data_range=1) for b in range(data.count_validation)]
-    psnrs = [compare_psnr(batch_x[b], batch_y[b], data_range=1) for b in range(data.count_validation)]
-    losses = [dcn.sess.run(dcn.loss, feed_dict={dcn.x: batch_x[b:b + 1]}) for b in range(data.count_validation)]
-    entropies = [utils.entropy(batch_z[b], codebook) for b in range(data.count_validation)]
+    ssim = metrics.ssim(batch_x, batch_y.numpy()).tolist()
+    psnr = metrics.psnr(batch_x, batch_y.numpy()).tolist()
+
+    loss = float(dcn.loss(batch_x, batch_y, entropy).numpy())
 
     # If requested, plot a figure with input/output pairs
     if save_dir is not None:
         images_x = np.minimum(data.count_validation, 10 if not show_ref else 5)
         images_y = np.ceil(data.count_validation / images_x)
-        fig = plt.figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
+        fig = Figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
 
         for b in range(data.count_validation):
             ax = fig.add_subplot(images_y, images_x, b + 1)
-            plotting.quickshow(
+            plots.image(
                 np.concatenate((batch_x[b], batch_y[b]), axis=1) if show_ref else batch_y[b],
-                '{:.1f} / {:.2f}'.format(psnrs[b], ssims[b]),
+                '{:.1f} / {:.2f}'.format(psnr[b], ssim[b]),
                 axes=ax
             )
 
@@ -99,10 +88,9 @@ def validate_dcn(dcn, data, save_dir=False, epoch=0, show_ref=False):
             os.makedirs(save_dir)
 
         fig.savefig('{}/dcn_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=100, quality=90)
-        plt.close(fig)
         del fig
     
-    return ssims, psnrs, losses, entropies
+    return {'ssim': float(np.mean(ssim)), 'psnr': float(np.mean(psnr)), 'loss': loss, 'entropy': entropy}
 
 
 def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type='L2'):
@@ -111,7 +99,8 @@ def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type
     If requested, resulting patches are visualized as thumbnails and saved to a directory.
 
     :param model: the NIP model
-    :param data: the dataset (instance of IPDataset)
+    :param data: the dataset (instance of Dataset)
+    :param data: the dataset (instance of Dataset)
     :param save_dir: path to the directory where figures should be generated
     :param epoch: epoch counter to be appended to the output filename
     :param show_ref: whether to show only the developed image or also the GT target
@@ -127,20 +116,20 @@ def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type
     if save_dir is not None:
         images_x = np.minimum(data.count_validation, 10 if not show_ref else 5)
         images_y = np.ceil(data.count_validation / images_x)
-        fig = plt.figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
+        fig = Figure(figsize=(20, 20 / images_x * images_y * (1 if not show_ref else 0.5)))
         
     developed_out = np.zeros_like(data['validation']['y'], dtype=np.float32)
 
     for b in range(data.count_validation):
         example_x, example_y = data.next_validation_batch(b, 1)
-        developed = model.process(example_x).clip(0, 1)
+        developed = model.process(example_x).numpy().clip(0, 1)
         developed_out[b, :, :, :] = developed
         developed = developed[:, :, :, :].squeeze()
         reference = example_y.squeeze()
 
         # Compute stats
-        ssim = compare_ssim(reference, developed, multichannel=True, data_range=1)
-        psnr = compare_psnr(reference, developed, data_range=1)
+        ssim = metrics.ssim(reference, developed).mean()
+        psnr = metrics.psnr(reference, developed).mean()
         
         if loss_type == 'L2':
             loss = np.mean(np.power(reference - developed, 2.0))
@@ -156,7 +145,7 @@ def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type
         # Add images to the plot
         if save_dir is not None:
             ax = fig.add_subplot(images_y, images_x, b+1)
-            plotting.quickshow(
+            plots.image(
                 np.concatenate((reference, developed), axis=1) if show_ref else developed,
                 '{:.1f} dB / {:.2f}'.format(psnr, ssim),
                 axes=ax
@@ -166,26 +155,26 @@ def validate_nip(model, data, save_dir=False, epoch=0, show_ref=False, loss_type
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         fig.savefig('{}/nip_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=100, quality=90)
-        plt.close(fig)
         del fig
     
     return ssims, psnrs, losss
 
 
-def validate_fan(fan, data, label_generator, label_multiplier, get_labels=False):
+def validate_fan(flow, data, get_labels=False):
     """
-    Generates a confusion matrix for the FAN model on the validation set.
+    Generates a confusion matrix for the FAN model from a manipulation classification workflow.
 
-    :param fan: FAN model
-    :param data: the dataset (instance of IPDataset)
-    :param label_generator: a lambda function which generates GT class labels given the size of the batch
-    :param label_multiplier:
+    :param flow: manipulation classification workflow
+    :param data: the dataset (instance of Dataset)
+    :param data: the dataset (instance of Dataset)
     :param get_labels: whether to return the predicted labels
     :return: either the accuracy or tuple (accuracy, predicted labels)
     """
 
     batch_size = np.minimum(10, data.count_validation)
     n_batches = data.count_validation // batch_size
+    n_classes = flow.n_classes
+    conf = np.zeros((n_classes, n_classes))    
     out_labels = []
     accuracies = []
 
@@ -195,28 +184,25 @@ def validate_fan(fan, data, label_generator, label_multiplier, get_labels=False)
         if isinstance(batch_x, tuple):
             batch_x = batch_x[0]
 
-        if isinstance(label_generator, types.FunctionType):
-            batch_y = label_generator(len(batch_x))
-        else:
-            batch_y = label_generator[(batch * batch_size * label_multiplier):(batch + 1) * batch_size * label_multiplier]
-
-        if label_multiplier * len(batch_x) != len(batch_y):
-            raise RuntimeError('Number of labels is not equal to the number of examples! {} x {} vs. {}'.format(label_multiplier, len(batch_x), len(batch_y)))
-
-        predicted_labels = fan.process(batch_x)
+        batch_y = flow._batch_labels(len(batch_x))
+        predicted_labels = flow.run_workflow_to_decisions(batch_x)
 
         if get_labels:
             out_labels += [x for x in predicted_labels]
 
+        for c in range(n_classes):
+            for c_ in range(n_classes):
+                conf[c, c_] += np.sum((batch_y == c) * (predicted_labels == c_))
+
         accuracies.append(np.mean(predicted_labels == batch_y))
 
     if out_labels:
-        return np.mean(accuracies), out_labels
+        return np.mean(accuracies), conf / (n_batches * batch_size), out_labels
     else:
-        return np.mean(accuracies)
+        return np.mean(accuracies), conf / (n_batches * batch_size)
         
 
-def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, classes=None):
+def visualize_manipulation_training(flow, epoch, save_dir=None):
     """
     Visualize progress of manipulation training.
 
@@ -232,38 +218,39 @@ def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, c
 
     # Basic figure setup
     images_x = 3
-    images_y = 3 if isinstance(dcn, DCN) else 2
-    fig = plt.figure(figsize=(18, 10 / images_x * images_y))
+    images_y = 3 if isinstance(flow.codec, DCN) else 2
+    fig = Figure(figsize=(18, 10 / images_x * images_y))
+    conf = np.array(flow.fan.performance['confusion'])
         
     # Draw the plots
     ax = fig.add_subplot(images_y, images_x, 1)
-    ax.plot(nip.performance['loss']['training'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(nip.performance['loss']['training'], 0))
-    ax.set_ylabel('{} NIP loss'.format(type(nip).__name__))
+    ax.plot(flow.nip.performance['loss']['training'], '.', alpha=0.25)
+    ax.plot(helpers.stats.ma_conv(flow.nip.performance['loss']['training'], 0))
+    ax.set_ylabel('{} NIP loss'.format(flow.nip.class_name))
     ax.set_title('Loss')
 
     ax = fig.add_subplot(images_y, images_x, 2)
-    ax.plot(nip.performance['psnr']['validation'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(nip.performance['psnr']['validation'], 0))
-    ax.set_ylabel('{} NIP psnr'.format(type(nip).__name__))
+    ax.plot(flow.nip.performance['psnr']['validation'], '.', alpha=0.25)
+    ax.plot(helpers.stats.ma_conv(flow.nip.performance['psnr']['validation'], 0))
+    ax.set_ylabel('{} NIP psnr'.format(flow.nip.class_name))
     ax.set_title('PSNR')
     ax.set_ylim([30, 50])
 
     ax = fig.add_subplot(images_y, images_x, 3)
-    ax.plot(nip.performance['ssim']['validation'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(nip.performance['ssim']['validation'], 0))
-    ax.set_ylabel('{} NIP ssim'.format(type(nip).__name__))
+    ax.plot(flow.nip.performance['ssim']['validation'], '.', alpha=0.25)
+    ax.plot(helpers.stats.ma_conv(flow.nip.performance['ssim']['validation'], 0))
+    ax.set_ylabel('{} NIP ssim'.format(flow.nip.class_name))
     ax.set_title('SSIM')
     ax.set_ylim([0.8, 1])
     
     ax = fig.add_subplot(images_y, images_x, 4)
-    ax.plot(fan.performance['loss']['training'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(fan.performance['loss']['training'], 0))
+    ax.plot(flow.fan.performance['loss']['training'], '.', alpha=0.25)
+    ax.plot(helpers.stats.ma_conv(flow.fan.performance['loss']['training'], 0))
     ax.set_ylabel('FAN loss')
 
     ax = fig.add_subplot(images_y, images_x, 5)
-    ax.plot(fan.performance['accuracy']['validation'], '.', alpha=0.25)
-    ax.plot(utils.ma_conv(fan.performance['accuracy']['validation'], 0))
+    ax.plot(flow.fan.performance['accuracy']['validation'], '.', alpha=0.25)
+    ax.plot(helpers.stats.ma_conv(flow.fan.performance['accuracy']['validation'], 0))
     ax.set_ylabel('FAN accuracy')
     ax.set_ylim([0, 1])
 
@@ -271,13 +258,12 @@ def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, c
     ax = fig.add_subplot(images_y, images_x, 6)
     ax.imshow(conf, vmin=0, vmax=1)
 
-    if classes is not None:
-        ax.set_xticks(range(fan.n_classes))
-        ax.set_xticklabels(classes, rotation='vertical')
-        ax.set_yticks(range(fan.n_classes))
-        ax.set_yticklabels(classes)
+    ax.set_xticks(range(flow.n_classes))
+    ax.set_xticklabels(flow._forensics_classes, rotation='vertical')
+    ax.set_yticks(range(flow.n_classes))
+    ax.set_yticklabels(flow._forensics_classes)
 
-    for r in range(fan.n_classes):
+    for r in range(flow.n_classes):
         ax.text(r, r, '{:.2f}'.format(conf[r, r]), horizontalalignment='center', color='b' if conf[r, r] > 0.5 else 'w')
 
     ax.set_xlabel('PREDICTED class')
@@ -287,33 +273,32 @@ def visualize_manipulation_training(nip, fan, dcn, conf, epoch, save_dir=None, c
     # If the compression model is a trainable DCN, include it's validation metrics
     if images_y == 3:
         ax = fig.add_subplot(images_y, images_x, 7)
-        ax.plot(dcn.performance['loss']['validation'], '.', alpha=0.25)
-        ax.plot(utils.ma_conv(dcn.performance['loss']['validation'], 0))
+        ax.plot(flow.codec.performance['loss']['validation'], '.', alpha=0.25)
+        ax.plot(helpers.stats.ma_conv(flow.codec.performance['loss']['validation'], 0))
         ax.set_ylabel('DCN loss')
 
         ax = fig.add_subplot(images_y, images_x, 8)
-        ax.plot(dcn.performance['ssim']['validation'], '.', alpha=0.25)
-        ax.plot(utils.ma_conv(dcn.performance['ssim']['validation'], 0))
+        ax.plot(flow.codec.performance['ssim']['validation'], '.', alpha=0.25)
+        ax.plot(helpers.stats.ma_conv(flow.codec.performance['ssim']['validation'], 0))
         ax.set_ylabel('DCN ssim')
         ax.set_ylim([0.8, 1])
 
         ax = fig.add_subplot(images_y, images_x, 9)
-        ax.plot(dcn.performance['entropy']['validation'], '.', alpha=0.25)
-        ax.plot(utils.ma_conv(dcn.performance['entropy']['validation'], 0))
+        ax.plot(flow.codec.performance['entropy']['validation'], '.', alpha=0.25)
+        ax.plot(helpers.stats.ma_conv(flow.codec.performance['entropy']['validation'], 0))
         ax.set_ylabel('DCN entropy')
 
     if save_dir is not None:
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         fig.savefig('{}/manip_validation_{:05d}.jpg'.format(save_dir, epoch), bbox_inches='tight', dpi=100)
-        plt.close(fig)    
         del fig
 
     else:
         return fig
 
 
-def save_training_progress(training_summary, nip, fan, dcn, conf, root_dir):
+def save_training_progress(training_summary, flow, root_dir, quiet=False):
     """
     Saves training progress to a JSON file.
 
@@ -328,58 +313,40 @@ def save_training_progress(training_summary, nip, fan, dcn, conf, root_dir):
     # Populate output structures
     training = OrderedDict()
     training['summary'] = training_summary
+    training['distribution'] = flow._distribution
+    training['manipulations'] = flow._forensics_classes
 
     # The neural imaging pipeline (NIP
-    if isinstance(nip, NIPModel):
-        training['nip'] = OrderedDict()
-        training['nip']['training'] = OrderedDict() 
-        training['nip']['training']['loss'] = nip.performance['loss']['training']
-        training['nip']['validation'] = OrderedDict() 
-        training['nip']['validation']['ssim'] = nip.performance['ssim']['validation']
-        training['nip']['validation']['ssim'] = nip.performance['ssim']['validation']
-        training['nip']['validation']['psnr'] = nip.performance['psnr']['validation']
-        training['nip']['validation']['loss'] = nip.performance['loss']['validation']
-
-    elif hasattr(nip, '__getitem__'):
-        for m in nip:
-            name = 'nip/{}'.format(m.name)
-            training[name] = OrderedDict()
-            training[name]['training'] = OrderedDict() 
-            training[name]['training']['loss'] = m.performance['loss']['training']
-            training[name]['validation'] = OrderedDict() 
-            training[name]['validation']['ssim'] = m.performance['ssim']['validation']
-            training[name]['validation']['ssim'] = m.performance['ssim']['validation']
-            training[name]['validation']['psnr'] = m.performance['psnr']['validation']
-            training[name]['validation']['loss'] = m.performance['loss']['validation']
-    else:
-        raise ValueError('Unsupported value passed as a NIP model ({})'.format(type(nip)))
-
-    # The forensic analysis network (FAN)
-    if fan is not None:
-        training['forensics'] = OrderedDict()
-        training['forensics']['training'] = OrderedDict()
-        training['forensics']['training']['loss'] = fan.performance['loss']['training']
-        training['forensics']['validation'] = OrderedDict() 
-        training['forensics']['validation']['accuracy'] = fan.performance['accuracy']['validation']
+    training['nip'] = OrderedDict()
+    training['nip']['model'] = flow.nip.class_name
+    training['nip']['init'] = repr(flow.nip)
+    training['nip']['args'] = flow.nip._h.to_json() if hasattr(flow.nip, '_h') else {}
+    training['nip']['performance'] = flow.nip.performance
     
-        if conf is not None:
-            training['forensics']['validation']['confusion'] = conf.tolist()
-
+    # The forensic analysis network (FAN)
+    training['forensics'] = OrderedDict()
+    training['forensics']['model'] = flow.fan.class_name
+    training['forensics']['init'] = repr(flow.fan)
+    training['forensics']['args'] = flow.fan._h.to_json()
+    training['forensics']['performance'] = flow.fan.performance    
+    
     # The deep compression network (DCN)
-    if dcn is not None and hasattr(dcn, 'performance'):
-        training['compression'] = OrderedDict()
-#         training['compression']['training'] = OrderedDict()
-#         training['compression']['training']['ssim'] = dcn.performance['loss']['training']
-        training['compression']['validation'] = OrderedDict() 
-        training['compression']['validation']['ssim'] = dcn.performance['ssim']['validation']
-        training['compression']['validation']['psnr'] = dcn.performance['psnr']['validation']
-        training['compression']['validation']['entropy'] = dcn.performance['entropy']['validation']
-        training['compression']['validation']['loss'] = dcn.performance['loss']['validation']
+    if flow.codec is not None:
+        training['codec'] = OrderedDict()
+        training['codec']['model'] = flow.codec.class_name
+        training['codec']['init'] = repr(flow.codec)
+    if flow.codec is not None and hasattr(flow.codec, '_h'):
+        training['codec']['args'] = flow.codec._h.to_json()
+    if flow.codec is not None and hasattr(flow.codec, 'performance'):
+        training['codec']['performance'] = flow.codec.performance
     
     # Make dirs if needed
     if not os.path.exists(root_dir):
         os.makedirs(root_dir)
     
     # Save as JSON
-    with open(os.path.join(root_dir, 'training.json'), 'w') as f:
+    filename = os.path.join(root_dir, 'training.json')
+    if not quiet:
+        logger.info(f'> Training progress --> {filename}')
+    with open(filename, 'w') as f:
         json.dump(training, f, indent=4)

@@ -1,8 +1,8 @@
-tensorboard==1.12.2
-tensorflow-gpu==1.12.2
-numpy==1.16.4
-scipy==1.3.0
-scikit-image==0.15.0
+tensorboard==2.1.0
+tensorflow-gpu==2.1.0
+numpy==1.18.1
+scipy==1.4.1
+scikit-image==0.16.2
 colour-demosaicing
 rawkit
 exifread
@@ -12,4 +12,8 @@ matplotlib
 tikzplotlib
 sewar
 dahuffman
+sklearn
 python-Levenshtein
+latex
+pdf2image
+loguru

@@ -12,8 +12,12 @@ from sewar.full_ref import msssim
 
 from scipy.optimize import curve_fit
 
-from helpers import loading, utils, coreutils
+import helpers.stats
+import helpers.utils
+from helpers import loading, utils, fsutil
 from compression import jpeg_helpers, codec, bpg_helpers
+
+from loguru import logger
 
 
 def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=False):
@@ -24,7 +28,7 @@ def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=F
     Files are saved as JPEG using imageio.
     """
 
-    files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
+    files, _ = loading.discover_images(directory, n_images=-1, v_images=0)
     batch_x = loading.load_images(files, directory, load='y')
     batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
@@ -33,7 +37,7 @@ def get_jpeg_df(directory, write_files=False, effective_bytes=True, force_calc=F
     df_jpeg_path = os.path.join(directory, 'jpeg.csv')
 
     if os.path.isfile(df_jpeg_path) and not force_calc:
-        print('Restoring JPEG stats from {}'.format(df_jpeg_path))
+        logger.info('Restoring JPEG stats from {}'.format(df_jpeg_path))
         df = pd.read_csv(df_jpeg_path, index_col=False)
     else:
         df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'msssim', 'msssim_db', 'bytes', 'bpp'])
@@ -88,7 +92,7 @@ def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc
     Files are saved as JPEG using glymur.
     """
 
-    files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
+    files, _ = loading.discover_images(directory, n_images=-1, v_images=0)
     batch_x = loading.load_images(files, directory, load='y')
     batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
@@ -97,7 +101,7 @@ def get_jpeg2k_df(directory, write_files=False, effective_bytes=True, force_calc
     df_jpeg_path = os.path.join(directory, 'jpeg2000.csv')
 
     if os.path.isfile(df_jpeg_path) and not force_calc:
-        print('Restoring JPEG 2000 stats from {}'.format(df_jpeg_path))
+        logger.info('Restoring JPEG 2000 stats from {}'.format(df_jpeg_path))
         df = pd.read_csv(df_jpeg_path, index_col=False)
     else:
         df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'msssim', 'msssim_db', 'bytes', 'bpp'])
@@ -166,7 +170,7 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
     The files are saved using the reference codec: https://bellard.org/bpg/
     """
 
-    files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
+    files, _ = loading.discover_images(directory, n_images=-1, v_images=0)
     batch_x = loading.load_images(files, directory, load='y')
     batch_x = batch_x['y'].astypre(np.float32) / (2 ** 8 - 1)
 
@@ -174,7 +178,7 @@ def get_bpg_df(directory, write_files=False, effective_bytes=True, force_calc=Fa
     df_jpeg_path = os.path.join(directory, 'bpg.csv')
 
     if os.path.isfile(df_jpeg_path) and not force_calc:
-        print('Restoring BPG stats from {}'.format(df_jpeg_path))
+        logger.info('Restoring BPG stats from {}'.format(df_jpeg_path))
         df = pd.read_csv(df_jpeg_path, index_col=False)
     else:
         df = pd.DataFrame(columns=['image_id', 'filename', 'codec', 'quality', 'ssim', 'psnr', 'msssim', 'msssim_db', 'bytes', 'bpp'])
@@ -239,7 +243,7 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
     """
 
     # Discover test files
-    files, _ = loading.discover_files(directory, n_images=-1, v_images=0)
+    files, _ = loading.discover_images(directory, n_images=-1, v_images=0)
     batch_x = loading.load_images(files, directory, load='y')
     batch_x = batch_x['y'].astype(np.float32) / (2 ** 8 - 1)
 
@@ -249,18 +253,18 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
 
     # Discover available models
     model_dirs = list(Path(model_directory).glob('**/progress.json'))
-    print('Found {} models'.format(len(model_dirs)))
+    logger.info('Found {} models'.format(len(model_dirs)))
 
-    df_path = os.path.join(directory, 'dcn-{}.csv'.format([x for x in coreutils.splitall(model_directory) if len(x) > 0][-1]))
+    df_path = os.path.join(directory, 'dcn-{}.csv'.format([x for x in fsutil.split(model_directory) if len(x) > 0][-1]))
 
     if os.path.isfile(df_path) and not force_calc:
-        print('Restoring DCN stats from {}'.format(df_path))
+        logger.info('Restoring DCN stats from {}'.format(df_path))
         df = pd.read_csv(df_path, index_col=False)
     else:
 
         for model_dir in model_dirs:
-            print('Processing: {}'.format(model_dir))
-            dcn = codec.restore_model(os.path.split(str(model_dir))[0], batch_x.shape[1])
+            logger.info('Processing model dir: {}'.format(model_dir))
+            dcn = codec.restore(os.path.split(str(model_dir))[0], batch_x.shape[1])
 
             # Dump compressed images
             for image_id, filename in enumerate(files):
@@ -268,9 +272,9 @@ def get_dcn_df(directory, model_directory, write_files=False, force_calc=False):
                 try:
                     batch_y, image_bytes = codec.simulate_compression(batch_x[image_id:image_id + 1], dcn)
                     batch_z = dcn.compress(batch_x[image_id:image_id + 1])
-                    entropy = utils.entropy(batch_z, dcn.get_codebook())
+                    entropy = helpers.stats.entropy(batch_z, dcn.get_codebook())
                 except Exception as e:
-                    print('Error while processing {} with {} : {}'.format(filename, dcn.model_code, e))
+                    logger.error('Error while processing {} with {} : {}'.format(filename, dcn.model_code, e))
                     raise e
 
                 if write_files:
@@ -421,7 +425,7 @@ def plot_curve(plots, axes,
 
     # Parse input parameters
     draw_markers = draw_markers if draw_markers is not None else len(images) == 1
-    plot = coreutils.match_option(plot, ['fit', 'aggregate'])
+    plot = helpers.utils.match_option(plot, ['fit', 'aggregate'])
 
     df_all, labels = load_data(plots, dirname)
 
@@ -479,15 +483,15 @@ def plot_curve(plots, axes,
                     mse = np.mean(np.power(y - y_est, 2))
                     mse_l.append(mse)
                     if mse > 0.5:
-                        print('WARNING Large MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
+                        logger.warning('WARNING Large MSE for {}:{} = {:.2f}'.format(labels[index], image_no, mse))
 
                 except RuntimeError:
-                    print('ERROR', labels[index], 'image =', image_id, 'bpp =', x, 'y =', y)
+                    logger.error(f'{labels[index]} image ={image_id}, bpp ={x} y ={y}')
 
                 Y[image_no] = func(X, *popt)
 
             if len(images) > 1:
-                print('Fit summary - MSE for {} av={:.2f} max={:.2f}'.format(labels[index], np.mean(mse_l), np.max(mse_l)))
+                logger.info('Fit summary - MSE for {} av={:.2f} max={:.2f}'.format(labels[index], np.mean(mse_l), np.max(mse_l)))
 
             yy = np.nanmean(Y, axis=0)
             axes.plot(X, yy, styles[index][0], label=labels[index] if add_legend else None)
@@ -560,14 +564,14 @@ def plot_curve(plots, axes,
 
 def plot_bulk(plots, dirname, plot_images, metric, plot, baseline_count=3, add_legend=True, max_bpp=5,
               draw_markers=1):
-    plot = coreutils.match_option(plot, ['fit', 'aggregate'])
+    plot = helpers.utils.match_option(plot, ['fit', 'aggregate'])
     if dirname.endswith('/') or dirname.endswith('\\'):
         dirname = dirname[:-1]
 
     # Load data and select images for plotting
     df_all, labels = load_data(plots, dirname)
     plot_images = plot_images if len(plot_images) > 0 else [-1] + df_all[0].image_id.unique().tolist()
-    print(plot_images)
+    logger.info(f'Selected images: {plot_images}')
 
     images_x = int(np.ceil(np.sqrt(len(plot_images))))
     images_y = int(np.ceil(len(plot_images) / images_x))
@@ -594,14 +598,20 @@ def plot_bulk(plots, dirname, plot_images, metric, plot, baseline_count=3, add_l
     fig, ax = plt.subplots(images_y, images_x, sharex=True, sharey=True)
     fig.set_size_inches((images_x * 6, images_y * 4))
 
-    for image_id in plot_images:
+    if hasattr(ax, 'flat'):
+        for axes in ax.flat:
+            axes.axis('off')
+
+    for ax_id, image_id in enumerate(plot_images):
 
         if images_y > 1:
-            axes = ax[image_id // images_x, image_id % images_x]
+            axes = ax[ax_id // images_x, ax_id % images_x]
         elif images_x > 1:
-            axes = ax[image_id % images_x]
+            axes = ax[ax_id % images_x]
         else:
             axes = ax
+
+        axes.axis('on')
 
         # Select measurements for a specific image, if specified
         for dfc in df_all:
@@ -645,15 +655,15 @@ def plot_bulk(plots, dirname, plot_images, metric, plot, baseline_count=3, add_l
                         mse = np.mean(np.power(y - y_est, 2))
                         mse_l.append(mse)
                         if mse > 0.1:
-                            print('WARNING Large MSE for {} img=#{} = {:.2f}'.format(labels[index], image_no, mse))
+                            logger.warning('WARNING Large MSE for {} img=#{} = {:.2f}'.format(labels[index], image_no, mse))
 
                     except RuntimeError as err:
-                        print('ERROR', labels[index], 'image =', imid, 'bpp =', x, 'y =', y, 'err =', err)
+                        logger.error(f'{labels[index]} image ={imid} bpp={x} y ={y} err ={err}')
 
                     Y[image_no] = func(X, *popt)
 
                 if image_id < 0:
-                    print('Fit summary - MSE for {} av={:.2f} max={:.2f}'.format(labels[index], np.mean(mse_l),
+                    logger.info('Fit summary - MSE for {} av={:.2f} max={:.2f}'.format(labels[index], np.mean(mse_l),
                                                                                  np.max(mse_l)))
                 mse_labels[labels[index]] = np.mean(mse_l)
 

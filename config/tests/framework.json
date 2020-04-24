@@ -1,0 +1,69 @@
+{
+  "train-nip": {
+    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 101 --out {root}/models/nip/ --patch 64",
+    "files": [
+      "models/nip/{}/INet_gbrg_5x5/inet/progress.json",
+      "models/nip/{}/INet_gbrg_5x5/inet/inet.h5"
+    ],
+    "performance" : {
+      "file": "models/nip/{}/INet_gbrg_5x5/inet/progress.json",
+      "values": {
+        "performance/psnr/validation": 39
+      }
+    }
+  },
+  "resume-nip": {
+    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 401 --out {root}/models/nip --patch 64 --resume",
+    "files": [
+      "models/nip/{}/INet_gbrg_5x5/inet/progress.json",
+      "models/nip/{}/INet_gbrg_5x5/inet/inet.h5"
+    ],
+    "performance": {
+      "file": "models/nip/{}/INet_gbrg_5x5/inet/progress.json",
+      "values": {
+        "performance/psnr/validation": 41
+      }
+    }
+  },
+  "train-manipulation": {
+    "command": "python3 train_manipulation.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 501 --dir {root}/m/nip --end 1 --nip-dir {root}/models/nip --ln 0.1 --ds none --patch 64 --train nip --manip sharpen:1,gaussian:1",
+    "files": [
+      "m/nip/{}/INet/ln-0.1000/fixed-codec/000/training.json",
+      "m/nip/{}/INet/ln-0.1000/fixed-codec/000/models/fan/fan.h5"
+    ],
+    "performance" : {
+      "file": "m/nip/{}/INet/ln-0.1000/fixed-codec/000/training.json",
+      "values": {
+        "forensics/performance/accuracy/validation": 0.50
+      }
+    }
+  },
+  "train-dcn": {
+    "command": "python3 train_dcn.py --split 200:50:1 --epochs 200 --param_list config/twitter.csv --out {root}/models/dcn --patch 32 --data data/rgb/native12k/ --group 1",
+    "files": [
+      "models/dcn/TwitterDCN-32C/soft-codebook_Q-5bpf_S+_H+250.00/twitterdcn/progress.json",
+      "models/dcn/TwitterDCN-32C/soft-codebook_Q-5bpf_S+_H+250.00/twitterdcn/twitterdcn.h5"
+    ],
+    "performance" : {
+      "file": "models/dcn/TwitterDCN-32C/soft-codebook_Q-5bpf_S+_H+250.00/twitterdcn/progress.json",
+      "values": {
+        "codec/performance/ssim/validation": 0.5
+      }
+    }
+  },
+  "train-manipulation-dcn": {
+    "command": "python3 train_manipulation.py --cam native12k --nip ONet --split 40:20:1 --epochs 401 --dir {root}/m/dcn+ --end 1 --lc 0.1 --ds none --patch 32 --train dcn --dcn ./data/models/dcn/baselines/32c",
+    "files": [
+      "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000//training.json",
+      "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000/models/fan/fan.h5",
+      "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000/models/twitterdcn/twitterdcn.h5",
+      "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000/models/twitterdcn/progress.json"
+    ],
+    "performance" : {
+      "file": "m/dcn+/native12k/ONet/fixed-nip/lc-0.1000/000/training.json",
+      "values": {
+        "forensics/performance/accuracy/validation": 0.4
+      }
+    }
+  }
+}

@@ -1,41 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Nov 11 14:56:32 2019
-
-@author: pkorus
-"""
 import os
 import argparse
 import matplotlib.pyplot as plt
-import seaborn as sns
 from collections import OrderedDict
 
 # Toolbox imports
-from helpers import coreutils
+from helpers import utils, plots, tf_helpers
 from compression.ratedistortion import plot_bulk
 
-# %% Setup plots
-from matplotlib import rc
+utils.setup_logging()
+plots.configure('tex')
+tf_helpers.disable_warnings()
 
-sns.set('paper', font_scale=2, style="ticks")
-sns.set_context("paper")
-
-rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
-rc('text', usetex=True)
-
-rc('figure', dpi=72)
-rc('axes', titlesize=14)
-rc('axes', labelsize=14)
-rc('xtick', labelsize=8)
-rc('ytick', labelsize=8)
-rc('legend', fontsize=10)
-rc('figure', titlesize=14)
-
-# %%
 
 def main():
-    parser = argparse.ArgumentParser(description='Test a neural imaging pipeline')
+    parser = argparse.ArgumentParser(description='Compare rate-distortion profiles for various codecs')
     parser.add_argument('-d', '--data', dest='data', action='store', default='./data/rgb/clic512',
                         help='directory with training & validation images (png)')
     parser.add_argument('-i', '--images', dest='images', action='append', default=[], 
@@ -67,7 +47,7 @@ def main():
     if 'dcn' in args.codec: plots['dcn'] = ('dcn-7-raw.csv', {'model_dir': '.*basic/'})
     
     baseline_count = sum([x in args.codec for x in ['jpg', 'jp2', 'bpg']])
-            
+
     fig = plot_bulk(plots, args.data, args.images, args.metric, args.plot, baseline_count, True, args.max_bpp, args.markers)
 
     # Save or display
@@ -82,8 +62,8 @@ def main():
         plt.show()
         plt.close()
 
-    
-if not coreutils.is_interactive():
+
+if not utils.is_interactive():
     main()
 
 else:

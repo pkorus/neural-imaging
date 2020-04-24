@@ -4,7 +4,7 @@ import os
 import numpy as np
 import imageio as io
 import argparse
-from helpers import plotting
+from helpers import plots
 from skimage.measure import compare_psnr
 from matplotlib import pylab as plt
 from models.jpeg import DJPG
@@ -32,13 +32,13 @@ def test_output(image, jpeg_quality=50, rounding_approximation=None):
 
     for n in range(n_images):
         plt.subplot(n_images, 3, 1 + n*3)
-        plotting.quickshow(batch_x[n].squeeze() / np.max(np.abs(batch_x)), 'Input')
+        plots.image(batch_x[n].squeeze() / np.max(np.abs(batch_x)), 'Input')
 
         plt.subplot(n_images, 3, 2 + n*3)
-        plotting.quickshow(batch_y[n].squeeze() / np.max(np.abs(batch_y)), 'dJPEG Model')
+        plots.image(batch_y[n].squeeze() / np.max(np.abs(batch_y)), 'dJPEG Model')
 
         plt.subplot(n_images, 3, 3 + n*3)
-        plotting.quickshow(batch_j[n].squeeze() / np.max(np.abs(batch_j)), 'libJPG Codec')
+        plots.image(batch_j[n].squeeze() / np.max(np.abs(batch_j)), 'libJPG Codec')
 
     plt.show()
 

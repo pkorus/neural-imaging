@@ -8,11 +8,15 @@ import numpy as np
 import tensorflow as tf
 
 # Own libraries and modules
-from helpers import dataset, coreutils, utils
+import helpers.debugging
+from helpers import dataset, fsutil, utils
 from models import compression
 
 from training.compression import train_dcn
 import pandas as pd
+
+print('TF: ', tf.__version__)
+print('GPUs: ', tf.config.experimental.list_physical_devices('GPU'))
 
 # Disable unimportant logging and import TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -21,27 +25,27 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 def main():
 
     parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
-    
+
     # Parameters related to the training data
-    parser.add_argument('--data', dest='data', action='store', default='./data/rgb/32k',
+    parser.add_argument('--data', dest='data', action='store', default='./data/rgb/mni32k',
                        help='directory with training & validation images (png)')
     parser.add_argument('--split', dest='split', action='store', default='16000:800:2',
                        help='data split with #training:#validation:#validation_patches - e.g., 16000:800:2')
     parser.add_argument('--patch', dest='patch_size', action='store', default=128, type=int,
                         help='training patch size')
-    
+
     # Parameters of the DCN
     parser.add_argument('--dcn', dest='dcn', action='store', default='TwitterDCN', help='specific DCN class name')
     parser.add_argument('--params', dest='dcn_params', action='append', help='Extra parameters for DCN constructor (JSON string)')
     parser.add_argument('--param_list', dest='dcn_param_list', default=None, help='CSV file with DCN configurations')
-    
+
     # General
     parser.add_argument('--out', dest='out_dir', action='store', default='./data/models/dcn/playground',
                         help='output directory for storing trained models')
     parser.add_argument('--epochs', dest='epochs', action='store', default=1500, type=int,
                         help='maximum number of training epochs')
     parser.add_argument('--v_schedule', dest='validation_schedule', action='store', default=100, type=int,
-                        help='Validation schedule - evaluate the model every v_schedule epochs')    
+                        help='Validation schedule - evaluate the model every v_schedule epochs')
     parser.add_argument('--lr', dest='learning_rate', action='store', default=1e-4, type=float,
                         help='learning rate')
     parser.add_argument('--v_train', dest='validation_is_training', action='store_true', default=False,
@@ -133,13 +137,13 @@ def main():
     if not args.dry:
         print('\n# Dataset:')
         np.random.seed(training_spec['seed'])
-        data = dataset.IPDataset(args.data, n_images=training_spec['n_images'], v_images=training_spec['v_images'], load='y',
-                                 val_rgb_patch_size=training_spec['patch_size'], val_n_patches=training_spec['valid_patches'])
+        data = dataset.Dataset(args.data, n_images=training_spec['n_images'], v_images=training_spec['v_images'], load='y',
+                               val_rgb_patch_size=training_spec['patch_size'], val_n_patches=training_spec['valid_patches'])
 
         for key in ['Training', 'Validation']:
             print('{:>16s} [{:5.1f} GB] : Y -> {} '.format(
                 '{} data'.format(key),
-                coreutils.mem(data[key.lower()]['y']),
+                helpers.debugging.mem(data[key.lower()]['y']),
                 data[key.lower()]['y'].shape
             ), flush=True)
 
@@ -155,14 +159,10 @@ def main():
     for counter, (index, params) in enumerate(parameters.drop(columns=['scenario', 'label']).iterrows()):
 
         print('## Scenario {} - {} / {}'.format(index, counter + 1, len(parameters)))
-        # Create TF session and graph
-        graph = tf.Graph()
-        sess = tf.Session(graph=graph)
 
         # Create a DCN according to the spec
         dcn_params = {k: v for k, v in params.to_dict().items() if not utils.is_nan(v)}
-        dcn_params['default_val_is_train'] = training_spec['validation_is_training']
-        dcn = getattr(compression, args.dcn)(sess, graph, None, patch_size=training_spec['patch_size'], **dcn_params)
+        dcn = getattr(compression, args.dcn)(patch_size=training_spec['patch_size'], **dcn_params)
 
         model_code = dcn.model_code
 
@@ -173,7 +173,7 @@ def main():
             model_log[model_code] = [index]
 
         if not args.dry:
-            train_dcn({'dcn': dcn}, training_spec, data, args.out_dir)
+            train_dcn(dcn, training_spec, data, args.out_dir)
 
         # Fill the table with results, if requested
         if args.fill is not None:
@@ -189,12 +189,9 @@ def main():
                 parameters.loc[index, 'loss'] = results['performance']['loss']['validation'][-1]
                 parameters.loc[index, 'entropy'] = results['performance']['entropy']['training'][-1]
 
-        # Cleanup
-        sess.close()
-        del graph
-
     if args.fill is not None:
         if args.fill == '-':
+            print('\n# Training Results')
             print(parameters.to_string())
         elif args.fill.endswith('.csv'):
             print('Saving the results to {}'.format(args.fill))
@@ -203,7 +200,7 @@ def main():
             raise ValueError('Invalid value for the output results file: {}'.format(args.fill))
 
     if args.dry:
-        print('List of instantiated models [{}]:'.format(len(model_log)))
+        print('\n# List of instantiated models [{}]:'.format(len(model_log)))
         for index, key in enumerate(sorted(model_log.keys())):
             print('{}  {:3d}. {} -> {}'.format(' ' if len(model_log[key]) == 1 else '!', index, key, model_log[key]))
 

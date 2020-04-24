@@ -1,19 +1,45 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Provides the ParamSpec class that simplifies handling of model hyper-parameters.
+"""
 import numpy as np
-# import regex
 import types
 
 from helpers import utils
 
 
+def item_passes(check):
+    def wrapper(items):
+        for i in items:
+            if not check(i):
+                return False
+        return True
+    return wrapper
+
+
+def numbers_in_range(dtype, min_value=None, max_value=None):
+    def wrapper(items):
+        for i in items:
+            if not isinstance(i, dtype):
+                return False
+            if min_value is not None and i < min_value:
+                return False
+            if max_value is not None and i > max_value:
+                return False
+        return True
+    return wrapper
+
+
 class ParamSpec(object):
 
     def __init__(self, specs):
+        self._validate_specs(specs)
+        self.__dict__['_specs'] = specs
+        self.__dict__['_values'] = {}
 
-        # Validate the specs
+    @staticmethod
+    def _validate_specs(specs):
         for key, spec in specs.items():
-
             if type(spec) is not tuple and len(spec) != 3:
                 raise ValueError('Invalid parameter specification for key {} - expected tuple of length 3'.format(key))
 
@@ -26,8 +52,9 @@ class ParamSpec(object):
             if utils.is_numeric_type(spec[1]) and not any(type(spec[2]) is s for s in [tuple, set]):
                 raise ValueError('Numeric data types can be validated by a range (2-elem tuple), or enum (set)')
 
-        self.__dict__['_specs'] = specs
-        self.__dict__['_values'] = {}
+    def add(self, specs):
+        self._validate_specs(specs)
+        self._specs.update(specs)
 
     def __getattr__(self, name):
         if name in self._values:
@@ -78,7 +105,7 @@ class ParamSpec(object):
             return None
     
     def __repr__(self):
-        return 'ParamSpec()'
+        return '{}({})'.format(type(self).__name__, self.to_dict())
 
     def to_dict(self):
         params = {key: spec[0] for key, spec in self._specs.items()}
@@ -92,6 +119,13 @@ class ParamSpec(object):
 
     def __contains__(self, item):
         return item in self._specs
+
+    def keys(self):
+        return [key for key in self._specs.keys()]
+
+    def changed_params(self):
+        params = {key: value for key, value in self._values.items() if self._specs[key][0] != value}
+        return params
     
     def update(self, **params):
 
@@ -131,7 +165,6 @@ class ParamSpec(object):
                         # 3. if both string - treat as a regular expression match
                         if type(validation) == str and dtype == str:
                             if validation not in candidate:
-#                            if not regex.match(validation, candidate):
                                 raise ValueError('{}: {} does not match regex ({})!'.format(key, candidate, validation))
 
                         # 4. if function - run custom validation code
