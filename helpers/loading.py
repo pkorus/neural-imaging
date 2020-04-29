@@ -149,8 +149,6 @@ def sample_patch(rgb_image, rgb_patch_size=128, discard=None, max_attempts=25):
     max_x = rgb_image.shape[1] - rgb_patch_size
     max_y = rgb_image.shape[0] - rgb_patch_size
 
-    need_normalization = rgb_image.max() > 1
-
     if max_x > 0 or max_y > 0:
         found = False
         panic_counter = max_attempts
@@ -164,9 +162,7 @@ def sample_patch(rgb_image, rgb_patch_size=128, discard=None, max_attempts=25):
                 found = True
                 continue
 
-            patch = rgb_image[yy:yy + rgb_patch_size, xx:xx + rgb_patch_size]
-            if need_normalization:
-                patch = patch.astype(np.float) / 255
+            patch = rgb_image[yy:yy + rgb_patch_size, xx:xx + rgb_patch_size].astype(np.float) / 255
             patch_variance = np.var(patch)
             patch_intensity = np.mean(patch)
 

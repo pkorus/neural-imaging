@@ -5,10 +5,11 @@ import json
 from collections import deque, OrderedDict
 
 import numpy as np
+import tensorflow as tf
 
 from matplotlib.figure import Figure
 from tqdm import tqdm
-from helpers import metrics
+from helpers import metrics, dataset, tf_helpers
 
 
 # Set progress bar width
@@ -29,17 +30,16 @@ def validate(model, data, out_directory, savefig=False, epoch=0, show_ref=False,
         images_x = np.minimum(data.count_validation, 20 if not show_ref else 10)
         images_y = np.ceil(data.count_validation / images_x)
         fig = Figure(figsize=(40, 1.1 * 40 / images_x * images_y * (1 if not show_ref else 0.5)))
-        
+
     developed_out = np.zeros_like(data['validation']['y'], dtype=np.float32)
 
     for b in range(data.count_validation):
 
         # Fetch the next example and develop the RGB image
         example_x, example_y = data.next_validation_batch(b, 1)
-        developed = model.process(example_x)
-        developed = np.clip(developed, 0, 1)
+        developed = model.process(example_x).numpy().clip(0, 1)
         developed_out[b, :, :, :] = developed
-        developed = developed[:, :, :, :].squeeze()        
+        developed = developed.squeeze()
         reference = example_y.squeeze()
 
         # Compute loss & quality metrics
@@ -108,7 +108,7 @@ def train_nip_model(model, camera_name, n_epochs=10000, lr_schedule=None, valida
     
     if data is None:
         raise ValueError('Training data seems not to be loaded!')
-        
+
     try:
         batch_x, batch_y = data.next_training_batch(0, 5, patch_size * 2)
         if batch_x.shape != (5, patch_size, patch_size, 4) or batch_y.shape != (5, 2 * patch_size, 2 * patch_size, 3):
@@ -116,6 +116,9 @@ def train_nip_model(model, camera_name, n_epochs=10000, lr_schedule=None, valida
 
     except Exception as e:
         raise ValueError('Data set error: {}'.format(e))
+
+    if batch_size > data.count_training or batch_size > data.count_validation:
+        raise ValueError(f'Batch size ({batch_size}) exceeds dataset size ({data.count_training}/{data.count_validation})!')
 
     # Set up training output
     out_directory = os.path.join(out_directory_root, camera_name, model.model_code, model.scoped_name)
@@ -129,7 +132,6 @@ def train_nip_model(model, camera_name, n_epochs=10000, lr_schedule=None, valida
 
     if not resume:
         losses_buf = deque(maxlen=10)
-        loss_local = deque(maxlen=n_batches)
         start_epoch = 0
     else:
         # Find training summary
@@ -150,11 +152,10 @@ def train_nip_model(model, camera_name, n_epochs=10000, lr_schedule=None, valida
         # Initialize counters
         start_epoch = summary_data['summary']['Epoch']
         losses_buf = deque(maxlen=10)
-        loss_local = deque(maxlen=n_batches)
         losses_buf.extend(model.performance['loss']['validation'][-10:])
 
     if lr_schedule is None:
-        lr_schedule = {0: 1e-3, 1000: 1e-4, 2000: 1e-5}
+        lr_schedule = {0: 1e-4}
     elif isinstance(lr_schedule, float):
         lr_schedule = {0: lr_schedule}
                 
@@ -178,43 +179,37 @@ def train_nip_model(model, camera_name, n_epochs=10000, lr_schedule=None, valida
     print('\n## Training summary')
     for k, v in training_summary.items():
         print('{:30s}: {}'.format(k, v))
+
+    print(f'Batches{n_batches}')
     print('', flush=True)
-    
+
     with tqdm(total=n_epochs, ncols=TQDM_WIDTH, desc='{} for {}'.format(model.model_code, camera_name)) as pbar:
+
         pbar.update(start_epoch)
-        
-        learning_rate = 1e-3
+        learning_rate = 1e-4
 
         for epoch in range(start_epoch, n_epochs):
-            
+
             if epoch in lr_schedule:
-                learning_rate = min([learning_rate, lr_schedule[epoch]])
+                learning_rate = lr_schedule[epoch]
+
+            loss_local = []
 
             for batch_id in range(n_batches):
                 batch_x, batch_y = data.next_training_batch(batch_id, batch_size, patch_size, discard=discard)
                 loss = model.training_step(batch_x, batch_y, learning_rate)
                 loss_local.append(loss)
 
-            model.performance['loss']['training'].append(float(np.mean(loss_local)))
-            losses_buf.append(model.performance['loss']['training'][-1])
-
-            if epoch == start_epoch:
-                developed = np.zeros_like(data['validation']['y'], dtype=np.float32)
+            # model.log_metric('loss', 'training', loss_counter.result().numpy())
+            model.log_metric('loss', 'training', loss_local)
+            # losses_buf.append(loss_counter / n_batches)
 
             if epoch % validation_schedule == 0:
                 # Use the current model to develop images in the validation set
-                developed_old = developed
                 ssims, psnrs, v_losses, developed = validate(model, data, out_directory, True, epoch, True, loss_metric=model.loss_metric)
-                model.performance['ssim']['validation'].append(float(np.mean(ssims)))
-                model.performance['psnr']['validation'].append(float(np.mean(psnrs)))
-                model.performance['loss']['validation'].append(float(np.mean(v_losses)))
-
-                # Compare the current images to the ones from a previous model iteration
-                dmses = []
-                for v in range(data['validation']['x'].shape[0]):
-                    dmses.append(metrics.mse(developed_old[v, :, :, :], developed[v, :, :, :]))
-
-                model.performance['dmse']['validation'].append(np.mean(dmses))
+                model.log_metric('ssim', 'validation', ssims)
+                model.log_metric('psnr', 'validation', psnrs)
+                model.log_metric('loss', 'validation', v_losses)
 
                 # Generate progress summary
                 training_summary['Epoch'] = epoch                
@@ -244,18 +239,11 @@ def train_nip_model(model, camera_name, n_epochs=10000, lr_schedule=None, valida
                     vloss_change = np.nan
 
                 progress_dict = {
-                    'psnr': model.performance['psnr']['validation'][-1],
-                    'ssim': model.performance['ssim']['validation'][-1],
-                    'dmse': np.log10(model.performance['dmse']['validation'][-1]),
+                    'psnr': model.pop_metric('psnr', 'validation'),
+                    'ssim': model.pop_metric('ssim', 'validation')
                 }
 
-            progress_dict['loss'] = np.mean(losses_buf)
-            progress_dict['lr'] = learning_rate
-
-            if not np.isnan(vloss_change):
-                progress_dict['dloss'] = vloss_change
-
-            pbar.set_postfix(**progress_dict)
+            pbar.set_postfix(loss=model.pop_metric('loss', 'training'), **progress_dict) # , **progress_dict
             pbar.update(1)
 
     training_summary['Epoch'] = epoch
@@ -264,5 +252,51 @@ def train_nip_model(model, camera_name, n_epochs=10000, lr_schedule=None, valida
         model.save_model(out_directory, epoch)
     show_progress(model, out_directory)
     save_progress(model, training_summary, out_directory)
+
+    return out_directory
+
+
+def train_nip_bare(model, camera_name, n_epochs=10000, lr_schedule=None, validation_loss_threshold=1e-3,
+                    validation_schedule=100, resume=False, patch_size=64, batch_size=20, data=None,
+                    out_directory_root='./data/models/nip', save_best=False, discard='flat'):
+
+    # Set up training output
+    out_directory = os.path.join(out_directory_root, camera_name, model.model_code, model.scoped_name)
+
+    # n_batches = data.count_training // batch_size
+    n_tail = 5
+
+    # losses_buf = deque(maxlen=10)
+    # loss_local = deque(maxlen=n_batches)
+    start_epoch = 0
+
+    if lr_schedule is None:
+        lr_schedule = {0: 1e-3, 1000: 1e-4, 2000: 1e-5}
+    elif isinstance(lr_schedule, float):
+        lr_schedule = {0: lr_schedule}
+
+    learning_rate = 1e-3
+
+    with tqdm(total=n_epochs, ncols=TQDM_WIDTH, desc='{} for {}'.format(model.model_code, camera_name)) as pbar:
+        pbar.update(start_epoch)
+
+        for epoch in range(start_epoch, n_epochs):
+
+            if hasattr(data, 'next_training_batch'):
+
+                for batch_id in range(data.count_training // batch_size):
+                    batch_x, batch_y = data.next_training_batch(batch_id, batch_size, patch_size, discard=discard)
+                    loss = model.training_step(batch_x, batch_y, learning_rate)
+                    # loss_local.append(loss)
+
+            else:
+
+                for batch_x, batch_y in data:
+                    model.training_step(batch_x, batch_y, learning_rate)
+
+            # model.performance['loss']['training'].append(float(np.mean(loss_local)))
+            # losses_buf.append(model.performance['loss']['training'][-1])
+
+            pbar.update(1)
 
     return out_directory

@@ -26,7 +26,7 @@ from helpers.kernels import upsampling_kernel, gamma_kernels, bilin_kernel
 
 class NIPModel(TFModel):
     """
-    Abstract class for implementing neural imaging pipelines. Specific classes are expected to
+    Abstract class for implementing neural imaging pipelines. Specific classes are expected to 
     implement the 'construct_model' method that builds the model. See existing classes for examples.
     """
 
@@ -52,7 +52,7 @@ class NIPModel(TFModel):
 
     def construct_loss(self, loss_metric):
         if loss_metric == 'L2':
-            self.loss = tf_helpers.mse
+            self.loss = tf_helpers.mse 
         elif loss_metric == 'L1':
             self.loss = tf_helpers.mae
         elif loss_metric == 'SSIM':
@@ -65,8 +65,8 @@ class NIPModel(TFModel):
     def construct_model(self):
         """
         Constructs the NIP model. The model should be a tf.keras.Model instance available via the
-        self._model attribute. The method should use self.x as RAW image input, and set self.y as
-        the model output. The output is expected to be clipped to [0,1]. For better optimization
+        self._model attribute. The method should use self.x as RAW image input, and set self.y as 
+        the model output. The output is expected to be clipped to [0,1]. For better optimization 
         stability, it's better not to backpropagate through clipping:
 
         self.y = tf.stop_gradient(tf.clip_by_value(y, 0, 1) - y) + y
@@ -74,39 +74,35 @@ class NIPModel(TFModel):
         """
         raise NotImplementedError()
 
+    @tf.function
     def training_step(self, batch_x, batch_y, learning_rate=None):
         """
         Make a single training step and return the loss.
         """
         with tf.GradientTape() as tape:
-
             batch_Y = self._model(batch_x)
             loss = self.loss(batch_Y, batch_y)
 
         if learning_rate is not None: self.optimizer.lr.assign(learning_rate)
         grads = tape.gradient(loss, self._model.trainable_weights)
-
-        if any(np.sum(np.isnan(x)) > 0 for x in grads):
-            raise RuntimeError('∇ NaNs: {}'.format({p.name: np.mean(np.isnan(x)) for x, p in zip(grads, self._model.trainable_weights)}))
-
         self.optimizer.apply_gradients(zip(grads, self._model.trainable_weights))
-        return loss.numpy()
 
+        return loss
+        
     def process(self, batch_x, training=False):
         """
         Develop RAW input and return RGB image.
         """
         if batch_x.ndim == 3:
             batch_x = np.expand_dims(batch_x, 0)
-
+        
         return self._model(batch_x, training)
-
+    
     def reset_performance_stats(self):
         self.performance = {
             'loss': {'training': [], 'validation': []},
             'psnr': {'validation': []},
             'ssim': {'validation': []},
-            'dmse': {'validation': []}
         }
 
     def get_hyperparameters(self):
@@ -144,13 +140,38 @@ class NIPModel(TFModel):
             dirname = os.path.join('data/models/nip', dirname)
         super().save_model(dirname, epoch=epoch, quiet=quiet)
 
+    def process_fingerprint(self, k0, demosaicing=True, cfa_pattern=None):
+        """ 
+        Map a RAW-level camera fingerprint to RGB space either via (1) CFA-informed pixel mapping or (2) demosaicing.
+        
+        (2) will be more suitable for standard PRNU detection, while (1) may be more applicable for further processing,
+        e.g., in CNN-based models. 
+        """
+        
+        try:
+            default_cfa = self._h.cfa_pattern
+        except:
+            default_cfa = None
+
+        cfa_pattern = cfa_pattern or default_cfa
+
+        if cfa_pattern is None:
+            raise ValueError('This ISP is not aware of the CFA! Set the CFA explicitly or make sure "._h.cfa_pattern" is accessible!')
+
+        k0m = helpers.raw.merge_bayer(k0, cfa_pattern)
+        
+        if demosaicing:
+            return self._model._demosaicing(np.expand_dims(k0m, axis=0), clip=False).numpy()
+        else:
+            return k0m.sum(-1)
+
 
 class UNet(NIPModel):
     """
     The UNet model, rewritten from scratch for TF 2.x
     Originally adapted from https://github.com/cchen156/Learning-to-See-in-the-Dark
     """
-
+        
     def construct_model(self, **kwargs):
         # Define and validate hyper-parameters
         self._h = paramspec.ParamSpec({
@@ -160,7 +181,7 @@ class UNet(NIPModel):
 
         self._h.update(**kwargs)
         lrelu = tf_helpers.activation_mapping[self._h.activation]
-
+        
         _layers = OrderedDict()
         _tensors = OrderedDict()
         _tensors['ep0'] = self.x
@@ -175,7 +196,7 @@ class UNet(NIPModel):
             if n < self._h.n_steps:
                 _layers['ep{}'.format(n)] = tf.keras.layers.MaxPool2D([2, 2], padding='SAME')
                 _tensors['ep{}'.format(n)]  = _layers['ep{}'.format(n)](_tensors['ec{}2'.format(n)])
-
+            
         # Easy access to encoder output via a recursive relation
         _tensors['dc02'] = _tensors['ec{}2'.format(self._h.n_steps)]
 
@@ -213,9 +234,9 @@ class INet(NIPModel):
     """
     A neural pipeline which replicates the steps of a standard imaging pipeline.
     """
-
+    
     def construct_model(self, random_init=False, kernel=5, trainable_upsampling=False, cfa_pattern='gbrg'):
-
+        
         self._h = paramspec.ParamSpec({
             'random_init': (False, bool, None),
             'kernel': (5, int, (3, 11)),
@@ -236,7 +257,7 @@ class INet(NIPModel):
             gamma_d2k = np.random.normal(0, 0.1, (12, 3))
             gamma_d2b = np.zeros((3,))
             srgbk = np.eye(3)
-        else:
+        else:    
             # Prepare demosaicing kernels (bilinear)
             dmf = bilin_kernel(self._h.kernel)
 
@@ -263,14 +284,14 @@ class INet(NIPModel):
         # Gamma correction
         rgb_g0 = tf.keras.layers.Conv2D(12, 1, kernel_initializer=tf.constant_initializer(gamma_d1k), bias_initializer=tf.constant_initializer(gamma_d1b), use_bias=True, activation=tf.keras.activations.tanh)(srgb)
         y = tf.keras.layers.Conv2D(3, 1, kernel_initializer=tf.constant_initializer(gamma_d2k), bias_initializer=tf.constant_initializer(gamma_d2b), use_bias=True, activation=None)(rgb_g0)
-
+    
         # self.y = tf.clip_by_value(self.yy, 0, 1, name='{}/y'.format(self.scoped_name))
         self.y = tf.stop_gradient(tf.clip_by_value(y, 0, 1) - y) + y
         self._model = tf.keras.Model(inputs=[self.x], outputs=[self.y])
 
     @property
     def model_code(self):
-        return '{c}_{cfa}{tu}{r}_{k}x{k}'.format(c=self.class_name, cfa=self._h.cfa_pattern, k=self._h.kernel,
+        return '{c}_{cfa}{tu}{r}_{k}x{k}'.format(c=self.class_name, cfa=self._h.cfa_pattern, k=self._h.kernel, 
             tu='T' if self._h.trainable_upsampling else '', r='R' if self._h.random_init else '')
 
 
@@ -310,7 +331,7 @@ class DNet(NIPModel):
 
         # Upscale the conv. features and concatenate with the input RGB channels
         features = tf.nn.depth_to_space(deep_x, 2)
-        bayer_features = tf.concat((features, bayer), axis=3)
+        bayer_features = tf.concat((features, bayer), axis=3)            
 
         # Project the concatenated 6-D features (R G B bayer from input + 3 channels from convolutions)
         pu = tf.keras.layers.Conv2D(self._h.n_features, self._h.kernel, kernel_initializer=k_initializer, use_bias=True, activation=tf.keras.activations.relu, padding='VALID', bias_initializer=tf.zeros_initializer)(bayer_features)
@@ -325,7 +346,7 @@ class DNet(NIPModel):
 
     @property
     def model_code(self):
-        return '{c}_{k}x{k}_{l}x{f}f'.format(c=self.class_name, k=self._h.kernel,
+        return '{c}_{k}x{k}_{l}x{f}f'.format(c=self.class_name, k=self._h.kernel, 
             f=self._h.n_features, l=self._h.n_layers)
 
 
@@ -342,9 +363,9 @@ class ONet(NIPModel):
 
 
 class __TensorISP():
-    """
+    """ 
     Toy ISP implemented in Tensorflow. This class is intended for debugging and testing - for
-    use in most situations, please use a more flexible 'ClassicISP' which integrates with
+    use in most situations, please use a more flexible 'ClassicISP' which integrates with 
     the rest of the framework.
     """
 
@@ -367,7 +388,7 @@ class __TensorISP():
         bayer = tf.nn.depth_to_space(h12, 2)
         bayer = tf.pad(bayer, tf.constant([[0, 0], [pad, pad], [pad, pad], [0, 0]]), 'REFLECT')
         rgb = tf.nn.conv2d(bayer, dmf, [1, 1, 1, 1], 'VALID')
-
+        
         # RGB -> sRGB
         rgb = tf.nn.conv2d(rgb, srgb_mat, [1, 1, 1, 1], 'SAME')
 
@@ -387,7 +408,7 @@ class __TensorISP():
         y = rgb
         y = tf.stop_gradient(tf.clip_by_value(y, 0, 1) - y) + y
         y = tf.pow(y, 1/2.2)
-
+    
         return y
 
 
@@ -398,7 +419,7 @@ class _ClassicISP(tf.keras.Model):
 
     def __init__(self, srgb_mat=None, kernel=5, c_filters=(3,), cfa_pattern='gbrg', residual=False, brightness=None, **kwargs):
         super().__init__()
-
+        
         up = upsampling_kernel(cfa_pattern).reshape((1, 1, 4, 12)).astype(np.float32)
         self._upsampling_kernel = tf.convert_to_tensor(up)
 
@@ -424,7 +445,7 @@ class _ClassicISP(tf.keras.Model):
         elif self._brightness == 'shift':
             mult = 0.25 / tf.reduce_mean(rgb)
             rgb *= mult
-
+            
         # Gamma correction
         y = rgb
         y = tf.stop_gradient(tf.clip_by_value(y, 1.0/255, 1) - y) + y
@@ -447,7 +468,7 @@ class ClassicISP(NIPModel):
     """
 
     def construct_model(self, srgb_mat=None, kernel=5, c_filters=(), cfa_pattern='gbrg', residual=True, brightness=None):
-
+        
         self._h = paramspec.ParamSpec({
             'kernel': (5, int, (3, 11)),
             'c_filters': ((), tuple, paramspec.numbers_in_range(int, 1, 1024)),
@@ -502,18 +523,18 @@ class ClassicISP(NIPModel):
 
         if srgb is not None:
             isp.set_srgb_conversion(cfa)
-
+        
         return isp
 
     def summary(self):
         nf = len(self._h.c_filters)
-        fs = self._h.c_filters[0] if len(set(self._h.c_filters)) == 1 else '*'
+        fs = self._h.c_filters[0] if len(set(self._h.c_filters)) == 1 else '*'        
         k = self._h.kernel
         return f'{self.class_name}[{self._h.cfa_pattern}] + CNN demosaicing [{nf}+1 layers : {k}x{k}x{fs} -> 1x1x3]'
 
     def summary_compact(self):
         nf = len(self._h.c_filters)
-        fs = self._h.c_filters[0] if len(set(self._h.c_filters)) == 1 else '*'
+        fs = self._h.c_filters[0] if len(set(self._h.c_filters)) == 1 else '*'        
         k = self._h.kernel
         return f'{self.class_name}[{self._h.cfa_pattern}, {nf}+1 conv2D {k}x{k}x{fs} > 1x1x3]'
 

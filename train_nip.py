@@ -18,9 +18,10 @@ TQDM_WIDTH = 120
 # Disable unimportant logging and import TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+
 def get_parameters(csv_file, metrics=('ssim', 'psnr', 'loss', 'params')):
 
-    parameters = pd.DataFrame(columns=['scenario', 'label', 'active', 'run_group'])
+    parameters = pd.DataFrame(columns=['scenario', 'label', 'active', 'run_group', 'params', 'model_code'])
 
     if csv_file is not None:
         parameters = parameters.append(pd.read_csv(csv_file), ignore_index=True, sort=True)
@@ -45,29 +46,30 @@ def get_parameters(csv_file, metrics=('ssim', 'psnr', 'loss', 'params')):
 
     return parameters
 
+
 def main():
     parser = argparse.ArgumentParser(description='Train a neural imaging pipeline')
-    parser.add_argument('--cam', dest='camera', action='store', help='camera')
-    parser.add_argument('--nip', dest='nips', action='append', help='add NIP for training (repeat if needed)')
+    parser.add_argument('-c', '--cam', dest='camera', action='store', help='camera')
+    parser.add_argument('-n', '--nip', dest='nip', action='store', help='add NIP for training (repeat if needed)')
     parser.add_argument('--out', dest='out_dir', action='store', default='./data/models/nip',
                         help='output directory for storing trained NIP models')
     parser.add_argument('--data', dest='data_dir', action='store', default='./data/raw/training_data/',
                         help='input directory with training data (.npy and .png pairs)')
     parser.add_argument('--patch', dest='patch_size', action='store', default=128, type=int,
                         help='training patch size (RGB)')
-    parser.add_argument('--epochs', dest='epochs', action='store', default=25000, type=int,
+    parser.add_argument('-e', '--epochs', dest='epochs', action='store', default=-25000, type=int,
                         help='maximum number of training epochs')
     parser.add_argument('--ha', dest='hyperparams_args', default=None, help='Set hyper-parameters / override CSV settings if needed (JSON string)')
     parser.add_argument('--hp', dest='hyperparams_csv', default=None, help='CSV file with hyper-parameter configurations')
     parser.add_argument('--resume', dest='resume', action='store_true', default=False,
                         help='Resume training from last checkpoint, if possible')
-    parser.add_argument('--split', dest='split', action='store', default='120:30:1',
+    parser.add_argument('-s', '--split', dest='split', action='store', default='120:30:1',
                         help='data split with #training:#validation:#validation_patches - e.g., 120:30:1')
     parser.add_argument('--dry', dest='dry', action='store_true', default=False,
                         help='Dry run (no training - only does model setup)')
     parser.add_argument('--group', dest='run_group', action='store', type=int, default=None,
                         help='Specify run group (sub-selects scenarios for running)')
-    parser.add_argument('--fill', dest='fill', action='store', default=None,
+    parser.add_argument('-f', '--fill', dest='fill', action='store', default=None,
                         help='Path of the extended scenarios table with appended result columns')
 
     args = parser.parse_args()
@@ -77,10 +79,16 @@ def main():
         parser.print_usage()
         sys.exit(1)
 
-    if not args.nips:
-        print('At least one NIP needs to be specified!')
+    if not args.nip:
+        print('No neural imaging pipeline specified (--nip)')
         parser.print_usage()
         sys.exit(1)
+
+    # Lazy load to prevent delays in printing syntax help
+    from models import pipelines
+
+    if not hasattr(pipelines, args.nip) or not issubclass(getattr(pipelines, args.nip), pipelines.NIPModel):
+        raise ValueError('Invalid NIP model ({})! Available NIPs: ({})'.format(args.nip, pipelines.supported_models))
 
     data_directory = os.path.join(args.data_dir, args.camera)
     out_directory_root = args.out_dir
@@ -108,17 +116,19 @@ def main():
     else:
         convergence_threshold = None
 
-    print('# Camera ISP Training')
-    print('Camera          : {}'.format(args.camera))
-    print('NIPs            : {}'.format(args.nips))
-    print('Params (CSV)    : {}'.format(args.hyperparams_csv))
-    print('Params override : {}'.format(args.hyperparams_args))
-    print('Input           : {}'.format(data_directory))
-    print('Output          : {}'.format(out_directory_root))
-    print('Resume          : {}'.format(args.resume))
-    print('Epochs          : {} {}'.format(args.epochs, '(convergence threshold {:.8f})'.format(convergence_threshold) if convergence_threshold is not None else '(fixed)'))
+    threshold_label = f'(convergence threshold {utils.format_number(convergence_threshold)})' if convergence_threshold is not None else '(fixed)'
 
-    print('\n# Hyper-parameter configurations [{} active configs]:\n'.format(len(parameters)))
+    print('# Camera ISP Training')
+    print(f'Camera          : {args.camera}')
+    print(f'NIP             : {args.nip}')
+    print(f'Params (CSV)    : {args.hyperparams_csv}')
+    print(f'Params override : {args.hyperparams_args}')
+    print(f'Input           : {data_directory}')
+    print(f'Output          : {out_directory_root}')
+    print(f'Resume          : {args.resume}')
+    print(f'Epochs          : {args.epochs} {threshold_label}')
+
+    print(f'\n# Hyper-parameter configurations [{len(parameters)} active configs]:\n')
     print(parameters)
 
     # Load training and validation data
@@ -148,72 +158,74 @@ def main():
             ), flush=True)
 
     # Lazy loading to prevent delays in basic CLI interaction
-    from models import pipelines
     import tensorflow as tf
 
     # Train the Desired NIP Models
     model_log = {}
-    print('\n# Training\n')
-    for pipe in args.nips:
+    if not args.dry:
+        print('\n# Training\n')
+    # for pipe in args.nip:
 
-        for counter, (index, params) in enumerate(parameters.drop(columns=['scenario', 'label']).iterrows()):
+    for counter, (index, params) in enumerate(parameters.drop(columns=['scenario', 'label', 'params', 'model_code']).iterrows()):
 
-            print('## {} : Scenario #{} - {} / {}'.format(pipe, index, counter + 1, len(parameters)))
+        if not args.dry:
+            print('## {} : Scenario #{} - {} / {}'.format(args.nip, index, counter + 1, len(parameters)))
 
-            # Set hyper-parameters from the list
-            params = {k: v for k, v in params.to_dict().items() if not utils.is_nan(v)}
+        # Set hyper-parameters from the list
+        params = {k: v for k, v in params.to_dict().items() if not utils.is_nan(v)}
 
-            # Override hyper-parameters if requested
-            if args.hyperparams_args is not None:
-                print('info: overriding hyperparameters from the CLI-supplied JSON')
-                params.update(args.hyperparams_args)
+        # Override hyper-parameters if requested
+        if args.hyperparams_args is not None:
+            print('info: overriding hyperparameters from the CLI-supplied JSON')
+            params.update(args.hyperparams_args)
 
-            if not issubclass(getattr(pipelines, pipe), pipelines.NIPModel):
-                supported_nips = [x for x in dir(pipelines) if
-                                x != 'NIPModel' and type(getattr(pipelines, x)) is type and issubclass(
-                                    getattr(pipelines, x), pipelines.NIPModel)]
-                raise ValueError('Invalid NIP model ({})! Available NIPs: ({})'.format(pipe, supported_nips))
+        model = getattr(pipelines, args.nip)(**params)
 
-            model = getattr(pipelines, pipe)(**params)
+        if isinstance(model, pipelines.ClassicISP):
+            with open('config/cameras.json') as f:
+                cameras = json.load(f)
+            print('Configuring ISP to {}: {}'.format(args.camera, cameras[args.camera]))
+            model.set_cfa_pattern(cameras[args.camera]['cfa'])
+            model.set_srgb_conversion(np.array(cameras[args.camera]['srgb']))
 
-            if isinstance(model, pipelines.ClassicISP):
-                with open('config/cameras.json') as f:
-                    cameras = json.load(f)
-                print('Configuring ISP to {}: {}'.format(args.camera, cameras[args.camera]))
-                model.set_cfa_pattern(cameras[args.camera]['cfa'])
-                model.set_srgb_conversion(np.array(cameras[args.camera]['srgb']))
+        # Remember trained models
+        model_code = model.model_code
+        parameters.loc[index, 'model_code'] = model.model_code
 
-            # Remember trained models
-            model_code = model.model_code
-            parameters.loc[index, 'model_code'] = model.model_code
+        if model_code in model_log:
+            print('WARNING - model {} already registered by scenario {}'.format(model_code, index))
+            model_log[model_code].append(index)
+        else:
+            model_log[model_code] = [index]
 
-            if model_code in model_log:
-                print('WARNING - model {} already registered by scenario {}'.format(model_code, index))
-                model_log[model_code].append(index)
+        # Log the number of parameters, process a sample batch first to make sure the model is initialized
+        # (does not happen when using custom tf.keras.Model classes)
+        model.process(np.random.uniform(size=(1, 128, 128, 4)).astype(np.float32))
+        parameters.loc[index, 'params'] = model.count_parameters()
+
+        # Run training
+        if not args.dry:
+            out_dir = train_nip_model(model, args.camera, args.epochs, validation_loss_threshold=convergence_threshold,
+                patch_size=args.patch_size, resume=args.resume, data=data, out_directory_root=args.out_dir)
+        else:
+            out_dir = os.path.join(out_directory_root, args.camera, model.model_code, model.scoped_name)
+
+        # Fill results
+        if args.fill is not None:
+
+            if len(model.performance['loss']['validation']) > 0:
+                for key in ['ssim', 'psnr', 'loss']:
+                    parameters.loc[index, key] = model.pop_metric(key, 'validation') # results['performance'][key]['validation'][-1]
+
             else:
-                model_log[model_code] = [index]
-
-            # Log the number of parameters, process a sample batch first to make sure the model is initialized
-            # (does not happen when using custom tf.keras.Model classes)
-            model.process(np.random.uniform(size=(1, 128, 128, 4)).astype(np.float32))
-            parameters.loc[index, 'params'] = model.count_parameters()
-
-            # Run training
-            if not args.dry:
-                out_dir = train_nip_model(model, args.camera, args.epochs, validation_loss_threshold=convergence_threshold, 
-                    patch_size=args.patch_size, resume=args.resume, data=data, out_directory_root=args.out_dir)
-
-            # Fill results
-            if args.fill is not None:
                 results_json = os.path.join(out_dir, 'progress.json')
 
                 if os.path.isfile(results_json):
-
                     with open(results_json) as f:
                         results = json.load(f)
 
                     for key in ['ssim', 'psnr', 'loss']:
-                        parameters.loc[index, key] = results['performance'][key]['validation'][-1]
+                        parameters.loc[index, key] = utils.get(results, f'performance.{key}.validation')[-1]
 
     if args.fill is not None:
 

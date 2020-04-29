@@ -112,7 +112,6 @@ class Dataset(object):
         }
 
         for b in range(batch_size):
-
             bid = batch_id * batch_size + b
             current_rgb = self.data['training']['y'][bid]
             xx, yy = sample_patch(current_rgb, rgb_patch_size, discard, max_attempts)
@@ -244,4 +243,14 @@ class Dataset(object):
             yield self.next_validation_batch(batch_id, batch_size)
 
         raise StopIteration()
+
+    def get_training_pipeline(self, batch_size, rgb_patch_size, discard='flat'):
+        import tensorflow as tf
+        return tf.data.Dataset.from_generator(lambda: self.get_training_generator(batch_size, rgb_patch_size, discard),
+                                              output_types=len(self._loaded_data) * (tf.float32,))
+
+    def get_validation_pipeline(self, batch_size):
+        import tensorflow as tf
+        return tf.data.Dataset.from_generator(lambda: self.get_validation_generator(batch_size),
+                                              output_types=len(self._loaded_data) * (tf.float32,))
 
