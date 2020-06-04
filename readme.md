@@ -14,7 +14,7 @@ The toolbox provides several general-purpose components (camera ISP, differentia
 
 > :warning: The current implementation uses [Tensorflow 2.x](https://www.tensorflow.org/). Legacy versions using Tensorflow 1.x can be accessed via git history.
 
-## Change Log
+## References
 
 1. P. Korus, N. Memon, *Content Authentication for Neural Imaging Pipelines: End-to-end Optimization of Photo Provenance in Complex Distribution Channels*, CVPR'19, [arxiv:1812.01516](https://arxiv.org/abs/1812.01516) 
 2. P. Korus, N. Memon, *Neural Imaging Pipelines - the Scourge or Hope of Forensics?*, 2019, [arXiv:1902.10707](https://arxiv.org/abs/1902.10707)
