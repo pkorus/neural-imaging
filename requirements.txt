@@ -17,3 +17,5 @@ python-Levenshtein
 latex
 pdf2image
 loguru
+jpylyzer
+pandas
