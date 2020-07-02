@@ -274,9 +274,9 @@ def train_manipulation_nip(flow, training, data, directories=None, overwrite=Fal
                 'acc': flow.fan.performance['accuracy']['validation'][-1],
             }
             
-            if distribution['compression'] == 'dcn' and joint_optimization[1]:
-                progress_stats['dcn'] = tf_ops['dcn'].performance['ssim']['validation'][-1]
-                progress_stats['H'] = tf_ops['dcn'].performance['entropy']['validation'][-1]
+            if flow.is_trainable('dcn'):
+                progress_stats['codec'] = flow.codec.performance['ssim']['validation'][-1]
+                progress_stats['H'] = flow.codec.performance['entropy']['validation'][-1]
 
             if np.mean(loss_last_k_epochs['nip']) > 0:
                 progress_stats['nip'] = np.mean(loss_last_k_epochs['nip']).round(2)
