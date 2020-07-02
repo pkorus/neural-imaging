@@ -281,13 +281,17 @@ def shell(command, log=None, verbosity=2):
 
     outs, errs = p.communicate()
 
-    with open(f'{log}.stdout', 'w') as fo:
-        for line in outs.decode('utf-8').splitlines():
-            fo.write(f'{line}\n')
+    if log is not None:
 
-    with open(f'{log}.stderr', 'w') as fe:
-        for line in errs.decode('utf-8').replace('\r', '\n').splitlines():
-            fe.write(f'{line}\n')
+        assert outs is not None, 'The output from the sub-process is null'
+
+        with open(f'{log}.stdout', 'w') as fo:
+            for line in outs.decode('utf-8').splitlines():
+                fo.write(f'{line}\n')
+
+        with open(f'{log}.stderr', 'w') as fe:
+            for line in errs.decode('utf-8').replace('\r', '\n').splitlines():
+                fe.write(f'{line}\n')
 
     p.wait()
     return p.returncode

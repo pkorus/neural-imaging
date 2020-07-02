@@ -1,6 +1,4 @@
 scenario,label,active,run_group,n_features,rounding,train_codebook,latent_bpf,scale_latent,entropy_weight
-0,5bpf-features,TRUE,0,96,soft-codebook,FALSE,5,TRUE,250
-0,5bpf-features,TRUE,0,64,soft-codebook,FALSE,5,TRUE,250
-0,5bpf-features,TRUE,1,48,soft-codebook,FALSE,5,TRUE,250
+0,5bpf-features,TRUE,2,64,soft-codebook,FALSE,5,TRUE,250
 0,5bpf-features,TRUE,1,32,soft-codebook,FALSE,5,TRUE,250
-0,5bpf-features,TRUE,1,16,soft-codebook,FALSE,5,TRUE,250
+0,5bpf-features,TRUE,0,16,soft-codebook,FALSE,5,TRUE,250

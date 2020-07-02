@@ -1,6 +1,6 @@
 {
   "train-nip": {
-    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 101 --out {root}/models/nip/ --patch 64",
+    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 40:20:1 --epochs 401 --out {root}/models/nip/ --patch 64",
     "files": [
       "models/nip/{}/INet_gbrg_5x5/inet/progress.json",
       "models/nip/{}/INet_gbrg_5x5/inet/inet.h5"
@@ -13,7 +13,7 @@
     }
   },
   "resume-nip": {
-    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 401 --out {root}/models/nip --patch 64 --resume",
+    "command": "python3 train_nip.py --cam \"{cam}\" --nip INet --split 40:20:1 --epochs 801 --out {root}/models/nip --patch 64 --resume",
     "files": [
       "models/nip/{}/INet_gbrg_5x5/inet/progress.json",
       "models/nip/{}/INet_gbrg_5x5/inet/inet.h5"
@@ -21,12 +21,12 @@
     "performance": {
       "file": "models/nip/{}/INet_gbrg_5x5/inet/progress.json",
       "values": {
-        "performance/psnr/validation": 41
+        "performance/psnr/validation": 40
       }
     }
   },
   "train-manipulation": {
-    "command": "python3 train_manipulation.py --cam \"{cam}\" --nip INet --split 20:20:1 --epochs 501 --dir {root}/m/nip --end 1 --nip-dir {root}/models/nip --ln 0.1 --ds none --patch 64 --train nip --manip sharpen:1,gaussian:1",
+    "command": "python3 train_manipulation.py --cam \"{cam}\" --nip INet --split 40:20:1 --epochs 501 --dir {root}/m/nip --end 1 --nip-dir {root}/models/nip --ln 0.1 --ds none --patch 64 --train nip --manip sharpen:1,gaussian:1",
     "files": [
       "m/nip/{}/INet/ln-0.1000/fixed-codec/000/training.json",
       "m/nip/{}/INet/ln-0.1000/fixed-codec/000/models/fan/fan.h5"
