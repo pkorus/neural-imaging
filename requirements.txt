@@ -1,6 +1,6 @@
 tensorboard==2.1.0
 tensorflow-gpu==2.1.2
-numpy==1.18.1
+numpy==1.22.0
 scipy==1.4.1
 scikit-image==0.16.2
 colour-demosaicing
